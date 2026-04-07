@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   createInitialState,
   saveState,
@@ -11,7 +13,7 @@ import {
   type ProjectState,
 } from "../../src/state/project-state.js";
 
-const TEST_STATE_DIR = "/tmp/ads-test-state";
+const TEST_STATE_DIR = join(tmpdir(), `ads-test-state-${process.pid}`);
 
 describe("ProjectState", () => {
   beforeEach(() => {
@@ -49,7 +51,7 @@ describe("ProjectState", () => {
     });
 
     it("returns null for missing state", () => {
-      const loaded = loadState("/tmp/nonexistent-dir");
+      const loaded = loadState(join(tmpdir(), "ads-nonexistent-dir"));
       expect(loaded).toBeNull();
     });
   });
