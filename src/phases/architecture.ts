@@ -3,6 +3,7 @@ import type { Config } from "../utils/config.js";
 import type { ProjectState, ArchDesign } from "../state/project-state.js";
 import type { PhaseResult } from "../orchestrator.js";
 import { buildAgentTeam } from "../agents/factory.js";
+import { consumeQuery } from "../utils/sdk-helpers.js";
 
 const ARCH_PROMPT = `You are a Software Architect. Given a product specification, design the complete
 technical architecture.
@@ -42,12 +43,14 @@ export async function runArchitecture(
 
   console.log("[architecture] Designing system architecture...");
 
-  // Also initialize the agent team (domain analysis → dynamic agents)
+  // Also initialize the agent team (domain analysis -> dynamic agents)
   const { registry } = await buildAgentTeam(state, config);
 
-  let archText = "";
-  for await (const message of query({
-    prompt: `${ARCH_PROMPT}
+  let archText: string;
+  try {
+    const { result } = await consumeQuery(
+      query({
+        prompt: `${ARCH_PROMPT}
 
 Product Specification:
 ${JSON.stringify(state.spec, null, 2)}
@@ -55,14 +58,22 @@ ${JSON.stringify(state.spec, null, 2)}
 Domain: ${state.spec.domain.classification}
 Specializations: ${state.spec.domain.specializations.join(", ")}
 Recommended tech: ${state.spec.domain.techStack.join(", ")}`,
-    options: {
-      allowedTools: ["WebSearch", "WebFetch"],
-      maxTurns: 10,
-    },
-  })) {
-    if ("result" in message && typeof message.result === "string") {
-      archText = message.result;
-    }
+        options: {
+          tools: ["WebSearch", "WebFetch"],
+          permissionMode: "bypassPermissions",
+          allowDangerouslySkipPermissions: true,
+          maxTurns: 10,
+        },
+      }),
+      "architecture"
+    );
+    archText = result;
+  } catch (err) {
+    return {
+      success: false,
+      state,
+      error: `Failed to generate architecture: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 
   const jsonMatch = archText.match(/\{[\s\S]*\}/);

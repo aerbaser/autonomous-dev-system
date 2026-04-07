@@ -3,6 +3,7 @@ import type { Config } from "../utils/config.js";
 import type { ProjectState } from "../state/project-state.js";
 import type { PhaseResult } from "../orchestrator.js";
 import { getMcpServerConfigs } from "../environment/mcp-manager.js";
+import { consumeQuery } from "../utils/sdk-helpers.js";
 
 export async function runMonitoring(
   state: ProjectState,
@@ -26,26 +27,34 @@ Check:
 4. Performance metrics (response times, error rates)
 
 Based on findings:
-- If there are regressions → suggest fixes and recommend going back to development
-- If metrics are stagnating → suggest an improvement hypothesis
-- If everything is healthy → report "HEALTHY"
+- If there are regressions -> suggest fixes and recommend going back to development
+- If metrics are stagnating -> suggest an improvement hypothesis
+- If everything is healthy -> report "HEALTHY"
 
 End with one of:
 - "HEALTHY: all metrics normal"
-- "REGRESSION: <description>" (→ triggers development cycle)
-- "IMPROVEMENT: <hypothesis>" (→ triggers new feature cycle)`;
+- "REGRESSION: <description>" (-> triggers development cycle)
+- "IMPROVEMENT: <hypothesis>" (-> triggers new feature cycle)`;
 
-  let resultText = "";
-  for await (const message of query({
-    prompt,
-    options: {
-      allowedTools: ["Bash", "WebFetch"],
-      mcpServers,
-    },
-  })) {
-    if ("result" in message && typeof message.result === "string") {
-      resultText = message.result;
-    }
+  let resultText: string;
+  try {
+    const { result } = await consumeQuery(
+      query({
+        prompt,
+        options: {
+          tools: ["Bash", "WebFetch"],
+          permissionMode: "bypassPermissions",
+          allowDangerouslySkipPermissions: true,
+          maxTurns: 10,
+          mcpServers,
+        },
+      }),
+      "monitoring"
+    );
+    resultText = result;
+  } catch (err) {
+    console.error(`[monitoring] Query failed: ${err instanceof Error ? err.message : String(err)}`);
+    return { success: true, state };
   }
 
   const lastLine = resultText.trim().split("\n").pop()?.trim() ?? "";

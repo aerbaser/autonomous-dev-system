@@ -3,6 +3,7 @@ import type { Config } from "../utils/config.js";
 import type { ProjectState, Deployment } from "../state/project-state.js";
 import type { PhaseResult } from "../orchestrator.js";
 import { randomUUID } from "node:crypto";
+import { consumeQuery } from "../utils/sdk-helpers.js";
 
 export async function runDeployment(
   state: ProjectState,
@@ -27,16 +28,34 @@ If this is a production deploy, ensure rollback plan is in place.
 Report the deployment URL if available.
 End with: "DEPLOYED: <url>" or "FAILED: <reason>"`;
 
-  let resultText = "";
-  for await (const message of query({
-    prompt,
-    options: {
-      allowedTools: ["Read", "Write", "Edit", "Bash", "Glob"],
-    },
-  })) {
-    if ("result" in message && typeof message.result === "string") {
-      resultText = message.result;
-    }
+  let resultText: string;
+  try {
+    const { result } = await consumeQuery(
+      query({
+        prompt,
+        options: {
+          tools: ["Read", "Write", "Edit", "Bash", "Glob"],
+          permissionMode: "bypassPermissions",
+          allowDangerouslySkipPermissions: true,
+          maxTurns: 20,
+        },
+      }),
+      "deployment"
+    );
+    resultText = result;
+  } catch (err) {
+    console.error(`[deploy] Query failed: ${err instanceof Error ? err.message : String(err)}`);
+    const deployment: Deployment = {
+      id: randomUUID(),
+      environment: environment as "staging" | "production",
+      timestamp: new Date().toISOString(),
+      status: "failed",
+    };
+    const newState: ProjectState = {
+      ...state,
+      deployments: [...state.deployments, deployment],
+    };
+    return { success: false, state: newState, error: "Deployment query failed" };
   }
 
   const deployLine = resultText

@@ -3,6 +3,7 @@ import type { Config } from "../utils/config.js";
 import type { ProjectState } from "../state/project-state.js";
 import type { PhaseResult } from "../orchestrator.js";
 import { getMcpServerConfigs } from "../environment/mcp-manager.js";
+import { consumeQuery } from "../utils/sdk-helpers.js";
 
 export async function runTesting(
   state: ProjectState,
@@ -38,17 +39,25 @@ Report:
 
 Output ONLY "PASS" or "FAIL: <reasons>" on the final line.`;
 
-  let resultText = "";
-  for await (const message of query({
-    prompt,
-    options: {
-      allowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
-      mcpServers,
-    },
-  })) {
-    if ("result" in message && typeof message.result === "string") {
-      resultText = message.result;
-    }
+  let resultText: string;
+  try {
+    const { result } = await consumeQuery(
+      query({
+        prompt,
+        options: {
+          tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
+          permissionMode: "bypassPermissions",
+          allowDangerouslySkipPermissions: true,
+          maxTurns: 30,
+          mcpServers,
+        },
+      }),
+      "testing"
+    );
+    resultText = result;
+  } catch (err) {
+    console.error(`[testing] Query failed: ${err instanceof Error ? err.message : String(err)}`);
+    return { success: true, nextPhase: "development", state };
   }
 
   const lastLine = resultText.trim().split("\n").pop()?.trim() ?? "";

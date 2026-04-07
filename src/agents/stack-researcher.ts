@@ -1,5 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { ArchDesign, DomainAnalysis, StackEnvironment, LspConfig, McpDiscovery, PluginDiscovery, OssTool } from "../state/project-state.js";
+import { consumeQuery } from "../utils/sdk-helpers.js";
 
 const RESEARCH_PROMPT = `You are a Stack Researcher. Given a project's tech stack and domain,
 find the best tools to supercharge AI agent development.
@@ -45,9 +46,12 @@ export async function researchStack(
     .map(([k, v]) => `${k}: ${v}`)
     .join("\n");
 
-  let resultText = "";
-  for await (const message of query({
-    prompt: `${RESEARCH_PROMPT}
+  let resultText: string;
+
+  try {
+    const { result } = await consumeQuery(
+      query({
+        prompt: `${RESEARCH_PROMPT}
 
 Tech Stack:
 ${techList}
@@ -55,14 +59,18 @@ ${techList}
 Domain: ${domain.classification}
 Specializations: ${domain.specializations.join(", ")}
 Recommended MCP servers from domain analysis: ${domain.requiredMcpServers.join(", ")}`,
-    options: {
-      allowedTools: ["WebSearch", "WebFetch"],
-      maxTurns: 15,
-    },
-  })) {
-    if ("result" in message && typeof message.result === "string") {
-      resultText = message.result;
-    }
+        options: {
+          tools: ["WebSearch", "WebFetch"],
+          permissionMode: "bypassPermissions",
+          allowDangerouslySkipPermissions: true,
+          maxTurns: 15,
+        },
+      }),
+      "stack-research"
+    );
+    resultText = result;
+  } catch {
+    return getDefaultEnvironment(architecture, domain);
   }
 
   const jsonMatch = resultText.match(/\{[\s\S]*\}/);

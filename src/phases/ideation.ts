@@ -3,6 +3,7 @@ import type { Config } from "../utils/config.js";
 import type { ProjectState, ProductSpec } from "../state/project-state.js";
 import type { PhaseResult } from "../orchestrator.js";
 import { analyzeDomain } from "../agents/domain-analyzer.js";
+import { consumeQuery } from "../utils/sdk-helpers.js";
 
 const SPEC_PROMPT = `You are a Product Manager creating a complete product specification.
 
@@ -45,17 +46,27 @@ export async function runIdeation(
   const domainPromise = analyzeDomain(state.idea);
 
   // Step 2: Generate spec
-  let specText = "";
-  for await (const message of query({
-    prompt: `${SPEC_PROMPT}\n\nProject idea: ${state.idea}`,
-    options: {
-      allowedTools: ["WebSearch", "WebFetch"],
-      maxTurns: 10,
-    },
-  })) {
-    if ("result" in message && typeof message.result === "string") {
-      specText = message.result;
-    }
+  let specText: string;
+  try {
+    const { result } = await consumeQuery(
+      query({
+        prompt: `${SPEC_PROMPT}\n\nProject idea: ${state.idea}`,
+        options: {
+          tools: ["WebSearch", "WebFetch"],
+          permissionMode: "bypassPermissions",
+          allowDangerouslySkipPermissions: true,
+          maxTurns: 10,
+        },
+      }),
+      "ideation"
+    );
+    specText = result;
+  } catch (err) {
+    return {
+      success: false,
+      state,
+      error: `Failed to generate spec: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 
   // Parse spec

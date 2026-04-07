@@ -2,6 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
 import type { ProjectState } from "../state/project-state.js";
 import type { PhaseResult } from "../orchestrator.js";
+import { consumeQuery } from "../utils/sdk-helpers.js";
 
 export async function runReview(
   state: ProjectState,
@@ -24,16 +25,24 @@ Output a structured review:
 
 End with: "APPROVE" or "REQUEST_CHANGES: <summary of critical issues>"`;
 
-  let resultText = "";
-  for await (const message of query({
-    prompt,
-    options: {
-      allowedTools: ["Read", "Glob", "Grep"],
-    },
-  })) {
-    if ("result" in message && typeof message.result === "string") {
-      resultText = message.result;
-    }
+  let resultText: string;
+  try {
+    const { result } = await consumeQuery(
+      query({
+        prompt,
+        options: {
+          tools: ["Read", "Glob", "Grep"],
+          permissionMode: "bypassPermissions",
+          allowDangerouslySkipPermissions: true,
+          maxTurns: 20,
+        },
+      }),
+      "review"
+    );
+    resultText = result;
+  } catch (err) {
+    console.error(`[review] Query failed: ${err instanceof Error ? err.message : String(err)}`);
+    return { success: true, nextPhase: "development", state };
   }
 
   const approved = resultText.includes("APPROVE") && !resultText.includes("REQUEST_CHANGES");
