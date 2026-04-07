@@ -10,6 +10,12 @@ const DENY_PATTERNS = [
   /^mkfs\s/,
   /^shred\s/,
   /^bash\s+-i/,
+  /^chmod\s+777/,
+  /^chown.*root/,
+  /^curl.*\|.*sh/,
+  /^wget.*\|.*sh/,
+  /^npm\s+config\s+set/,
+  /--unsafe-perm/,
 ];
 
 /** Paths that should never be read or written */

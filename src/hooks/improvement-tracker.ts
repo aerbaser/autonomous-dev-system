@@ -4,24 +4,44 @@ import { resolve, dirname } from "node:path";
 
 const TRACKER_LOG_PATH = resolve(".autonomous-dev", "improvement-data.jsonl");
 
+// In-memory map of tool use start times for duration tracking
+const toolStartTimes = new Map<string, number>();
+
 interface ToolUsageRecord {
   timestamp: string;
   toolName: string;
   agentId?: string;
   agentType?: string;
   success: boolean;
+  durationMs?: number;
   error?: string;
 }
 
 /**
- * PostToolUse + PostToolUseFailure hook: collects data for the self-improvement optimizer.
+ * PreToolUse + PostToolUse + PostToolUseFailure hook:
+ * Collects data for the self-improvement optimizer with duration tracking.
  */
-export const improvementTrackerHook: HookCallback = async (input, _toolUseID, _ctx) => {
-  const isPost = input.hook_event_name === "PostToolUse";
-  const isFailure = input.hook_event_name === "PostToolUseFailure";
+export const improvementTrackerHook: HookCallback = async (input, toolUseID, _ctx) => {
+  const event = input.hook_event_name;
+
+  // Track start time on PreToolUse
+  if (event === "PreToolUse" && toolUseID) {
+    toolStartTimes.set(toolUseID, Date.now());
+    return {};
+  }
+
+  const isPost = event === "PostToolUse";
+  const isFailure = event === "PostToolUseFailure";
   if (!isPost && !isFailure) return {};
 
   const inp = input as Record<string, unknown>;
+
+  // Calculate duration if we captured the start time
+  let durationMs: number | undefined;
+  if (toolUseID && toolStartTimes.has(toolUseID)) {
+    durationMs = Date.now() - toolStartTimes.get(toolUseID)!;
+    toolStartTimes.delete(toolUseID);
+  }
 
   const record: ToolUsageRecord = {
     timestamp: new Date().toISOString(),
@@ -29,6 +49,7 @@ export const improvementTrackerHook: HookCallback = async (input, _toolUseID, _c
     agentId: inp.agent_id as string | undefined,
     agentType: inp.agent_type as string | undefined,
     success: isPost,
+    durationMs,
     error: isFailure ? (inp.error as string | undefined) : undefined,
   };
 

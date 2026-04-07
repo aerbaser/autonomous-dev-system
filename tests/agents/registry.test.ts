@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { AgentRegistry } from "../../src/agents/registry.js";
 
-const TEST_STATE_DIR = "/tmp/ads-test-registry";
+const TEST_STATE_DIR = join(tmpdir(), `ads-test-registry-${process.pid}`);
 
 describe("AgentRegistry", () => {
   beforeEach(() => {

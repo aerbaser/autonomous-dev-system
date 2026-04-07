@@ -1,0 +1,177 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import {
+  createInitialState,
+  type ProjectState,
+} from "../../src/state/project-state.js";
+import type { Config } from "../../src/utils/config.js";
+import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const TEST_DIR = join(tmpdir(), `ads-test-orchestrator-${process.pid}`);
+
+// Mock the Agent SDK query function
+vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
+  query: vi.fn(),
+}));
+
+// Mock all phase handlers to avoid real SDK calls
+vi.mock("../../src/phases/ideation.js", () => ({
+  runIdeation: vi.fn(),
+}));
+vi.mock("../../src/phases/architecture.js", () => ({
+  runArchitecture: vi.fn(),
+}));
+vi.mock("../../src/phases/environment-setup.js", () => ({
+  runEnvironmentSetup: vi.fn(),
+}));
+vi.mock("../../src/phases/development.js", () => ({
+  runDevelopment: vi.fn(),
+}));
+vi.mock("../../src/phases/testing.js", () => ({
+  runTesting: vi.fn(),
+}));
+vi.mock("../../src/phases/review.js", () => ({
+  runReview: vi.fn(),
+}));
+vi.mock("../../src/phases/deployment.js", () => ({
+  runDeployment: vi.fn(),
+}));
+vi.mock("../../src/phases/ab-testing.js", () => ({
+  runABTesting: vi.fn(),
+}));
+vi.mock("../../src/phases/monitoring.js", () => ({
+  runMonitoring: vi.fn(),
+}));
+
+const { runOrchestrator } = await import("../../src/orchestrator.js");
+const { runIdeation } = await import("../../src/phases/ideation.js");
+const { runArchitecture } = await import("../../src/phases/architecture.js");
+
+const mockedRunIdeation = vi.mocked(runIdeation);
+const mockedRunArchitecture = vi.mocked(runArchitecture);
+
+function makeConfig(): Config {
+  return {
+    model: "claude-sonnet-4-6",
+    subagentModel: "claude-sonnet-4-6",
+    selfImprove: { enabled: false, maxIterations: 50, nightlyOptimize: false },
+    projectDir: TEST_DIR,
+    stateDir: join(TEST_DIR, ".autonomous-dev"),
+  };
+}
+
+describe("Orchestrator", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
+    mkdirSync(TEST_DIR, { recursive: true });
+  });
+
+  it("runs through ideation → specification → architecture", async () => {
+    const state = createInitialState("Build a todo app");
+    const config = makeConfig();
+
+    const specState: ProjectState = {
+      ...state,
+      currentPhase: "specification",
+      spec: {
+        summary: "A simple todo app",
+        userStories: [
+          {
+            id: "US-001",
+            title: "Add todo",
+            description: "As a user, I want to add todos",
+            acceptanceCriteria: ["Given the app, when I type and submit, then a todo appears"],
+            priority: "must",
+          },
+        ],
+        nonFunctionalRequirements: ["Performance: fast rendering"],
+        domain: {
+          classification: "web-application",
+          specializations: [],
+          requiredRoles: [],
+          requiredMcpServers: [],
+          techStack: ["typescript", "react"],
+        },
+      },
+    };
+
+    // Ideation → specification (valid per VALID_TRANSITIONS)
+    // Note: return state with currentPhase still "ideation" — orchestrator handles the transition
+    mockedRunIdeation
+      .mockResolvedValueOnce({
+        success: true,
+        nextPhase: "specification",
+        state: { ...specState, currentPhase: "ideation" },
+      })
+      // Specification phase also runs runIdeation (see PHASE_HANDLERS mapping)
+      .mockResolvedValueOnce({
+        success: true,
+        nextPhase: "architecture",
+        state: { ...specState, currentPhase: "specification" },
+      });
+
+    mockedRunArchitecture.mockResolvedValue({
+      success: true,
+      state: { ...specState, currentPhase: "architecture" },
+      // No nextPhase — stops orchestration
+    });
+
+    await runOrchestrator(state, config);
+
+    // ideation + specification (both mapped to runIdeation)
+    expect(mockedRunIdeation).toHaveBeenCalledTimes(2);
+    expect(mockedRunArchitecture).toHaveBeenCalledTimes(1);
+  });
+
+  it("runs a single phase when singlePhase is specified", async () => {
+    const state = createInitialState("Build a chat app");
+    const config = makeConfig();
+
+    mockedRunIdeation.mockResolvedValue({
+      success: true,
+      nextPhase: "architecture",
+      state: { ...state, currentPhase: "specification" },
+    });
+
+    await runOrchestrator(state, config, undefined, "ideation");
+
+    expect(mockedRunIdeation).toHaveBeenCalledTimes(1);
+    expect(mockedRunArchitecture).not.toHaveBeenCalled();
+  });
+
+  it("handles phase failure and retries (stays in same phase)", async () => {
+    const state = createInitialState("Build a blog");
+    const config = makeConfig();
+
+    // First call fails, second succeeds but stops
+    mockedRunIdeation
+      .mockResolvedValueOnce({
+        success: false,
+        state,
+        error: "Failed to generate spec: no JSON in output",
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        state: { ...state, currentPhase: "specification" },
+        // No nextPhase — stops
+      });
+
+    await runOrchestrator(state, config);
+
+    // Should have been called twice (retry after failure)
+    expect(mockedRunIdeation).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops on unhandled exception in phase handler", async () => {
+    const state = createInitialState("Build something");
+    const config = makeConfig();
+
+    mockedRunIdeation.mockRejectedValue(new Error("Unexpected SDK error"));
+
+    await runOrchestrator(state, config);
+
+    expect(mockedRunIdeation).toHaveBeenCalledTimes(1);
+  });
+});
