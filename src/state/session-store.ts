@@ -46,3 +46,31 @@ export function setSession(
 export function getSessionId(store: SessionStore, agentRole: string): string | undefined {
   return store.sessions[agentRole]?.sessionId;
 }
+
+/**
+ * Remove sessions older than maxAgeMs (default: 24 hours).
+ */
+export function cleanStaleSessions(
+  store: SessionStore,
+  maxAgeMs: number = 24 * 60 * 60 * 1000
+): SessionStore {
+  const now = Date.now();
+  const cleaned: Record<string, SessionEntry> = {};
+
+  for (const [key, entry] of Object.entries(store.sessions)) {
+    const lastUsed = new Date(entry.lastUsed).getTime();
+    if (now - lastUsed < maxAgeMs) {
+      cleaned[key] = entry;
+    }
+  }
+
+  return { sessions: cleaned };
+}
+
+/**
+ * Remove a specific session by agent role.
+ */
+export function removeSession(store: SessionStore, agentRole: string): SessionStore {
+  const { [agentRole]: _removed, ...remaining } = store.sessions;
+  return { sessions: remaining };
+}

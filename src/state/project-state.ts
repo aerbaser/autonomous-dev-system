@@ -143,6 +143,14 @@ export interface ABTest {
   };
 }
 
+export interface PhaseCheckpoint {
+  phase: Phase;
+  completedTasks: string[];  // task IDs that finished
+  pendingTasks: string[];    // task IDs still to do
+  timestamp: string;
+  metadata?: Record<string, unknown>;
+}
+
 export interface EvolutionEntry {
   id: string;
   target: string;
@@ -166,6 +174,7 @@ export interface ProjectState {
   deployments: Deployment[];
   abTests: ABTest[];
   evolution: EvolutionEntry[];
+  checkpoints: PhaseCheckpoint[];
   sessionIds: Record<string, string>;
   baselineScore: number;
   createdAt: string;
@@ -208,6 +217,7 @@ export function createInitialState(idea: string): ProjectState {
     deployments: [],
     abTests: [],
     evolution: [],
+    checkpoints: [],
     sessionIds: {},
     baselineScore: 0,
     createdAt: new Date().toISOString(),
@@ -260,4 +270,27 @@ export function updateTask(
       t.id === taskId ? { ...t, ...update } : t
     ),
   };
+}
+
+export function saveCheckpoint(
+  state: ProjectState,
+  checkpoint: PhaseCheckpoint
+): ProjectState {
+  // Replace existing checkpoint for the same phase, or append
+  const existing = state.checkpoints.findIndex((c) => c.phase === checkpoint.phase);
+  const updated = [...state.checkpoints];
+  if (existing >= 0) {
+    updated[existing] = checkpoint;
+  } else {
+    updated.push(checkpoint);
+  }
+  return { ...state, checkpoints: updated };
+}
+
+export function getLatestCheckpoint(
+  state: ProjectState,
+  phase: Phase
+): PhaseCheckpoint | null {
+  const match = state.checkpoints.find((c) => c.phase === phase);
+  return match ?? null;
 }
