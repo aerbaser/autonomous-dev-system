@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(rm -r :*)",
+      "Bash(sudo:*)",
+      "Bash(dd :*)",
+      "Read(~/.ssh/*)",
+      "Read(~/.aws/*)",
+      "Edit(~/.ssh/*)",
+      "Write(~/.ssh/*)"
+    ],
+    "ask": [
+      "Bash(git push --force:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(curl :*)",
+      "Bash(npm publish:*)"
+    ],
+    "defaultMode": "dontAsk"
+  },
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  }
+}
