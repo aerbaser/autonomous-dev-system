@@ -15,6 +15,30 @@ vi.mock("@anthropic-ai/claude-agent-sdk", () => ({
   query: vi.fn(),
 }));
 
+// Mock retry to remove real delays in tests
+vi.mock("../../src/utils/retry.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/utils/retry.js")>();
+  return {
+    ...actual,
+    withRetry: async (fn: () => Promise<unknown>, options?: Partial<{ maxRetries: number }>, onRetry?: (attempt: number, error: Error, delayMs: number) => void) => {
+      const maxRetries = options?.maxRetries ?? 3;
+      let lastError: Error | undefined;
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          return await fn();
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          lastError = error;
+          if (!actual.isRetryableError(error) || attempt >= maxRetries) break;
+          onRetry?.(attempt + 1, error, 0);
+          // No delay in tests
+        }
+      }
+      throw lastError ?? new Error("withRetry exhausted all attempts");
+    },
+  };
+});
+
 // Mock all phase handlers to avoid real SDK calls
 vi.mock("../../src/phases/ideation.js", () => ({
   runIdeation: vi.fn(),
@@ -172,6 +196,7 @@ describe("Orchestrator", () => {
 
     await runOrchestrator(state, config);
 
-    expect(mockedRunIdeation).toHaveBeenCalledTimes(1);
+    // Retryable error: 1 initial + 3 retries = 4 calls
+    expect(mockedRunIdeation).toHaveBeenCalledTimes(4);
   });
 });
