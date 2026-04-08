@@ -43,7 +43,7 @@ type PhaseHandler = (
   sessionId?: string
 ) => Promise<PhaseResult>;
 
-const PHASE_HANDLERS: Record<Phase, PhaseHandler> = {
+const PHASE_HANDLERS = {
   ideation: runIdeation,
   specification: async (state, config) => runIdeation(state, config),
   architecture: runArchitecture,
@@ -56,7 +56,7 @@ const PHASE_HANDLERS: Record<Phase, PhaseHandler> = {
   analysis: async (state, config) => runABTesting(state, config),
   production: runDeployment,
   monitoring: runMonitoring,
-};
+} satisfies Record<Phase, PhaseHandler>;
 
 export async function runOrchestrator(
   initialState: ProjectState,

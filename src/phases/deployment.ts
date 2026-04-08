@@ -9,7 +9,7 @@ export async function runDeployment(
   state: ProjectState,
   config: Config
 ): Promise<PhaseResult> {
-  const environment = state.currentPhase === "staging" ? "staging" : "production";
+  const environment: "staging" | "production" = state.currentPhase === "staging" ? "staging" : "production";
   console.log(`[deploy] Deploying to ${environment}...`);
 
   const prompt = `You are a DevOps Engineer. Deploy this project to ${environment}.
@@ -47,7 +47,7 @@ End with: "DEPLOYED: <url>" or "FAILED: <reason>"`;
     console.error(`[deploy] Query failed: ${err instanceof Error ? err.message : String(err)}`);
     const deployment: Deployment = {
       id: randomUUID(),
-      environment: environment as "staging" | "production",
+      environment,
       timestamp: new Date().toISOString(),
       status: "failed",
     };
@@ -64,7 +64,7 @@ End with: "DEPLOYED: <url>" or "FAILED: <reason>"`;
 
   const deployment: Deployment = {
     id: randomUUID(),
-    environment: environment as "staging" | "production",
+    environment,
     timestamp: new Date().toISOString(),
     status: deployLine?.startsWith("DEPLOYED") ? "deployed" : "failed",
     url: deployLine?.replace("DEPLOYED:", "").trim(),

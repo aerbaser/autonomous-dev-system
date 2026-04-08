@@ -1,10 +1,5 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type {
-  SDKResultSuccess,
-  SDKResultError,
-  SDKMessage,
-  AgentDefinition,
-} from "@anthropic-ai/claude-agent-sdk";
+import type { AgentDefinition, OutputFormat } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
 import type {
   ProjectState,
@@ -241,7 +236,7 @@ Break these into concrete implementation tasks. Each task should be:
 Output a JSON object with a "tasks" array.`;
 
   const taskSchema = {
-    type: "json_schema" as const,
+    type: "json_schema",
     schema: {
       type: "object",
       properties: {
@@ -280,7 +275,7 @@ Output a JSON object with a "tasks" array.`;
       },
       required: ["tasks"],
     },
-  };
+  } satisfies OutputFormat;
 
   let structuredOutput: unknown = null;
 
@@ -294,14 +289,11 @@ Output a JSON object with a "tasks" array.`;
       allowDangerouslySkipPermissions: true,
     },
   })) {
-    const msg = message as SDKMessage;
-    if (msg.type === "result" && msg.subtype === "success") {
-      const successMsg = msg as SDKResultSuccess;
-      structuredOutput = successMsg.structured_output;
-      if (!structuredOutput && successMsg.result) {
-        // Fallback: parse from result text
+    if (message.type === "result" && message.subtype === "success") {
+      structuredOutput = message.structured_output;
+      if (!structuredOutput && message.result) {
         try {
-          structuredOutput = JSON.parse(successMsg.result);
+          structuredOutput = JSON.parse(message.result);
         } catch {
           // Will fall through to default tasks
         }
@@ -499,27 +491,23 @@ For each task, report: SUCCESS or FAILURE, and a brief summary.`;
       allowDangerouslySkipPermissions: true,
     },
   })) {
-    const msg = message as SDKMessage;
-    if (msg.type === "result") {
-      if (msg.subtype === "success") {
-        const successMsg = msg as SDKResultSuccess;
-        resultText = successMsg.result;
-        sessionId = successMsg.session_id;
-        costUsd = successMsg.total_cost_usd;
+    if (message.type === "result") {
+      if (message.subtype === "success") {
+        resultText = message.result;
+        sessionId = message.session_id;
+        costUsd = message.total_cost_usd;
       } else {
-        const errorMsg = msg as SDKResultError;
         console.error(
-          `[development] Batch execution ended with error: ${errorMsg.subtype}`,
-          errorMsg.errors
+          `[development] Batch execution ended with error: ${message.subtype}`,
+          message.errors
         );
-        // Still extract what we can
-        costUsd = errorMsg.total_cost_usd;
+        costUsd = message.total_cost_usd;
       }
     }
 
-    if (msg.type === "system" && msg.subtype === "api_retry") {
+    if (message.type === "system" && message.subtype === "api_retry") {
       console.warn(
-        `[development] API retry attempt ${msg.attempt}, waiting ${msg.retry_delay_ms}ms`
+        `[development] API retry attempt ${message.attempt}, waiting ${message.retry_delay_ms}ms`
       );
     }
   }
@@ -638,14 +626,11 @@ After fixing, run \`npx tsc --noEmit\` and \`npm test\` to verify.`;
       allowDangerouslySkipPermissions: true,
     },
   })) {
-    const msg = message as SDKMessage;
-    if (msg.type === "result" && msg.subtype === "success") {
-      const successMsg = msg as SDKResultSuccess;
-      costUsd = successMsg.total_cost_usd;
+    if (message.type === "result" && message.subtype === "success") {
+      costUsd = message.total_cost_usd;
       fixed = true;
-    } else if (msg.type === "result") {
-      const errorMsg = msg as SDKResultError;
-      costUsd = errorMsg.total_cost_usd;
+    } else if (message.type === "result") {
+      costUsd = message.total_cost_usd;
     }
   }
 
