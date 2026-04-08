@@ -2,6 +2,10 @@ import { z } from "zod";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
 
+function isRecord(val: unknown): val is Record<string, unknown> {
+  return typeof val === "object" && val !== null;
+}
+
 const selfImproveSchema = z.object({
   enabled: z.boolean().default(true),
   maxIterations: z.number().default(50),
@@ -29,7 +33,7 @@ export const ConfigSchema = z.object({
     enabled: true,
     maxIterations: 50,
     nightlyOptimize: false,
-  }),
+  } satisfies z.input<typeof selfImproveSchema>),
   projectDir: z.string().default("."),
   stateDir: z.string().default(".autonomous-dev"),
 });
@@ -50,7 +54,7 @@ export function loadConfig(configPath?: string): Config {
       throw new Error(`Config file not found: ${absPath}`);
     }
     const raw: unknown = JSON.parse(readFileSync(absPath, "utf-8"));
-    const fileConfig = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+    const fileConfig = isRecord(raw) ? raw : {};
     return ConfigSchema.parse({ ...defaults, ...fileConfig });
   }
 
@@ -58,7 +62,7 @@ export function loadConfig(configPath?: string): Config {
   const defaultPath = resolve(".autonomous-dev/config.json");
   if (existsSync(defaultPath)) {
     const raw: unknown = JSON.parse(readFileSync(defaultPath, "utf-8"));
-    const fileConfig = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
+    const fileConfig = isRecord(raw) ? raw : {};
     return ConfigSchema.parse({ ...defaults, ...fileConfig });
   }
 

@@ -16,8 +16,7 @@ export interface ConflictReport {
   warnings: string[];
 }
 
-// Known plugin registry keyed by tech stack identifier
-const PLUGIN_REGISTRY: Record<string, PluginRecommendation[]> = {
+const PLUGIN_REGISTRY = {
   typescript: [
     {
       name: "ts-dev-kit",
@@ -77,10 +76,9 @@ const PLUGIN_REGISTRY: Record<string, PluginRecommendation[]> = {
       skills: ["go-fmt", "go-vet", "go-test"],
     },
   ],
-};
+} as const satisfies Record<string, readonly PluginRecommendation[]>;
 
-// Domain-specific plugin recommendations
-const DOMAIN_PLUGINS: Record<string, PluginRecommendation[]> = {
+const DOMAIN_PLUGINS = {
   web: [
     {
       name: "a11y-checker",
@@ -105,11 +103,19 @@ const DOMAIN_PLUGINS: Record<string, PluginRecommendation[]> = {
       skills: ["track-experiment", "evaluate-model"],
     },
   ],
-};
+} as const satisfies Record<string, readonly PluginRecommendation[]>;
 
-/**
- * Discover recommended plugins based on tech stack and project domain.
- */
+type PluginRegistryKey = keyof typeof PLUGIN_REGISTRY;
+type DomainPluginKey = keyof typeof DOMAIN_PLUGINS;
+
+function isPluginRegistryKey(key: string): key is PluginRegistryKey {
+  return key in PLUGIN_REGISTRY;
+}
+
+function isDomainPluginKey(key: string): key is DomainPluginKey {
+  return key in DOMAIN_PLUGINS;
+}
+
 export function discoverPlugins(
   techStack: string[],
   domain: string
@@ -117,24 +123,21 @@ export function discoverPlugins(
   const seen = new Set<string>();
   const results: PluginRecommendation[] = [];
 
-  // Match tech stack to known plugins
   for (const tech of techStack) {
     const key = tech.toLowerCase();
+    if (!isPluginRegistryKey(key)) continue;
     const matches = PLUGIN_REGISTRY[key];
-    if (matches) {
-      for (const plugin of matches) {
-        if (!seen.has(plugin.name)) {
-          seen.add(plugin.name);
-          results.push(plugin);
-        }
+    for (const plugin of matches) {
+      if (!seen.has(plugin.name)) {
+        seen.add(plugin.name);
+        results.push(plugin);
       }
     }
   }
 
-  // Match domain to domain-specific plugins
   const domainKey = domain.toLowerCase();
-  const domainMatches = DOMAIN_PLUGINS[domainKey];
-  if (domainMatches) {
+  if (isDomainPluginKey(domainKey)) {
+    const domainMatches = DOMAIN_PLUGINS[domainKey];
     for (const plugin of domainMatches) {
       if (!seen.has(plugin.name)) {
         seen.add(plugin.name);

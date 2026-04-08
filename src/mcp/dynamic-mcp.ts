@@ -1,10 +1,12 @@
 import type { McpServerConfig, DomainAnalysis, StackEnvironment } from "../state/project-state.js";
 import { DEFAULT_MCP_SERVERS, DOMAIN_MCP_SERVERS } from "./config.js";
 
-/**
- * Get MCP server configs for a specific phase and domain,
- * merging defaults + domain-specific + environment-discovered servers.
- */
+type DomainMcpKey = keyof typeof DOMAIN_MCP_SERVERS;
+
+function isDomainMcpKey(key: string): key is DomainMcpKey {
+  return key in DOMAIN_MCP_SERVERS;
+}
+
 export function getMcpServersForPhase(
   phase: string,
   domain?: DomainAnalysis,
@@ -12,14 +14,10 @@ export function getMcpServersForPhase(
 ): Record<string, McpServerConfig> {
   const servers: Record<string, McpServerConfig> = {};
 
-  // Always include defaults
   Object.assign(servers, DEFAULT_MCP_SERVERS);
 
-  if (domain && domain.classification in DOMAIN_MCP_SERVERS) {
-    const domainServers = DOMAIN_MCP_SERVERS[domain.classification];
-    if (domainServers) {
-      Object.assign(servers, domainServers);
-    }
+  if (domain && isDomainMcpKey(domain.classification)) {
+    Object.assign(servers, DOMAIN_MCP_SERVERS[domain.classification]);
   }
 
   // Add environment-discovered servers (highest priority)

@@ -1,6 +1,14 @@
 import type { HookCallback } from "@anthropic-ai/claude-agent-sdk";
 import { execSync } from "node:child_process";
 
+interface ExecError extends Error {
+  stdout: Buffer;
+}
+
+function isExecError(err: unknown): err is ExecError {
+  return err instanceof Error && "stdout" in err;
+}
+
 /**
  * TaskCompleted hook: ensures all quality checks pass before a task can close.
  * Returns systemMessage feedback if checks fail.
@@ -21,9 +29,7 @@ export const qualityGateHook: HookCallback = async (input, _toolUseID, _ctx) => 
     try {
       execSync(check.command, { timeout: 120_000, stdio: "pipe" });
     } catch (err) {
-      const output = err instanceof Error && "stdout" in err
-        ? String((err as NodeJS.ErrnoException & { stdout: Buffer }).stdout)
-        : String(err);
+      const output = isExecError(err) ? String(err.stdout) : String(err);
       if (check.fatal) {
         failures.push(`${check.name} failed:\n${output.slice(0, 500)}`);
       } else {

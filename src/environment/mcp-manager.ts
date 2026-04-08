@@ -14,8 +14,7 @@ export interface McpDiscoveryEntry {
   installCommand: string;
 }
 
-// Known MCP server registry keyed by tech stack keyword
-const KNOWN_MCP_SERVERS: Record<string, McpDiscoveryEntry> = {
+const KNOWN_MCP_SERVERS = {
   postgresql: {
     name: "postgres",
     packageName: "@modelcontextprotocol/server-postgres",
@@ -52,14 +51,19 @@ const KNOWN_MCP_SERVERS: Record<string, McpDiscoveryEntry> = {
     trustTier: "community",
     installCommand: "npx docker-mcp",
   },
-};
+} as const satisfies Record<string, McpDiscoveryEntry>;
 
-// Trust tier numeric scores for sorting (higher = more trusted)
-const TRUST_SCORES: Record<TrustTier, number> = {
+type McpServerKey = keyof typeof KNOWN_MCP_SERVERS;
+
+function isMcpServerKey(key: string): key is McpServerKey {
+  return key in KNOWN_MCP_SERVERS;
+}
+
+const TRUST_SCORES = {
   official: 3,
   community: 2,
   other: 1,
-};
+} as const satisfies Record<TrustTier, number>;
 
 /**
  * Discover MCP servers relevant to the given tech stack and domain.
@@ -74,8 +78,9 @@ export function discoverMcpServers(
 
   for (const tech of techStack) {
     const key = tech.toLowerCase();
+    if (!isMcpServerKey(key)) continue;
     const entry = KNOWN_MCP_SERVERS[key];
-    if (entry && !seen.has(entry.packageName)) {
+    if (!seen.has(entry.packageName)) {
       seen.add(entry.packageName);
       results.push(entry);
     }

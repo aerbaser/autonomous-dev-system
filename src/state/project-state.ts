@@ -183,7 +183,7 @@ export interface ProjectState {
 
 // --- Phase transitions ---
 
-const VALID_TRANSITIONS: Record<Phase, Phase[]> = {
+const VALID_TRANSITIONS = {
   ideation: ["specification"],
   specification: ["architecture"],
   architecture: ["environment-setup"],
@@ -196,10 +196,11 @@ const VALID_TRANSITIONS: Record<Phase, Phase[]> = {
   analysis: ["development", "production"],
   production: ["monitoring"],
   monitoring: ["development"],
-};
+} as const satisfies Record<Phase, readonly Phase[]>;
 
 export function canTransition(from: Phase, to: Phase): boolean {
-  return VALID_TRANSITIONS[from]?.includes(to) ?? false;
+  const targets: readonly Phase[] = VALID_TRANSITIONS[from];
+  return targets.includes(to);
 }
 
 // --- Persistence ---

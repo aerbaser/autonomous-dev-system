@@ -25,7 +25,7 @@ export const idleHandlerHook: HookCallback = async (input, _toolUseID, _ctx) => 
   if (input.hook_event_name !== "TeammateIdle") return {};
 
   const { idle_duration_ms, pending_tasks, idle_threshold_ms } = extractPayload(
-    input as unknown as Record<string, unknown>,
+    input,
   );
 
   if (idle_duration_ms < idle_threshold_ms) {

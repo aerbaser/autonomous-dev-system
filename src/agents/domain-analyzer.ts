@@ -146,7 +146,6 @@ Generate blueprints for these roles: ${domain.requiredRoles.join(", ")}`,
 
     return raw.map((r) => ({
       ...r,
-      // Ensure at least 3 evaluation criteria
       evaluationCriteria: r.evaluationCriteria.length >= 3
         ? r.evaluationCriteria
         : [
@@ -157,8 +156,6 @@ Generate blueprints for these roles: ${domain.requiredRoles.join(", ")}`,
             ),
           ],
       version: 1,
-      model: undefined,
-      mcpServers: undefined,
     }));
   } catch {
     return [];

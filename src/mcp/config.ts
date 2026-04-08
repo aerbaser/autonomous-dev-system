@@ -11,10 +11,10 @@ export const DEFAULT_MCP_SERVERS = {
   },
 } as const satisfies Record<string, Readonly<McpServerConfig>>;
 
-export const DOMAIN_MCP_SERVERS: Record<string, Record<string, McpServerConfig>> = {
+export const DOMAIN_MCP_SERVERS = {
   "web-application": {
     playwright: DEFAULT_MCP_SERVERS.playwright,
   },
   "fintech/trading": {},
   "data-science": {},
-};
+} as const satisfies Record<string, Record<string, McpServerConfig>>;

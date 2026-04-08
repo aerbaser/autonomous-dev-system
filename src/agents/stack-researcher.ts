@@ -2,6 +2,20 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { ArchDesign, DomainAnalysis, StackEnvironment, LspConfig, McpDiscovery, PluginDiscovery, OssTool } from "../state/project-state.js";
 import { consumeQuery } from "../utils/sdk-helpers.js";
 
+const VALID_SCOPES = ["project", "user"] as const;
+type Scope = (typeof VALID_SCOPES)[number];
+
+function isValidScope(value: string): value is Scope {
+  return (VALID_SCOPES as readonly string[]).includes(value);
+}
+
+const VALID_OSS_TYPES = ["agent", "skill", "hook", "mcp-server", "pattern"] as const;
+type OssType = (typeof VALID_OSS_TYPES)[number];
+
+function isValidOssType(value: string): value is OssType {
+  return (VALID_OSS_TYPES as readonly string[]).includes(value);
+}
+
 const RESEARCH_PROMPT = `You are a Stack Researcher. Given a project's tech stack and domain,
 find the best tools to supercharge AI agent development.
 
@@ -105,7 +119,7 @@ Recommended MCP servers from domain analysis: ${domain.requiredMcpServers.join("
     const plugins: PluginDiscovery[] = (raw.plugins ?? []).map((p) => ({
       name: p.name,
       source: p.source,
-      scope: (p.scope as "project" | "user") ?? "project",
+      scope: (p.scope && isValidScope(p.scope)) ? p.scope : "project",
       installed: false,
       reason: p.reason ?? "",
     }));
@@ -113,7 +127,7 @@ Recommended MCP servers from domain analysis: ${domain.requiredMcpServers.join("
     const openSourceTools: OssTool[] = (raw.openSourceTools ?? []).map((o) => ({
       name: o.name,
       repo: o.repo,
-      type: o.type as OssTool["type"],
+      type: isValidOssType(o.type) ? o.type : "pattern",
       integrationPlan: o.integrationPlan,
       integrated: false,
     }));
