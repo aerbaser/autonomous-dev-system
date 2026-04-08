@@ -52,6 +52,24 @@ Output a JSON object:
 Be conservative: only suggest tools that will genuinely help. Quality over quantity.
 Output ONLY the JSON.`;
 
+function extractFirstJson(text: string): string | null {
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (text[i] === '}') {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        const candidate = text.slice(start, i + 1);
+        try { JSON.parse(candidate); return candidate; } catch { start = -1; }
+      }
+    }
+  }
+  return null;
+}
+
 export async function researchStack(
   architecture: ArchDesign,
   domain: DomainAnalysis
@@ -87,13 +105,13 @@ Recommended MCP servers from domain analysis: ${domain.requiredMcpServers.join("
     return getDefaultEnvironment(architecture, domain);
   }
 
-  const jsonMatch = resultText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
+  const jsonStr = extractFirstJson(resultText);
+  if (!jsonStr) {
     return getDefaultEnvironment(architecture, domain);
   }
 
   try {
-    const raw = JSON.parse(jsonMatch[0]) as {
+    const raw = JSON.parse(jsonStr) as {
       lspServers?: Array<{ language: string; server: string; installCommand: string; reason?: string }>;
       mcpServers?: Array<{ name: string; source: string; config: { command: string; args?: string[] }; reason?: string }>;
       plugins?: Array<{ name: string; source: string; scope?: string; reason?: string }>;

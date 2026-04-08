@@ -50,6 +50,8 @@ Domain: ${domain.classification}
 Specializations: ${domain.specializations.join(", ")}`,
     options: {
       allowedTools: ["WebSearch", "WebFetch"],
+      permissionMode: "bypassPermissions",
+      allowDangerouslySkipPermissions: true,
       maxTurns: 10,
     },
   })) {
