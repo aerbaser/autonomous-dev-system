@@ -26,26 +26,17 @@ import { runReview } from "./phases/review.js";
 import { runDeployment } from "./phases/deployment.js";
 import { runABTesting } from "./phases/ab-testing.js";
 import { runMonitoring } from "./phases/monitoring.js";
+import type { PhaseResult, PhaseHandler } from "./phases/types.js";
 
-export interface PhaseResult {
-  success: boolean;
-  nextPhase?: Phase;
-  state: ProjectState;
-  error?: string;
-  sessionId?: string; // session ID from query() for resume
-  costUsd?: number;
-}
+export type { PhaseResult, PhaseHandler } from "./phases/types.js";
 
-type PhaseHandler = (
-  state: ProjectState,
-  config: Config,
-  checkpoint?: PhaseCheckpoint | null,
-  sessionId?: string
-) => Promise<PhaseResult>;
-
-const PHASE_HANDLERS = {
+const PHASE_HANDLERS: Record<Phase, PhaseHandler> = {
   ideation: runIdeation,
-  specification: async (state, config) => runIdeation(state, config),
+  specification: async (state, _config) => ({
+    success: true,
+    nextPhase: "architecture" as Phase,
+    state,
+  }),
   architecture: runArchitecture,
   "environment-setup": runEnvironmentSetup,
   development: runDevelopment,
@@ -53,12 +44,20 @@ const PHASE_HANDLERS = {
   review: runReview,
   staging: runDeployment,
   "ab-testing": runABTesting,
-  analysis: async (state, config) => runABTesting(state, config),
+  analysis: async (state, _config) => ({
+    success: true,
+    nextPhase: "production" as Phase,
+    state,
+  }),
   production: runDeployment,
   monitoring: runMonitoring,
-} satisfies Record<Phase, PhaseHandler>;
+};
 
-const ALL_PHASES: Phase[] = Object.keys(PHASE_HANDLERS) as Phase[];
+const ALL_PHASES: Phase[] = [
+  "ideation", "specification", "architecture", "environment-setup",
+  "development", "testing", "review", "staging",
+  "ab-testing", "analysis", "production", "monitoring",
+];
 
 const OPTIONAL_PHASES: Phase[] = [
   "environment-setup",
@@ -81,14 +80,9 @@ export async function runOrchestrator(
   _resumeSessionId?: string,
   singlePhase?: Phase
 ): Promise<void> {
-  let state = { ...initialState };
+  let state = structuredClone(initialState);
 
-  // Safe access to new config fields that may not exist in the schema yet
-  const cfgAny = config as Record<string, unknown>;
-  const budgetUsd = cfgAny.budgetUsd as number | undefined;
-  const dryRun = cfgAny.dryRun as boolean | undefined;
-  const quickMode = cfgAny.quickMode as boolean | undefined;
-  const confirmSpec = cfgAny.confirmSpec as boolean | undefined;
+  const { budgetUsd, dryRun, quickMode, confirmSpec } = config;
 
   // Budget tracking — TODO: wire up real costs from query() when available
   let totalCostUsd = 0;

@@ -1,5 +1,5 @@
-import type { Config } from "../utils/config.js";
 import type { ProjectState, Phase, PhaseCheckpoint } from "../state/project-state.js";
+import type { Config } from "../utils/config.js";
 
 export interface PhaseResult {
   success: boolean;
