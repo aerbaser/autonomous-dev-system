@@ -1,0 +1,122 @@
+import type { BenchmarkFixture } from "./benchmark-types.js";
+
+export const CODE_QUALITY_FIXTURE = {
+  files: {
+    "package.json": JSON.stringify(
+      {
+        name: "benchmark-project",
+        version: "1.0.0",
+        type: "module",
+        scripts: {
+          build: "tsc --noEmit",
+          test: "node --test src/**/*.test.ts",
+        },
+        devDependencies: {
+          typescript: "^5.0.0",
+          "@types/node": "^20.0.0",
+        },
+      },
+      null,
+      2
+    ),
+    "tsconfig.json": JSON.stringify(
+      {
+        compilerOptions: {
+          target: "ES2022",
+          module: "Node16",
+          moduleResolution: "Node16",
+          strict: true,
+          outDir: "dist",
+          rootDir: "src",
+        },
+        include: ["src/**/*"],
+      },
+      null,
+      2
+    ),
+    "src/utils.ts": [
+      'export function hashPassword(password: string): string {',
+      '  // placeholder — agent should replace with proper hashing',
+      '  return password;',
+      '}',
+      '',
+      'export function validateEmail(email: string): boolean {',
+      '  return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);',
+      '}',
+    ].join("\n"),
+  },
+} satisfies BenchmarkFixture;
+
+export const TEST_GENERATION_FIXTURE = {
+  files: {
+    "package.json": JSON.stringify(
+      {
+        name: "test-gen-benchmark",
+        version: "1.0.0",
+        type: "module",
+        scripts: { test: "node --test src/**/*.test.ts" },
+      },
+      null,
+      2
+    ),
+    "src/cart.ts": [
+      "export interface CartItem {",
+      "  id: string;",
+      "  name: string;",
+      "  price: number;",
+      "  quantity: number;",
+      "}",
+      "",
+      "export class ShoppingCart {",
+      "  private items: CartItem[] = [];",
+      "",
+      "  add(item: CartItem): void {",
+      "    const existing = this.items.find((i) => i.id === item.id);",
+      "    if (existing) {",
+      "      existing.quantity += item.quantity;",
+      "    } else {",
+      "      this.items.push({ ...item });",
+      "    }",
+      "  }",
+      "",
+      "  remove(id: string): boolean {",
+      "    const idx = this.items.findIndex((i) => i.id === id);",
+      "    if (idx === -1) return false;",
+      "    this.items.splice(idx, 1);",
+      "    return true;",
+      "  }",
+      "",
+      "  applyDiscount(percentage: number): void {",
+      "    if (percentage < 0 || percentage > 100) {",
+      '      throw new Error("Discount must be between 0 and 100");',
+      "    }",
+      "    const multiplier = 1 - percentage / 100;",
+      "    for (const item of this.items) {",
+      "      item.price = Math.round(item.price * multiplier * 100) / 100;",
+      "    }",
+      "  }",
+      "",
+      "  getTotal(): number {",
+      "    return this.items.reduce((sum, i) => sum + i.price * i.quantity, 0);",
+      "  }",
+      "",
+      "  getItems(): ReadonlyArray<Readonly<CartItem>> {",
+      "    return this.items;",
+      "  }",
+      "",
+      "  clear(): void {",
+      "    this.items = [];",
+      "  }",
+      "",
+      "  checkout(): { items: CartItem[]; total: number } {",
+      "    if (this.items.length === 0) {",
+      '      throw new Error("Cannot checkout empty cart");',
+      "    }",
+      "    const result = { items: [...this.items], total: this.getTotal() };",
+      "    this.clear();",
+      "    return result;",
+      "  }",
+      "}",
+    ].join("\n"),
+  },
+} satisfies BenchmarkFixture;
