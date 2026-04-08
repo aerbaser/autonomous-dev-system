@@ -19,7 +19,7 @@ export const qualityGateHook: HookCallback = async (input, _toolUseID, _ctx) => 
   const checks: Array<{ name: string; command: string; fatal: boolean }> = [
     { name: "TypeScript type-check", command: "npx tsc --noEmit 2>&1", fatal: true },
     { name: "Tests", command: "npm test 2>&1", fatal: true },
-    { name: "Lint", command: "npm run lint 2>&1 || true", fatal: false },
+    { name: "Lint", command: "npm run lint 2>&1", fatal: false },
   ];
 
   const failures: string[] = [];
