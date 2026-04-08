@@ -1,15 +1,24 @@
-import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
-  mkdirSync,
   existsSync,
-  writeFileSync,
   appendFileSync,
-  mkdtempSync,
-  rmSync,
+  mkdirSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
-import { runCommandInSandbox } from "./sandbox.js";
+import {
+  createDeterministicVerifier,
+  createLlmVerifier,
+  type Verifier,
+} from "./verifiers.js";
+
+// Re-export verifier types for backward compatibility
+export {
+  createDeterministicVerifier,
+  createLlmVerifier,
+  type Verifier,
+  type VerifierResult,
+  type VerifierTask,
+  type LlmVerifierOptions,
+} from "./verifiers.js";
 
 export interface BenchmarkTask {
   instruction: string;
@@ -278,15 +287,15 @@ export async function runBenchmark(
   const taskScores: number[] = [];
   let totalCost = 0;
 
+  const verifier: Verifier =
+    benchmark.verifier === "deterministic"
+      ? createDeterministicVerifier()
+      : createLlmVerifier("", {});
+
   for (const task of benchmark.tasks) {
-    if (benchmark.verifier === "deterministic") {
-      const score = await runDeterministicTask(task);
-      taskScores.push(score);
-    } else {
-      const { score, costUsd } = await runLlmTask(task);
-      taskScores.push(score);
-      totalCost += costUsd;
-    }
+    const result = await verifier.run(task);
+    taskScores.push(result.score);
+    totalCost += result.costUsd;
   }
 
   const avgScore =
@@ -294,7 +303,7 @@ export async function runBenchmark(
       ? taskScores.reduce((a, b) => a + b, 0) / taskScores.length
       : 0;
 
-  const result: BenchmarkResult = {
+  const benchmarkResult: BenchmarkResult = {
     benchmarkId: benchmark.id,
     score: avgScore,
     details: { taskScores },
@@ -304,140 +313,10 @@ export async function runBenchmark(
 
   // Persist result if stateDir provided
   if (stateDir) {
-    persistBenchmarkResult(stateDir, result);
+    persistBenchmarkResult(stateDir, benchmarkResult);
   }
 
-  return result;
-}
-
-async function runDeterministicTask(task: BenchmarkTask): Promise<number> {
-  const sandboxResult = await runCommandInSandbox(task.instruction, {
-    timeoutMs: task.timeout,
-    cwd: process.cwd(),
-  });
-
-  if (!sandboxResult.success) {
-    console.log(
-      `[benchmark] Deterministic task failed: ${sandboxResult.error ?? "unknown error"}`
-    );
-  }
-
-  return sandboxResult.success ? 1.0 : 0.0;
-}
-
-async function runLlmTask(
-  task: BenchmarkTask
-): Promise<{ score: number; costUsd: number }> {
-  let costUsd = 0;
-
-  // Set up fixture directory if needed
-  let fixtureCwd: string | undefined;
-  if (task.fixture) {
-    fixtureCwd = mkdtempSync(join(tmpdir(), "benchmark-"));
-    for (const [filePath, content] of Object.entries(task.fixture.files)) {
-      const absPath = resolve(fixtureCwd, filePath);
-      const dir = resolve(absPath, "..");
-      if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-      writeFileSync(absPath, content);
-    }
-
-    if (task.fixture.setupCommand) {
-      await runCommandInSandbox(task.fixture.setupCommand, {
-        timeoutMs: 60_000,
-        cwd: fixtureCwd,
-      });
-    }
-  }
-
-  // Step 1: Generate output
-  let generatedOutput = "";
-  const prompt = fixtureCwd
-    ? `Working directory: ${fixtureCwd}\n\n${task.instruction}`
-    : task.instruction;
-
-  try {
-    for await (const message of query({
-      prompt,
-      options: {
-        allowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
-        maxTurns: 15,
-        ...(fixtureCwd ? { cwd: fixtureCwd } : {}),
-      },
-    })) {
-      if (message.type === "result") {
-        if (message.subtype === "success") {
-          generatedOutput = message.result;
-          costUsd += message.total_cost_usd;
-        } else {
-          console.log(
-            `[benchmark] Agent error: ${message.errors?.join(", ")}`
-          );
-          costUsd += message.total_cost_usd;
-        }
-      } else if (
-        message.type === "system" &&
-        "subtype" in message &&
-        message.subtype === "api_retry"
-      ) {
-        const retryMsg = message as Extract<SDKMessage, { subtype: "api_retry" }>;
-        console.log(
-          `[benchmark] API retry ${retryMsg.attempt}/${retryMsg.max_retries}`
-        );
-      }
-    }
-  } catch (err) {
-    console.log(
-      `[benchmark] Query failed: ${err instanceof Error ? err.message : String(err)}`
-    );
-  }
-
-  if (!generatedOutput || !task.evaluationPrompt) {
-    cleanupFixture(fixtureCwd);
-    return { score: 0, costUsd };
-  }
-
-  // Step 2: Evaluate with LLM judge
-  let evalResult = "";
-  try {
-    for await (const message of query({
-      prompt: `${task.evaluationPrompt}
-
-Output to evaluate:
----
-${generatedOutput.slice(0, 5000)}
----
-
-Respond with ONLY a single number between 0.0 and 1.0`,
-      options: { maxTurns: 1 },
-    })) {
-      if (message.type === "result" && message.subtype === "success") {
-        evalResult = message.result;
-        costUsd += message.total_cost_usd;
-      }
-    }
-  } catch (err) {
-    console.log(
-      `[benchmark] Evaluation query failed: ${err instanceof Error ? err.message : String(err)}`
-    );
-  }
-
-  cleanupFixture(fixtureCwd);
-
-  const score = parseFloat(evalResult.trim());
-  return {
-    score: isNaN(score) ? 0 : Math.max(0, Math.min(1, score)),
-    costUsd,
-  };
-}
-
-function cleanupFixture(fixtureCwd: string | undefined): void {
-  if (fixtureCwd && existsSync(fixtureCwd)) {
-    try {
-      rmSync(fixtureCwd, { recursive: true, force: true });
-    } catch {
-      // Best-effort cleanup
-    }
-  }
+  return benchmarkResult;
 }
 
 // ── Benchmark suite runner ──
