@@ -1,0 +1,13 @@
+{
+  "id": "spec-completeness",
+  "name": "Specification Completeness",
+  "verifier": "llm",
+  "weight": 0.2,
+  "tasks": [
+    {
+      "instruction": "Create a product specification for a collaborative document editor (like Google Docs lite)",
+      "evaluationPrompt": "Rate spec quality 0-1: user story coverage, acceptance criteria specificity, non-functional requirements, edge cases considered, domain analysis. Average the scores.",
+      "timeout": 120000
+    }
+  ]
+}

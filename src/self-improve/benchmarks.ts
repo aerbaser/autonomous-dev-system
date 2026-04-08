@@ -1,9 +1,11 @@
 import {
   existsSync,
+  readFileSync,
   appendFileSync,
   mkdirSync,
 } from "node:fs";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   createDeterministicVerifier,
   createLlmVerifier,
@@ -173,6 +175,57 @@ const TEST_GENERATION_FIXTURE: BenchmarkFixture = {
     ].join("\n"),
   },
 };
+
+// ── External benchmark loader ──
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+function getBenchmarksDir(): string {
+  // Resolve to <project-root>/benchmarks/ regardless of whether running from src/ or dist/
+  return resolve(__dirname, "..", "..", "benchmarks");
+}
+
+interface ExternalBenchmarkFile {
+  id: string;
+  name: string;
+  verifier: "deterministic" | "llm";
+  weight: number;
+  tasks: BenchmarkTask[];
+}
+
+/**
+ * Load benchmark tasks from benchmarks/<benchmarkId>/tasks.json.
+ * Falls back to inline defaults if the external file doesn't exist.
+ */
+export function loadBenchmarkTasks(benchmarkId: string): Benchmark | null {
+  const tasksPath = join(getBenchmarksDir(), benchmarkId, "tasks.json");
+
+  if (!existsSync(tasksPath)) {
+    // Fall back to inline default
+    const defaults = getDefaultBenchmarks();
+    return defaults.find((b) => b.id === benchmarkId) ?? null;
+  }
+
+  try {
+    const raw = readFileSync(tasksPath, "utf-8");
+    const data = JSON.parse(raw) as ExternalBenchmarkFile;
+    return {
+      id: data.id,
+      name: data.name,
+      tasks: data.tasks,
+      verifier: data.verifier,
+      weight: data.weight,
+    };
+  } catch (err) {
+    console.log(
+      `[benchmark] Failed to load ${tasksPath}: ${err instanceof Error ? err.message : String(err)}`
+    );
+    // Fall back to inline default
+    const defaults = getDefaultBenchmarks();
+    return defaults.find((b) => b.id === benchmarkId) ?? null;
+  }
+}
 
 // ── Default benchmarks ──
 

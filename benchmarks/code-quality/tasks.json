@@ -1,0 +1,32 @@
+{
+  "id": "code-quality",
+  "name": "Generated Code Quality",
+  "verifier": "llm",
+  "weight": 0.3,
+  "tasks": [
+    {
+      "instruction": "In the project directory, implement a REST API endpoint handler function in src/register.ts for user registration. It should validate email format, require passwords of 8+ characters, hash the password (use the hashPassword utility from src/utils.ts — improve it to use crypto.scrypt), and return structured JSON responses with appropriate status codes. Include error handling for duplicate emails.",
+      "evaluationPrompt": "Rate this code on a 0-1 scale for: correctness (does it compile and handle all cases), security (proper password hashing, no plaintext storage), error handling (all failure modes covered), code structure (clean, modular, readable). Average the four sub-scores.",
+      "timeout": 120000,
+      "fixture": {
+        "files": {
+          "package.json": "{\"name\":\"benchmark-project\",\"version\":\"1.0.0\",\"type\":\"module\",\"scripts\":{\"build\":\"tsc --noEmit\",\"test\":\"node --test src/**/*.test.ts\"},\"devDependencies\":{\"typescript\":\"^5.0.0\",\"@types/node\":\"^20.0.0\"}}",
+          "tsconfig.json": "{\"compilerOptions\":{\"target\":\"ES2022\",\"module\":\"Node16\",\"moduleResolution\":\"Node16\",\"strict\":true,\"outDir\":\"dist\",\"rootDir\":\"src\"},\"include\":[\"src/**/*\"]}",
+          "src/utils.ts": "export function hashPassword(password: string): string {\n  // placeholder — agent should replace with proper hashing\n  return password;\n}\n\nexport function validateEmail(email: string): boolean {\n  return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);\n}"
+        }
+      }
+    },
+    {
+      "instruction": "Write a function in src/rate-limiter.ts that implements rate limiting using a sliding window algorithm. The function should accept (key: string, windowMs: number, maxRequests: number) and return { allowed: boolean, remaining: number, retryAfterMs: number }. Use an in-memory Map for storage. Handle edge cases: first request, window expiry, concurrent keys.",
+      "evaluationPrompt": "Rate this code 0-1: algorithm correctness (proper sliding window, not fixed window), edge case handling (first request, expiry, boundary), performance (O(1) or O(log n) lookup), readability (clear naming, comments only where needed). Average the four sub-scores.",
+      "timeout": 120000,
+      "fixture": {
+        "files": {
+          "package.json": "{\"name\":\"benchmark-project\",\"version\":\"1.0.0\",\"type\":\"module\",\"scripts\":{\"build\":\"tsc --noEmit\",\"test\":\"node --test src/**/*.test.ts\"},\"devDependencies\":{\"typescript\":\"^5.0.0\",\"@types/node\":\"^20.0.0\"}}",
+          "tsconfig.json": "{\"compilerOptions\":{\"target\":\"ES2022\",\"module\":\"Node16\",\"moduleResolution\":\"Node16\",\"strict\":true,\"outDir\":\"dist\",\"rootDir\":\"src\"},\"include\":[\"src/**/*\"]}",
+          "src/utils.ts": "export function hashPassword(password: string): string {\n  // placeholder — agent should replace with proper hashing\n  return password;\n}\n\nexport function validateEmail(email: string): boolean {\n  return /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email);\n}"
+        }
+      }
+    }
+  ]
+}
