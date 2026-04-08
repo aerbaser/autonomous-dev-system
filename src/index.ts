@@ -3,7 +3,7 @@
 import { Command } from "commander";
 import { loadConfig } from "./utils/config.js";
 import { loadState, createInitialState, saveState, type Phase } from "./state/project-state.js";
-import { runOrchestrator } from "./orchestrator.js";
+import { runOrchestrator, requestShutdown } from "./orchestrator.js";
 import { runOptimizer } from "./self-improve/optimizer.js";
 
 const PHASES = [
@@ -41,16 +41,42 @@ program
     config.confirmSpec = opts.confirmSpec ?? false;
     const stateDir = config.stateDir;
 
-    let state = loadState(stateDir);
-    if (!state) {
+    const existingState = loadState(stateDir);
+
+    let state: NonNullable<ReturnType<typeof loadState>>;
+    if (opts.resume) {
+      // --resume flag: require existing state
+      if (!existingState) {
+        console.error("[error] No saved state to resume. Run without --resume to start fresh.");
+        process.exit(1);
+      }
+      state = existingState;
+      console.log(`[resume] Resuming project: ${state.id} (phase: ${state.currentPhase})`);
+    } else if (existingState) {
+      // No --resume but state exists: warn and exit
+      console.error(
+        `[error] Found existing state for project "${existingState.id}" (phase: ${existingState.currentPhase}). ` +
+        `Use --resume to continue or delete ${stateDir}/ to start fresh.`
+      );
+      process.exit(1);
+    } else {
+      // Fresh start
       state = createInitialState(opts.idea);
       saveState(stateDir, state);
       console.log(`[init] Created project: ${state.id}`);
-    } else {
-      console.log(`[resume] Resuming project: ${state.id} (phase: ${state.currentPhase})`);
     }
 
-    await runOrchestrator(state, config, opts.resume);
+    const onSigint = (): void => {
+      requestShutdown();
+      console.log("\n[shutdown] Ctrl+C received. Finishing current phase and saving state...");
+    };
+    process.on("SIGINT", onSigint);
+
+    try {
+      await runOrchestrator(state, config, opts.resume);
+    } finally {
+      process.removeListener("SIGINT", onSigint);
+    }
   });
 
 program

@@ -4,7 +4,7 @@ import type { ProjectState, ABTest } from "../state/project-state.js";
 import type { PhaseResult } from "../orchestrator.js";
 import { getMcpServerConfigs } from "../environment/mcp-manager.js";
 import { randomUUID } from "node:crypto";
-import { consumeQuery } from "../utils/sdk-helpers.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 import { ABTestDesignResponseSchema, ABTestAnalysisSchema } from "../types/llm-schemas.js";
 
 function extractFirstJson(text: string): string | null {
@@ -73,9 +73,8 @@ Output JSON:
         prompt,
         options: {
           tools: ["Read", "Glob", "Grep", "WebFetch"],
-          permissionMode: "bypassPermissions",
-          allowDangerouslySkipPermissions: true,
-          maxTurns: 10,
+          ...getQueryPermissions(config),
+          maxTurns: getMaxTurns(config, "abTesting"),
           mcpServers,
         },
       }),
@@ -125,7 +124,7 @@ Output JSON:
 
 async function analyzeTests(
   state: ProjectState,
-  _config: Config,
+  config: Config,
   tests: ABTest[],
   mcpServers: Record<string, { command: string; args?: string[] }>
 ): Promise<PhaseResult> {
@@ -159,9 +158,8 @@ Output a JSON array.`;
         prompt,
         options: {
           tools: ["WebFetch"],
-          permissionMode: "bypassPermissions",
-          allowDangerouslySkipPermissions: true,
-          maxTurns: 10,
+          ...getQueryPermissions(config),
+          maxTurns: getMaxTurns(config, "abTesting"),
           mcpServers,
         },
       }),

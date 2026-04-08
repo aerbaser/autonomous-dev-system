@@ -230,3 +230,16 @@ export function extractJson(text: string): string | null {
   }
   return null;
 }
+
+// --- Deployment and Monitoring structured output ---
+
+export const DeploymentResultSchema = z.object({
+  status: z.enum(["deployed", "failed"]),
+  url: z.string().optional(),
+  reason: z.string().optional(),
+});
+
+export const MonitoringResultSchema = z.object({
+  status: z.enum(["healthy", "regression", "improvement"]),
+  description: z.string(),
+});

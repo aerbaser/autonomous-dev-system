@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { ArchDesign, DomainAnalysis, StackEnvironment, LspConfig, McpDiscovery, PluginDiscovery, OssTool } from "../state/project-state.js";
-import { consumeQuery } from "../utils/sdk-helpers.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import type { Config } from "../utils/config.js";
 import { StackResearchResultSchema } from "../types/llm-schemas.js";
 
 const VALID_SCOPES = ["project", "user"] as const;
@@ -73,7 +74,8 @@ function extractFirstJson(text: string): string | null {
 
 export async function researchStack(
   architecture: ArchDesign,
-  domain: DomainAnalysis
+  domain: DomainAnalysis,
+  config?: Config
 ): Promise<StackEnvironment> {
   const techList = Object.entries(architecture.techStack)
     .map(([k, v]) => `${k}: ${v}`)
@@ -94,9 +96,8 @@ Specializations: ${domain.specializations.join(", ")}
 Recommended MCP servers from domain analysis: ${domain.requiredMcpServers.join(", ")}`,
         options: {
           tools: ["WebSearch", "WebFetch"],
-          permissionMode: "bypassPermissions",
-          allowDangerouslySkipPermissions: true,
-          maxTurns: 15,
+          ...getQueryPermissions(config),
+          maxTurns: getMaxTurns(config, "stackResearch"),
         },
       }),
       "stack-research"

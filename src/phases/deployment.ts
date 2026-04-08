@@ -3,7 +3,8 @@ import type { Config } from "../utils/config.js";
 import type { ProjectState, Deployment } from "../state/project-state.js";
 import type { PhaseResult } from "../orchestrator.js";
 import { randomUUID } from "node:crypto";
-import { consumeQuery } from "../utils/sdk-helpers.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { DeploymentResultSchema } from "../types/llm-schemas.js";
 
 export async function runDeployment(
   state: ProjectState,
@@ -26,23 +27,28 @@ If this is a staging deploy, set up with feature flags for A/B testing.
 If this is a production deploy, ensure rollback plan is in place.
 
 Report the deployment URL if available.
-End with: "DEPLOYED: <url>" or "FAILED: <reason>"`;
+
+After completing all steps, output your final assessment as JSON:
+{"status": "deployed", "url": "<deployment-url>"}
+or
+{"status": "failed", "reason": "<failure-reason>"}`;
 
   let resultText: string;
+  let structuredOutput: unknown;
   try {
-    const { result } = await consumeQuery(
+    const queryResult = await consumeQuery(
       query({
         prompt,
         options: {
           tools: ["Read", "Write", "Edit", "Bash", "Glob"],
-          permissionMode: "bypassPermissions",
-          allowDangerouslySkipPermissions: true,
-          maxTurns: 20,
+          ...getQueryPermissions(config),
+          maxTurns: getMaxTurns(config, "deployment"),
         },
       }),
       "deployment"
     );
-    resultText = result;
+    resultText = queryResult.result;
+    structuredOutput = queryResult.structuredOutput;
   } catch (err) {
     console.error(`[deploy] Query failed: ${err instanceof Error ? err.message : String(err)}`);
     const deployment: Deployment = {
@@ -58,18 +64,31 @@ End with: "DEPLOYED: <url>" or "FAILED: <reason>"`;
     return { success: false, state: newState, error: "Deployment query failed" };
   }
 
-  const deployLine = resultText
-    .split("\n")
-    .find((l) => l.startsWith("DEPLOYED:") || l.startsWith("FAILED:"));
+  // Try structured output first, fall back to text parsing
+  let deployed = false;
+  let deployUrl: string | undefined;
 
-  const deployed = deployLine?.startsWith("DEPLOYED:") ?? false;
+  const parsed = DeploymentResultSchema.safeParse(structuredOutput);
+  if (parsed.success) {
+    deployed = parsed.data.status === "deployed";
+    deployUrl = parsed.data.url;
+  } else {
+    // Fallback: text parsing
+    const deployLine = resultText
+      .split("\n")
+      .find((l) => l.startsWith("DEPLOYED:") || l.startsWith("FAILED:"));
+    deployed = deployLine?.startsWith("DEPLOYED:") ?? false;
+    if (deployed && deployLine) {
+      deployUrl = deployLine.replace("DEPLOYED:", "").trim();
+    }
+  }
 
   const deployment: Deployment = {
     id: randomUUID(),
     environment,
     timestamp: new Date().toISOString(),
     status: deployed ? "deployed" : "failed",
-    ...(deployed ? { url: deployLine!.replace("DEPLOYED:", "").trim() } : {}),
+    ...(deployUrl ? { url: deployUrl } : {}),
   };
 
   const newState: ProjectState = {

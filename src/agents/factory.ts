@@ -32,7 +32,7 @@ export async function buildAgentTeam(
 
   // Step 1: Analyze domain
   console.log("[factory] Analyzing project domain...");
-  const domain = await analyzeDomain(state.idea);
+  const domain = await analyzeDomain(state.idea, config);
   console.log(`[factory] Domain: ${domain.classification}`);
   console.log(`[factory] Specializations: ${domain.specializations.join(", ") || "none"}`);
   console.log(`[factory] Required roles: ${domain.requiredRoles.join(", ") || "none (standard only)"}`);
@@ -40,7 +40,7 @@ export async function buildAgentTeam(
   // Step 2: Generate domain-specific agents
   if (domain.requiredRoles.length > 0) {
     console.log("[factory] Generating specialized agent blueprints...");
-    const domainAgents = await generateDomainAgents(state.idea, domain);
+    const domainAgents = await generateDomainAgents(state.idea, domain, config);
 
     for (const agent of domainAgents) {
       registry.register(agent);

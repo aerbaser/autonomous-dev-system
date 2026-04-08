@@ -2,7 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
 import type { ProjectState } from "../state/project-state.js";
 import type { PhaseResult } from "../orchestrator.js";
-import { consumeQuery } from "../utils/sdk-helpers.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 
 export async function runReview(
   state: ProjectState,
@@ -32,9 +32,8 @@ End with: "APPROVE" or "REQUEST_CHANGES: <summary of critical issues>"`;
         prompt,
         options: {
           tools: ["Read", "Glob", "Grep"],
-          permissionMode: "bypassPermissions",
-          allowDangerouslySkipPermissions: true,
-          maxTurns: 20,
+          ...getQueryPermissions(config),
+          maxTurns: getMaxTurns(config, "review"),
         },
       }),
       "review"

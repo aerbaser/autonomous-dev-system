@@ -1,4 +1,5 @@
 import type { Config } from "./utils/config.js";
+import { progress } from "./utils/progress.js";
 import {
   type ProjectState,
   type Phase,
@@ -29,6 +30,21 @@ import { runMonitoring } from "./phases/monitoring.js";
 import type { PhaseResult, PhaseHandler } from "./phases/types.js";
 
 export type { PhaseResult, PhaseHandler } from "./phases/types.js";
+
+// --- Graceful shutdown ---
+let shuttingDown = false;
+
+export function requestShutdown(): void {
+  shuttingDown = true;
+}
+
+export function isShuttingDown(): boolean {
+  return shuttingDown;
+}
+
+export function resetShutdown(): void {
+  shuttingDown = false;
+}
 
 const PHASE_HANDLERS: Record<Phase, PhaseHandler> = {
   ideation: runIdeation,
@@ -77,9 +93,10 @@ function buildProgressBar(current: number, total: number): string {
 export async function runOrchestrator(
   initialState: ProjectState,
   config: Config,
-  _resumeSessionId?: string,
+  resumeSessionId?: string,
   singlePhase?: Phase
 ): Promise<void> {
+  shuttingDown = false;
   let state = structuredClone(initialState);
 
   const { budgetUsd, dryRun, quickMode, confirmSpec } = config;
@@ -92,6 +109,16 @@ export async function runOrchestrator(
   sessionStore = cleanStaleSessions(sessionStore);
   saveSessions(config.stateDir, sessionStore);
 
+  // Validate resume session ID if provided
+  if (resumeSessionId) {
+    const existingSession = getSessionId(sessionStore, state.currentPhase);
+    if (existingSession) {
+      console.log(`[orchestrator] Using resume session: ${existingSession}`);
+    } else {
+      console.warn(`[orchestrator] Resume session requested but no stored session found for phase "${state.currentPhase}". Proceeding without session.`);
+    }
+  }
+
   if (singlePhase) {
     console.log(`[orchestrator] Running single phase: ${singlePhase}`);
     await executePhaseSafe(singlePhase, state, config);
@@ -103,6 +130,13 @@ export async function runOrchestrator(
   let iterations = 0;
 
   while (iterations < MAX_ITERATIONS) {
+    if (shuttingDown) {
+      progress.emit("shutdown", { phase: state.currentPhase });
+      console.log(`[shutdown] Graceful shutdown. State saved at phase: ${state.currentPhase}`);
+      saveState(config.stateDir, state);
+      break;
+    }
+
     iterations++;
     const phase = state.currentPhase;
     const phaseIndex = ALL_PHASES.indexOf(phase);
@@ -113,6 +147,7 @@ export async function runOrchestrator(
       `\n[progress] Phase ${phaseIndex + 1}/${totalPhases}: ${phase} ${buildProgressBar(phaseIndex + 1, totalPhases)}`
     );
 
+    progress.emit("phase:start", { phase, index: phaseIndex, total: totalPhases });
     console.log(`[orchestrator] Phase ${iterations}: ${phase}`);
 
     // Quick mode: skip optional phases
@@ -159,7 +194,9 @@ export async function runOrchestrator(
       result = await executePhaseSafe(phase, state, config);
     }
 
-    const elapsed = ((Date.now() - phaseStart) / 1000).toFixed(1);
+    const elapsedMs = Date.now() - phaseStart;
+    const elapsed = (elapsedMs / 1000).toFixed(1);
+    progress.emit("phase:end", { phase, success: result?.success ?? false, elapsed: elapsedMs });
     console.log(`[progress] ${phase} completed in ${elapsed}s`);
 
     if (!result) {

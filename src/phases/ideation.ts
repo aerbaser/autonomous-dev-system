@@ -3,7 +3,7 @@ import type { Config } from "../utils/config.js";
 import type { ProjectState, ProductSpec } from "../state/project-state.js";
 import type { PhaseResult } from "../orchestrator.js";
 import { analyzeDomain } from "../agents/domain-analyzer.js";
-import { consumeQuery } from "../utils/sdk-helpers.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 
 function extractFirstJson(text: string): string | null {
   let depth = 0;
@@ -61,7 +61,7 @@ export async function runIdeation(
   console.log("[ideation] Generating product specification...");
 
   // Step 1: Domain analysis (parallel with spec generation)
-  const domainPromise = analyzeDomain(state.idea);
+  const domainPromise = analyzeDomain(state.idea, config);
 
   // Step 2: Generate spec
   let specText: string;
@@ -71,9 +71,8 @@ export async function runIdeation(
         prompt: `${SPEC_PROMPT}\n\nProject idea: ${state.idea}`,
         options: {
           tools: ["WebSearch", "WebFetch"],
-          permissionMode: "bypassPermissions",
-          allowDangerouslySkipPermissions: true,
-          maxTurns: 10,
+          ...getQueryPermissions(config),
+          maxTurns: getMaxTurns(config, "ideation"),
         },
       }),
       "ideation"

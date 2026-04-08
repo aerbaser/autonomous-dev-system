@@ -96,6 +96,37 @@ export function getPermissionMode(level?: PermissionLevel): "bypassPermissions" 
   }
 }
 
+// --- Query permissions from config ---
+
+import type { Config } from "./config.js";
+
+export interface QueryPermissions {
+  permissionMode: "bypassPermissions" | "default";
+  allowDangerouslySkipPermissions: boolean;
+}
+
+export function getQueryPermissions(config?: Config): QueryPermissions {
+  if (!config || config.autonomousMode) {
+    return { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true };
+  }
+  return { permissionMode: "default", allowDangerouslySkipPermissions: false };
+}
+
+// --- Max turns from config ---
+
+export type MaxTurnsKey = keyof Config["maxTurns"];
+
+const MAX_TURNS_FALLBACKS: Record<MaxTurnsKey, number> = {
+  default: 50, decomposition: 3, development: 200, qualityFix: 30,
+  testing: 30, review: 20, deployment: 20, monitoring: 10,
+  ideation: 10, architecture: 10, abTesting: 10, stackResearch: 15,
+  domainAnalysis: 5, ossScan: 10,
+};
+
+export function getMaxTurns(config: Config | undefined, key: MaxTurnsKey): number {
+  return config?.maxTurns?.[key] ?? MAX_TURNS_FALLBACKS[key];
+}
+
 // --- Cost estimation ---
 
 export interface CostEstimate {

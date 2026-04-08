@@ -9,6 +9,40 @@ const selfImproveSchema = z.object({
   nightlyOptimize: z.boolean().default(false),
 });
 
+const maxTurnsSchema = z.object({
+  default: z.number().default(50),
+  decomposition: z.number().default(3),
+  development: z.number().default(200),
+  qualityFix: z.number().default(30),
+  testing: z.number().default(30),
+  review: z.number().default(20),
+  deployment: z.number().default(20),
+  monitoring: z.number().default(10),
+  ideation: z.number().default(10),
+  architecture: z.number().default(10),
+  abTesting: z.number().default(10),
+  stackResearch: z.number().default(15),
+  domainAnalysis: z.number().default(5),
+  ossScan: z.number().default(10),
+});
+
+const MAX_TURNS_DEFAULTS = {
+  default: 50,
+  decomposition: 3,
+  development: 200,
+  qualityFix: 30,
+  testing: 30,
+  review: 20,
+  deployment: 20,
+  monitoring: 10,
+  ideation: 10,
+  architecture: 10,
+  abTesting: 10,
+  stackResearch: 15,
+  domainAnalysis: 5,
+  ossScan: 10,
+} satisfies z.input<typeof maxTurnsSchema>;
+
 const deployTargetSchema = z.object({
   provider: z.enum(["vercel", "netlify", "docker", "custom"]),
   config: z.record(z.string(), z.string()).default({}),
@@ -33,6 +67,8 @@ export const ConfigSchema = z.object({
   } satisfies z.input<typeof selfImproveSchema>),
   projectDir: z.string().default("."),
   stateDir: z.string().default(".autonomous-dev"),
+  autonomousMode: z.boolean().default(true),
+  maxTurns: maxTurnsSchema.default(MAX_TURNS_DEFAULTS),
   budgetUsd: z.number().positive().optional(),
   dryRun: z.boolean().default(false),
   quickMode: z.boolean().default(false),

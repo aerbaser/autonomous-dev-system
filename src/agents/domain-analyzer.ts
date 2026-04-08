@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { DomainAnalysis, AgentBlueprint } from "../state/project-state.js";
-import { consumeQuery } from "../utils/sdk-helpers.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import type { Config } from "../utils/config.js";
 import { DomainAnalysisSchema, DomainAgentArraySchema } from "../types/llm-schemas.js";
 
 const DOMAIN_ANALYSIS_PROMPT = `You are a Domain Analyzer. Given a project idea, analyze what domain expertise
@@ -42,7 +43,7 @@ function extractFirstJson(text: string): string | null {
   return null;
 }
 
-export async function analyzeDomain(idea: string): Promise<DomainAnalysis> {
+export async function analyzeDomain(idea: string, config?: Config): Promise<DomainAnalysis> {
   let resultText: string;
 
   try {
@@ -51,9 +52,8 @@ export async function analyzeDomain(idea: string): Promise<DomainAnalysis> {
         prompt: `${DOMAIN_ANALYSIS_PROMPT}\n\nProject idea: ${idea}`,
         options: {
           tools: ["WebSearch", "WebFetch"],
-          permissionMode: "bypassPermissions",
-          allowDangerouslySkipPermissions: true,
-          maxTurns: 5,
+          ...getQueryPermissions(config),
+          maxTurns: getMaxTurns(config, "domainAnalysis"),
         },
       }),
       "domain-analysis"
@@ -123,7 +123,8 @@ Output a JSON array of agent blueprints. Only output the JSON array.`;
 
 export async function generateDomainAgents(
   idea: string,
-  domain: DomainAnalysis
+  domain: DomainAnalysis,
+  config?: Config
 ): Promise<AgentBlueprint[]> {
   if (domain.requiredRoles.length === 0) return [];
 
@@ -140,9 +141,8 @@ Domain: ${JSON.stringify(domain, null, 2)}
 Generate blueprints for these roles: ${domain.requiredRoles.join(", ")}`,
         options: {
           tools: ["WebSearch", "WebFetch"],
-          permissionMode: "bypassPermissions",
-          allowDangerouslySkipPermissions: true,
-          maxTurns: 5,
+          ...getQueryPermissions(config),
+          maxTurns: getMaxTurns(config, "domainAnalysis"),
         },
       }),
       "agent-generation"

@@ -3,7 +3,7 @@ import type { Config } from "../utils/config.js";
 import type { ProjectState } from "../state/project-state.js";
 import type { PhaseResult } from "../orchestrator.js";
 import { getMcpServerConfigs } from "../environment/mcp-manager.js";
-import { consumeQuery } from "../utils/sdk-helpers.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 
 export async function runTesting(
   state: ProjectState,
@@ -46,9 +46,8 @@ Output ONLY "PASS" or "FAIL: <reasons>" on the final line.`;
         prompt,
         options: {
           tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
-          permissionMode: "bypassPermissions",
-          allowDangerouslySkipPermissions: true,
-          maxTurns: 30,
+          ...getQueryPermissions(config),
+          maxTurns: getMaxTurns(config, "testing"),
           mcpServers,
         },
       }),

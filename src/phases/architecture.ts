@@ -3,7 +3,7 @@ import type { Config } from "../utils/config.js";
 import type { ProjectState, ArchDesign } from "../state/project-state.js";
 import type { PhaseResult } from "../orchestrator.js";
 import { buildAgentTeam } from "../agents/factory.js";
-import { consumeQuery } from "../utils/sdk-helpers.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 
 function extractFirstJson(text: string): string | null {
   let depth = 0;
@@ -78,9 +78,8 @@ Specializations: ${state.spec.domain.specializations.join(", ")}
 Recommended tech: ${state.spec.domain.techStack.join(", ")}`,
         options: {
           tools: ["WebSearch", "WebFetch"],
-          permissionMode: "bypassPermissions",
-          allowDangerouslySkipPermissions: true,
-          maxTurns: 10,
+          ...getQueryPermissions(config),
+          maxTurns: getMaxTurns(config, "architecture"),
         },
       }),
       "architecture"

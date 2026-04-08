@@ -38,7 +38,7 @@ export async function runEnvironmentSetup(
   // Step 1: Stack Research (critical — without it we can't proceed)
   let discovered: Awaited<ReturnType<typeof researchStack>>;
   try {
-    discovered = await researchStack(state.architecture, state.spec.domain);
+    discovered = await researchStack(state.architecture, state.spec.domain, config);
     stepResults.push({ name: "Stack Research", success: true, critical: true });
     console.log(
       `[env-setup] Discovered: ${discovered.lspServers.length} LSP, ` +
@@ -103,7 +103,7 @@ export async function runEnvironmentSetup(
   let ossTools = discovered.openSourceTools.map((o) => ({ ...o, integrated: false }));
   try {
     console.log("[env-setup] Scanning open-source tools...");
-    ossTools = await scanOpenSource(state.architecture, state.spec.domain);
+    ossTools = await scanOpenSource(state.architecture, state.spec.domain, config);
     console.log(`[env-setup] Found ${ossTools.length} potentially useful OSS tools`);
     stepResults.push({ name: "OSS Scan", success: true, critical: false });
   } catch (err) {

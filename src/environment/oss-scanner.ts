@@ -1,6 +1,8 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { OssTool, DomainAnalysis, ArchDesign } from "../state/project-state.js";
 import { OssToolArraySchema } from "../types/llm-schemas.js";
+import { getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import type { Config } from "../utils/config.js";
 
 const VALID_OSS_TYPES = ["agent", "skill", "hook", "mcp-server", "pattern"] as const;
 type OssType = (typeof VALID_OSS_TYPES)[number];
@@ -36,7 +38,8 @@ Output a JSON array. If nothing useful found, output [].`;
 
 export async function scanOpenSource(
   architecture: ArchDesign,
-  domain: DomainAnalysis
+  domain: DomainAnalysis,
+  config?: Config
 ): Promise<OssTool[]> {
   const techList = Object.entries(architecture.techStack)
     .map(([k, v]) => `${k}: ${v}`)
@@ -51,9 +54,8 @@ Domain: ${domain.classification}
 Specializations: ${domain.specializations.join(", ")}`,
     options: {
       allowedTools: ["WebSearch", "WebFetch"],
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
-      maxTurns: 10,
+      ...getQueryPermissions(config),
+      maxTurns: getMaxTurns(config, "ossScan"),
     },
   })) {
     if ("result" in message && typeof message.result === "string") {

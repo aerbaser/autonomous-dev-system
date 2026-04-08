@@ -3,7 +3,8 @@ import type { Config } from "../utils/config.js";
 import type { ProjectState } from "../state/project-state.js";
 import type { PhaseResult } from "../orchestrator.js";
 import { getMcpServerConfigs } from "../environment/mcp-manager.js";
-import { consumeQuery } from "../utils/sdk-helpers.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { MonitoringResultSchema } from "../types/llm-schemas.js";
 
 export async function runMonitoring(
   state: ProjectState,
@@ -31,36 +32,55 @@ Based on findings:
 - If metrics are stagnating -> suggest an improvement hypothesis
 - If everything is healthy -> report "HEALTHY"
 
-End with one of:
-- "HEALTHY: all metrics normal"
-- "REGRESSION: <description>" (-> triggers development cycle)
-- "IMPROVEMENT: <hypothesis>" (-> triggers new feature cycle)`;
+After completing all checks, output your assessment as JSON:
+{"status": "healthy", "description": "all metrics normal"}
+or
+{"status": "regression", "description": "<what regressed>"}
+or
+{"status": "improvement", "description": "<improvement hypothesis>"}`;
 
   let resultText: string;
+  let structuredOutput: unknown;
   try {
-    const { result } = await consumeQuery(
+    const queryResult = await consumeQuery(
       query({
         prompt,
         options: {
           tools: ["Bash", "WebFetch"],
-          permissionMode: "bypassPermissions",
-          allowDangerouslySkipPermissions: true,
-          maxTurns: 10,
+          ...getQueryPermissions(config),
+          maxTurns: getMaxTurns(config, "monitoring"),
           mcpServers,
         },
       }),
       "monitoring"
     );
-    resultText = result;
+    resultText = queryResult.result;
+    structuredOutput = queryResult.structuredOutput;
   } catch (err) {
     console.error(`[monitoring] Query failed: ${err instanceof Error ? err.message : String(err)}`);
     return { success: false, state, error: err instanceof Error ? err.message : String(err) };
   }
 
-  const lastLine = resultText.trim().split("\n").pop()?.trim() ?? "";
+  // Try structured output first, fall back to text parsing
+  let status: "healthy" | "regression" | "improvement" = "healthy";
 
-  if (lastLine.startsWith("REGRESSION:") || lastLine.startsWith("IMPROVEMENT:")) {
-    console.log(`[monitoring] Action needed: ${lastLine}`);
+  const parsed = MonitoringResultSchema.safeParse(structuredOutput);
+  if (parsed.success) {
+    status = parsed.data.status;
+    if (status !== "healthy") {
+      console.log(`[monitoring] Action needed: ${parsed.data.description}`);
+    }
+  } else {
+    // Fallback: text parsing
+    const lastLine = resultText.trim().split("\n").pop()?.trim() ?? "";
+    if (lastLine.startsWith("REGRESSION:")) status = "regression";
+    else if (lastLine.startsWith("IMPROVEMENT:")) status = "improvement";
+    if (status !== "healthy") {
+      console.log(`[monitoring] Action needed: ${lastLine}`);
+    }
+  }
+
+  if (status === "regression" || status === "improvement") {
     return { success: true, nextPhase: "development", state };
   }
 

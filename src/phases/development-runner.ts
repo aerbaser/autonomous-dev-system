@@ -27,6 +27,8 @@ import {
 } from "../state/project-state.js";
 import { execFileSync } from "node:child_process";
 import { TaskResultsSchema } from "../types/llm-schemas.js";
+import { getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { progress } from "../utils/progress.js";
 
 function extractFirstJson(text: string): string | null {
   let depth = 0;
@@ -118,10 +120,11 @@ export async function runDevelopment(
     : {};
 
   let totalCost = 0;
-  let lastSessionId: string | undefined;
+  const batchSessionIds: string[] = [];
 
   for (let batchIdx = 0; batchIdx < taskBatches.length; batchIdx++) {
     const batch = taskBatches[batchIdx]!;
+    progress.emit("batch:start", { index: batchIdx, total: taskBatches.length, taskCount: batch.length });
     console.log(
       `[development] Batch ${batchIdx + 1}/${taskBatches.length}: ` +
         `${batch.length} task(s) — ${batch.map((t) => t.title).join(", ")}`
@@ -144,7 +147,9 @@ export async function runDevelopment(
     );
 
     totalCost += batchResult.costUsd;
-    if (batchResult.sessionId) lastSessionId = batchResult.sessionId;
+    if (batchResult.sessionId) batchSessionIds.push(batchResult.sessionId);
+
+    progress.emit("batch:end", { index: batchIdx, success: batchResult.taskResults.every((r) => r.success) });
 
     // Update task statuses based on results
     for (const taskResult of batchResult.taskResults) {
@@ -166,7 +171,7 @@ export async function runDevelopment(
         .filter((t) => t.status === "pending" || t.status === "in_progress")
         .map((t) => t.id),
       timestamp: new Date().toISOString(),
-      metadata: { batchIndex: batchIdx, totalCost },
+      metadata: { batchIndex: batchIdx, totalCost, sessionIds: batchSessionIds },
     };
     updatedState = saveCheckpointState(updatedState, batchCheckpoint);
     saveState(config.stateDir, updatedState);
@@ -215,7 +220,7 @@ export async function runDevelopment(
     success,
     ...(success ? { nextPhase: "testing" as const } : {}),
     state: updatedState,
-    ...(lastSessionId !== undefined ? { sessionId: lastSessionId } : {}),
+    ...(batchSessionIds.length > 0 ? { sessionId: batchSessionIds[batchSessionIds.length - 1]! } : {}),
     costUsd: totalCost,
     ...(!success ? { error: `${failedTasks.length} task(s) failed` } : {}),
   };
@@ -299,9 +304,8 @@ Output a JSON object with a "tasks" array.`;
     options: {
       model: config.subagentModel,
       outputFormat: taskSchema,
-      maxTurns: 3,
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
+      maxTurns: getMaxTurns(config, "decomposition"),
+      ...getQueryPermissions(config),
     },
   })) {
     if (message.type === "result" && message.subtype === "success") {
@@ -417,7 +421,7 @@ function buildBatchAgents(
       prompt: def.prompt,
       tools: def.tools,
       model: config.subagentModel,
-      maxTurns: 50,
+      maxTurns: getMaxTurns(config, "default"),
     };
   }
 
@@ -445,7 +449,7 @@ function buildBatchAgents(
         prompt: def.prompt + `\n\n## Current Task\n**${task.title}**\n${task.description}`,
         tools: def.tools,
         model: config.subagentModel,
-        maxTurns: 50,
+        maxTurns: getMaxTurns(config, "default"),
       };
     } else {
       const agentName = `dev-${task.id.slice(0, 8)}`;
@@ -455,7 +459,7 @@ function buildBatchAgents(
         prompt: buildTaskPrompt(task, state),
         tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
         model: config.subagentModel,
-        maxTurns: 50,
+        maxTurns: getMaxTurns(config, "default"),
       };
     }
   }
@@ -597,9 +601,8 @@ Also include a brief text summary for each task.`;
       },
       mcpServers,
       model: config.model,
-      maxTurns: 200,
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
+      maxTurns: getMaxTurns(config, "development"),
+      ...getQueryPermissions(config),
     },
   })) {
     if (message.type === "result") {
@@ -721,9 +724,8 @@ After fixing, run \`npx tsc --noEmit\` and \`npm test\` to verify.`;
       agents: sdkAgentDefs,
       mcpServers,
       model: config.subagentModel,
-      maxTurns: 30,
-      permissionMode: "bypassPermissions",
-      allowDangerouslySkipPermissions: true,
+      maxTurns: getMaxTurns(config, "qualityFix"),
+      ...getQueryPermissions(config),
     },
   })) {
     if (message.type === "result" && message.subtype === "success") {
