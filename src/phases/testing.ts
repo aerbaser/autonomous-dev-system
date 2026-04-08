@@ -57,7 +57,7 @@ Output ONLY "PASS" or "FAIL: <reasons>" on the final line.`;
     resultText = result;
   } catch (err) {
     console.error(`[testing] Query failed: ${err instanceof Error ? err.message : String(err)}`);
-    return { success: true, nextPhase: "development", state };
+    return { success: false, state, error: err instanceof Error ? err.message : String(err) };
   }
 
   const lastLine = resultText.trim().split("\n").pop()?.trim() ?? "";

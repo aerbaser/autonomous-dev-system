@@ -5,6 +5,24 @@ import type { PhaseResult } from "../orchestrator.js";
 import { analyzeDomain } from "../agents/domain-analyzer.js";
 import { consumeQuery } from "../utils/sdk-helpers.js";
 
+function extractFirstJson(text: string): string | null {
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (text[i] === '}') {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        const candidate = text.slice(start, i + 1);
+        try { JSON.parse(candidate); return candidate; } catch { start = -1; }
+      }
+    }
+  }
+  return null;
+}
+
 const SPEC_PROMPT = `You are a Product Manager creating a complete product specification.
 
 Given this project idea, produce a comprehensive spec in JSON format:
@@ -70,18 +88,18 @@ export async function runIdeation(
   }
 
   // Parse spec
-  const jsonMatch = specText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
+  const jsonStr = extractFirstJson(specText);
+  if (!jsonStr) {
     return {
       success: false,
       state,
-      error: "Failed to generate spec: no JSON in output",
+      error: "Failed to generate spec: no valid JSON in output",
     };
   }
 
   let specData: Omit<ProductSpec, "domain">;
   try {
-    specData = JSON.parse(jsonMatch[0]);
+    specData = JSON.parse(jsonStr);
   } catch (e) {
     return {
       success: false,
@@ -105,7 +123,6 @@ export async function runIdeation(
   const newState: ProjectState = {
     ...state,
     spec,
-    currentPhase: "specification",
   };
 
   return {

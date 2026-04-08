@@ -54,7 +54,7 @@ End with one of:
     resultText = result;
   } catch (err) {
     console.error(`[monitoring] Query failed: ${err instanceof Error ? err.message : String(err)}`);
-    return { success: true, state };
+    return { success: false, state, error: err instanceof Error ? err.message : String(err) };
   }
 
   const lastLine = resultText.trim().split("\n").pop()?.trim() ?? "";

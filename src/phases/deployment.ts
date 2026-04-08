@@ -62,12 +62,14 @@ End with: "DEPLOYED: <url>" or "FAILED: <reason>"`;
     .split("\n")
     .find((l) => l.startsWith("DEPLOYED:") || l.startsWith("FAILED:"));
 
+  const deployed = deployLine?.startsWith("DEPLOYED:") ?? false;
+
   const deployment: Deployment = {
     id: randomUUID(),
     environment,
     timestamp: new Date().toISOString(),
-    status: deployLine?.startsWith("DEPLOYED") ? "deployed" : "failed",
-    url: deployLine?.replace("DEPLOYED:", "").trim(),
+    status: deployed ? "deployed" : "failed",
+    url: deployed ? deployLine!.replace("DEPLOYED:", "").trim() : undefined,
   };
 
   const newState: ProjectState = {
