@@ -1,26 +1,24 @@
 import type { Config } from "../utils/config.js";
+import { saveState } from "../state/project-state.js";
 import type {
   ProjectState,
   EvolutionEntry,
   AgentBlueprint,
 } from "../state/project-state.js";
-import { saveState } from "../state/project-state.js";
 import { AgentRegistry } from "../agents/registry.js";
-import {
-  runAllBenchmarks,
-  getDefaultBenchmarks,
-  type BenchmarkResult,
-} from "./benchmarks.js";
-import { generateMutations, type Mutation } from "./mutation-engine.js";
+import { runAllBenchmarks, getDefaultBenchmarks } from "./benchmarks.js";
+import type { BenchmarkResult } from "./benchmarks.js";
+import { generateMutations } from "./mutation-engine.js";
+import type { Mutation } from "./mutation-engine.js";
 import { randomUUID } from "node:crypto";
 import {
   createConvergenceState,
   updateConvergence,
   hasConverged,
   getConvergenceReport,
-  type ConvergenceConfig,
   DEFAULT_CONVERGENCE,
 } from "./convergence.js";
+import type { ConvergenceConfig } from "./convergence.js";
 import { savePromptVersion } from "./versioning.js";
 import { runInWorktreeSandbox } from "./sandbox.js";
 import type { OptimizerOptions } from "./optimizer.js";
