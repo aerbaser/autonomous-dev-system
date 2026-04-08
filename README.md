@@ -108,19 +108,24 @@ src/
 ├── index.ts                  # CLI entry point (commander)
 ├── orchestrator.ts           # Main phase loop with retry + checkpoints
 ├── phases/                   # Phase handlers (one per lifecycle stage)
+│   ├── types.ts              # PhaseResult, PhaseHandler types
 │   ├── ideation.ts           # Idea → structured spec
 │   ├── architecture.ts       # Spec → tech stack + architecture design
-│   ├── environment-setup.ts  # Auto-configure LSP, MCP, plugins
-│   ├── development.ts        # Task decomposition → parallel dev agents
-│   ├── testing.ts            # Run tests, lint, typecheck
-│   ├── review.ts             # Code review with fix suggestions
-│   ├── deployment.ts         # Deploy to staging/production
-│   ├── ab-testing.ts         # A/B test variants
-│   └── monitoring.ts         # Health checks + alerts
+│   ├── environment-setup.ts  # Auto-configure LSP, MCP, plugins (parallel)
+│   ├── development.ts        # Facade → development-runner
+│   ├── development-runner.ts # Task decomposition → parallel dev agents
+│   ├── development-types.ts  # Development phase types
+│   ├── testing.ts            # Structured output: TestingResultSchema
+│   ├── review.ts             # Structured output: ReviewResultSchema
+│   ├── deployment.ts         # Structured output: DeploymentResultSchema
+│   ├── ab-testing.ts         # A/B test design + analysis
+│   └── monitoring.ts         # Structured output: MonitoringResultSchema
 ├── agents/                   # Agent management
+│   ├── base-blueprints.ts    # 7 base agents + getBaseAgentNames()
 │   ├── factory.ts            # Dynamic domain-specific agent creation
 │   ├── registry.ts           # Blueprint storage + performance tracking
-│   └── stack-researcher.ts   # Tech stack analysis
+│   ├── domain-analyzer.ts    # Domain classification via LLM
+│   └── stack-researcher.ts   # Tech stack analysis via LLM
 ├── self-improve/             # Self-improvement engine
 │   ├── optimizer.ts          # Main optimization loop (facade)
 │   ├── optimizer-runner.ts   # Hill-climbing implementation
@@ -131,23 +136,30 @@ src/
 │   ├── verifiers.ts          # Deterministic + LLM-judged verification
 │   └── versioning.ts         # Prompt version history
 ├── environment/              # Stack discovery + configuration
-│   ├── lsp-manager.ts        # LSP server discovery + install
-│   ├── mcp-manager.ts        # MCP server discovery + prioritization
-│   └── plugin-manager.ts     # Plugin discovery + conflict detection
+│   ├── lsp-manager.ts        # LSP server install (async)
+│   ├── mcp-manager.ts        # MCP server configuration
+│   ├── plugin-manager.ts     # Plugin install (async)
+│   ├── oss-scanner.ts        # Open-source tool scanner
+│   ├── claude-md-generator.ts # CLAUDE.md generation
+│   └── validator.ts          # Input validation for LSP/MCP/plugins
 ├── hooks/                    # Claude Code hook handlers
-│   ├── quality-gate.ts       # Pre-commit quality checks
-│   ├── security.ts           # Security scanning
+│   ├── quality-gate.ts       # Lint check on TaskCompleted (async)
+│   ├── security.ts           # Command/path deny-list enforcement
 │   ├── idle-handler.ts       # Idle agent management
-│   ├── audit-logger.ts       # Operation audit trail
+│   ├── audit-logger.ts       # Operation audit trail (JSONL)
 │   ├── notifications.ts      # Slack/webhook alerts
-│   └── improvement-tracker.ts # Tool usage metrics
+│   └── improvement-tracker.ts # Tool usage metrics (TTL-evicted)
 ├── state/                    # Persistent state management
-│   ├── project-state.ts      # Immutable state + phase transitions
+│   ├── project-state.ts      # Immutable state, ALL_PHASES, phase transitions
 │   └── session-store.ts      # Session persistence
+├── types/
+│   └── llm-schemas.ts        # Zod schemas for all JSON parsing + structured output
 └── utils/                    # Shared utilities
+    ├── shared.ts             # extractFirstJson, isApiRetry, isRecord, errMsg
     ├── config.ts             # Zod-validated config loading
     ├── retry.ts              # Exponential backoff retry
-    ├── sdk-helpers.ts        # Claude Agent SDK wrappers
+    ├── sdk-helpers.ts        # consumeQuery, getQueryPermissions, getMaxTurns
+    ├── progress.ts           # Typed EventEmitter for phase progress
     └── templates.ts          # Prompt templates
 
 benchmarks/                   # External benchmark definitions
@@ -157,7 +169,7 @@ benchmarks/                   # External benchmark definitions
 ├── architecture-quality/tasks.json
 └── domain-specific/README.md
 
-tests/                        # 210 tests across 29 files
+tests/                        # 182 tests across 28 files
 ```
 
 ## Commands
@@ -174,7 +186,7 @@ tests/                        # 210 tests across 29 files
 ```bash
 npm run build       # Compile TypeScript
 npm run dev         # Run with tsx (no build)
-npm run test        # Run all 210 tests
+npm run test        # Run all 182 tests
 npm run test:watch  # Watch mode
 npm run typecheck   # Type checking
 npm run lint        # ESLint
