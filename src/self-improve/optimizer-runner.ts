@@ -193,11 +193,17 @@ export async function runOptimizerImpl(
         );
 
         if (worktreeResult.success) {
-          const parsed = JSON.parse(worktreeResult.output) as {
-            totalScore: number;
-            results: BenchmarkResult[];
-            totalCostUsd: number;
-          };
+          let parsed: { totalScore: number; results: BenchmarkResult[]; totalCostUsd: number };
+          try {
+            parsed = JSON.parse(worktreeResult.output) as typeof parsed;
+          } catch {
+            console.log(`[optimizer] Failed to parse worktree result: ${worktreeResult.output.slice(0, 100)}`);
+            newScore = 0;
+            newResults = [];
+            iterCost = 0;
+            totalCostUsd += iterCost;
+            continue;
+          }
           newScore = parsed.totalScore;
           newResults = parsed.results;
           iterCost = parsed.totalCostUsd;

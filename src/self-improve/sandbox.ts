@@ -29,6 +29,7 @@ export async function runInSandbox(
 ): Promise<SandboxResult> {
   const startTime = Date.now();
   const memoryMb = options.memoryLimitMb ?? 512;
+  const MAX_OUTPUT_BYTES = 10 * 1024 * 1024; // 10MB, same as runCommandInSandbox maxBuffer
 
   return new Promise<SandboxResult>((res) => {
     const child: ChildProcess = fork(resolve(scriptPath), args, {
@@ -53,11 +54,15 @@ export async function runInSandbox(
     };
 
     child.stdout?.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
+      if (stdout.length < MAX_OUTPUT_BYTES) {
+        stdout += chunk.toString();
+      }
     });
 
     child.stderr?.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
+      if (stderr.length < MAX_OUTPUT_BYTES) {
+        stderr += chunk.toString();
+      }
     });
 
     const timer = setTimeout(() => {
