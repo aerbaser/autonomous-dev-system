@@ -1,19 +1,17 @@
 import type { HookCallback } from "@anthropic-ai/claude-agent-sdk";
 
 const DENY_PATTERNS = [
-  /^rm\s+-rf\s/,
-  /^rm\s+-r\s/,
-  /^rm\s+-fr\s/,
-  /^sudo\s/,
-  /^dd\s/,
-  /^mkfs\s/,
-  /^shred\s/,
-  /^bash\s+-i/,
-  /^chmod\s+777/,
-  /^chown.*root/,
-  /^curl.*\|.*sh/,
-  /^wget.*\|.*sh/,
-  /^npm\s+config\s+set/,
+  /\brm\s+(-\w+\s+)*-r/,          // rm -rf, rm -r, rm -fr, etc.
+  /\bsudo\b/,
+  /\bdd\b\s/,
+  /\bmkfs\b/,
+  /\bshred\b/,
+  /\bbash\s+-i\b/,
+  /\bchmod\s+777\b/,
+  /\bchown\b.*\broot\b/,
+  /\bcurl\b.*\|\s*(ba)?sh/,
+  /\bwget\b.*\|\s*(ba)?sh/,
+  /\bnpm\s+config\s+set\b/,
   /--unsafe-perm/,
 ] as const;
 
@@ -21,8 +19,10 @@ const DENIED_PATHS = [
   /\.ssh\//,
   /\.aws\//,
   /\.netrc$/,
-  /\.env$/,
+  /\.env($|\.)/,           // matches .env, .env.local, .env.production, etc.
   /credentials\.json$/,
+  /\.pem$/,
+  /id_rsa/,
 ] as const;
 
 function isRecord(val: unknown): val is Record<string, unknown> {
@@ -38,15 +38,19 @@ export const securityHook: HookCallback = async (input, _toolUseID, _ctx) => {
   if (toolName === "Bash") {
     const command = typeof toolInput.command === "string" ? toolInput.command : undefined;
     if (command) {
-      for (const pattern of DENY_PATTERNS) {
-        if (pattern.test(command)) {
-          return {
-            hookSpecificOutput: {
-              hookEventName: "PreToolUse" as const,
-              permissionDecision: "deny" as const,
-              permissionDecisionReason: `Blocked dangerous command: ${command.slice(0, 100)}`,
-            },
-          };
+      // Split on shell operators to catch chained dangerous commands
+      const parts = command.split(/\s*(?:&&|\|\||[;|])\s*/);
+      for (const part of parts) {
+        for (const pattern of DENY_PATTERNS) {
+          if (pattern.test(part)) {
+            return {
+              hookSpecificOutput: {
+                hookEventName: "PreToolUse" as const,
+                permissionDecision: "deny" as const,
+                permissionDecisionReason: `Blocked dangerous command: ${command.slice(0, 100)}`,
+              },
+            };
+          }
         }
       }
     }

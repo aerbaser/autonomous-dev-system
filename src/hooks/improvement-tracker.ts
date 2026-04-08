@@ -2,7 +2,8 @@ import type { HookCallback } from "@anthropic-ai/claude-agent-sdk";
 import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 
-const TRACKER_LOG_PATH = resolve(".autonomous-dev", "improvement-data.jsonl");
+const TRACKER_LOG_PATH = process.env.TRACKER_LOG_PATH
+  ?? resolve(".autonomous-dev", "improvement-data.jsonl");
 
 const toolStartTimes = new Map<string, number>();
 
