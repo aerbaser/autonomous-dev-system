@@ -236,8 +236,8 @@ export function saveState(stateDir: string, state: ProjectState): void {
   const statePath = resolve(stateDir, "state.json");
   const dir = dirname(statePath);
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
-  state.updatedAt = new Date().toISOString();
-  writeFileSync(statePath, JSON.stringify(state, null, 2));
+  const toSave = { ...state, updatedAt: new Date().toISOString() };
+  writeFileSync(statePath, JSON.stringify(toSave, null, 2));
 }
 
 export function transitionPhase(state: ProjectState, to: Phase): ProjectState {

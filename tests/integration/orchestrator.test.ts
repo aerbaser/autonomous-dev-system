@@ -123,19 +123,13 @@ describe("Orchestrator", () => {
 
     // Ideation → specification (valid per VALID_TRANSITIONS)
     // Note: return state with currentPhase still "ideation" — orchestrator handles the transition
-    mockedRunIdeation
-      .mockResolvedValueOnce({
-        success: true,
-        nextPhase: "specification",
-        state: { ...specState, currentPhase: "ideation" },
-      })
-      // Specification phase also runs runIdeation (see PHASE_HANDLERS mapping)
-      .mockResolvedValueOnce({
-        success: true,
-        nextPhase: "architecture",
-        state: { ...specState, currentPhase: "specification" },
-      });
+    mockedRunIdeation.mockResolvedValueOnce({
+      success: true,
+      nextPhase: "specification",
+      state: { ...specState, currentPhase: "ideation" },
+    });
 
+    // Specification is now a pass-through (no LLM call), transitions straight to architecture
     mockedRunArchitecture.mockResolvedValue({
       success: true,
       state: { ...specState, currentPhase: "architecture" },
@@ -144,8 +138,8 @@ describe("Orchestrator", () => {
 
     await runOrchestrator(state, config);
 
-    // ideation + specification (both mapped to runIdeation)
-    expect(mockedRunIdeation).toHaveBeenCalledTimes(2);
+    // ideation called once; specification is a pass-through (no runIdeation call)
+    expect(mockedRunIdeation).toHaveBeenCalledTimes(1);
     expect(mockedRunArchitecture).toHaveBeenCalledTimes(1);
   });
 
