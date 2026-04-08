@@ -17,6 +17,12 @@ const deployTargetSchema = z.object({
   config: z.record(z.string(), z.string()).default({}),
 });
 
+export const ErrorType = {
+  BUDGET_EXCEEDED: "BUDGET_EXCEEDED",
+} as const;
+
+export type ErrorType = (typeof ErrorType)[keyof typeof ErrorType];
+
 export const ConfigSchema = z.object({
   anthropicApiKey: z.string().optional(),
   model: z
@@ -36,6 +42,10 @@ export const ConfigSchema = z.object({
   } satisfies z.input<typeof selfImproveSchema>),
   projectDir: z.string().default("."),
   stateDir: z.string().default(".autonomous-dev"),
+  budgetUsd: z.number().positive().optional(),
+  dryRun: z.boolean().default(false),
+  quickMode: z.boolean().default(false),
+  confirmSpec: z.boolean().default(false),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

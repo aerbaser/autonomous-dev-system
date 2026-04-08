@@ -29,8 +29,16 @@ program
   .requiredOption("--idea <text>", "Project idea description")
   .option("--config <path>", "Path to config file")
   .option("--resume <session-id>", "Resume from a previous session")
-  .action(async (opts: { idea: string; config?: string; resume?: string }) => {
+  .option("--budget <usd>", "Max budget in USD", parseFloat)
+  .option("--dry-run", "Show what would happen without executing")
+  .option("--quick", "Skip optional phases (env-setup, review, ab-testing)")
+  .option("--confirm-spec", "Pause for user confirmation after spec generation")
+  .action(async (opts: { idea: string; config?: string; resume?: string; budget?: number; dryRun?: boolean; quick?: boolean; confirmSpec?: boolean }) => {
     const config = loadConfig(opts.config);
+    config.budgetUsd = opts.budget;
+    config.dryRun = opts.dryRun ?? false;
+    config.quickMode = opts.quick ?? false;
+    config.confirmSpec = opts.confirmSpec ?? false;
     const stateDir = config.stateDir;
 
     let state = loadState(stateDir);
