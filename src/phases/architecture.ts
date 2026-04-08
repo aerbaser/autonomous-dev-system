@@ -5,6 +5,24 @@ import type { PhaseResult } from "../orchestrator.js";
 import { buildAgentTeam } from "../agents/factory.js";
 import { consumeQuery } from "../utils/sdk-helpers.js";
 
+function extractFirstJson(text: string): string | null {
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (text[i] === '}') {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        const candidate = text.slice(start, i + 1);
+        try { JSON.parse(candidate); return candidate; } catch { start = -1; }
+      }
+    }
+  }
+  return null;
+}
+
 const ARCH_PROMPT = `You are a Software Architect. Given a product specification, design the complete
 technical architecture.
 
@@ -76,14 +94,14 @@ Recommended tech: ${state.spec.domain.techStack.join(", ")}`,
     };
   }
 
-  const jsonMatch = archText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    return { success: false, state, error: "Failed to generate architecture: no JSON" };
+  const jsonStr = extractFirstJson(archText);
+  if (!jsonStr) {
+    return { success: false, state, error: "Failed to generate architecture: no valid JSON" };
   }
 
   let architecture: ArchDesign;
   try {
-    architecture = JSON.parse(jsonMatch[0]);
+    architecture = JSON.parse(jsonStr);
   } catch (e) {
     return { success: false, state, error: `Failed to parse architecture JSON: ${e}` };
   }
