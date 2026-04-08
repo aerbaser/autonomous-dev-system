@@ -11,16 +11,15 @@ interface AuditEntry {
   event: string;
 }
 
-/**
- * PostToolUse hook: logs all file modifications as JSONL for traceability.
- */
+function isRecord(val: unknown): val is Record<string, unknown> {
+  return typeof val === "object" && val !== null;
+}
+
 export const auditLoggerHook: HookCallback = async (input, _toolUseID, _ctx) => {
   if (input.hook_event_name !== "PostToolUse") return {};
 
-  const inp = input as Record<string, unknown>;
-  const toolInput = inp.tool_input as Record<string, unknown> | undefined;
-  const filePath = toolInput?.file_path as string | undefined;
-  const toolName = inp.tool_name as string | undefined;
+  const toolInput = isRecord(input.tool_input) ? input.tool_input : {};
+  const filePath = typeof toolInput.file_path === "string" ? toolInput.file_path : undefined;
 
   if (!filePath) return {};
 
@@ -29,7 +28,7 @@ export const auditLoggerHook: HookCallback = async (input, _toolUseID, _ctx) => 
 
   const entry: AuditEntry = {
     timestamp: new Date().toISOString(),
-    toolName: toolName ?? "unknown",
+    toolName: input.tool_name,
     filePath,
     event: input.hook_event_name,
   };

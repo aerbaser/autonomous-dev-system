@@ -90,14 +90,17 @@ export function getConvergenceReport(state: ConvergenceState): string {
   const lines: string[] = [];
   lines.push(`Iterations completed: ${state.scores.length}`);
   lines.push(`Best score: ${state.bestScore.toFixed(4)} (iteration ${state.bestIteration})`);
-  lines.push(`Current score: ${state.scores[state.scores.length - 1].toFixed(4)}`);
+  const currentScore = state.scores[state.scores.length - 1];
+  if (currentScore !== undefined) {
+    lines.push(`Current score: ${currentScore.toFixed(4)}`);
+  }
   lines.push(
     `Iterations without improvement: ${state.iterationsWithoutImprovement}`
   );
 
   if (state.scores.length >= 2) {
-    const first = state.scores[0];
-    const last = state.scores[state.scores.length - 1];
+    const first = state.scores[0]!;
+    const last = state.scores[state.scores.length - 1]!;
     const totalDelta = last - first;
     lines.push(
       `Total improvement: ${totalDelta >= 0 ? "+" : ""}${totalDelta.toFixed(4)} (${((totalDelta / Math.max(Math.abs(first), 0.0001)) * 100).toFixed(1)}%)`

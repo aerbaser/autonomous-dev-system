@@ -483,8 +483,12 @@ export async function runAllBenchmarks(
   let totalWeight = 0;
   let weightedSum = 0;
   for (let i = 0; i < suite.length; i++) {
-    weightedSum += results[i].score * suite[i].weight;
-    totalWeight += suite[i].weight;
+    const result = results[i];
+    const benchmark = suite[i];
+    if (result && benchmark) {
+      weightedSum += result.score * benchmark.weight;
+      totalWeight += benchmark.weight;
+    }
   }
 
   const totalScore = totalWeight > 0 ? weightedSum / totalWeight : 0;

@@ -106,7 +106,7 @@ export async function runCommandInSandbox(
 
   // Split command into executable + args for execFile (avoids shell injection)
   const parts = command.split(/\s+/);
-  const executable = parts[0];
+  const executable = parts[0] ?? command;
   const args = parts.slice(1);
 
   return new Promise<SandboxResult>((res) => {

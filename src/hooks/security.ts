@@ -1,6 +1,5 @@
 import type { HookCallback } from "@anthropic-ai/claude-agent-sdk";
 
-/** Patterns that should be blocked entirely */
 const DENY_PATTERNS = [
   /^rm\s+-rf\s/,
   /^rm\s+-r\s/,
@@ -18,7 +17,6 @@ const DENY_PATTERNS = [
   /--unsafe-perm/,
 ];
 
-/** Paths that should never be read or written */
 const DENIED_PATHS = [
   /\.ssh\//,
   /\.aws\//,
@@ -27,19 +25,18 @@ const DENIED_PATHS = [
   /credentials\.json$/,
 ];
 
-/**
- * PreToolUse hook: blocks dangerous operations and sensitive file access.
- */
+function isRecord(val: unknown): val is Record<string, unknown> {
+  return typeof val === "object" && val !== null;
+}
+
 export const securityHook: HookCallback = async (input, _toolUseID, _ctx) => {
   if (input.hook_event_name !== "PreToolUse") return {};
 
-  const inp = input as Record<string, unknown>;
-  const toolInput = inp.tool_input as Record<string, unknown>;
-  const toolName = inp.tool_name as string;
+  const toolName = input.tool_name;
+  const toolInput = isRecord(input.tool_input) ? input.tool_input : {};
 
-  // Check Bash commands
   if (toolName === "Bash") {
-    const command = toolInput?.command as string | undefined;
+    const command = typeof toolInput.command === "string" ? toolInput.command : undefined;
     if (command) {
       for (const pattern of DENY_PATTERNS) {
         if (pattern.test(command)) {
@@ -55,9 +52,8 @@ export const securityHook: HookCallback = async (input, _toolUseID, _ctx) => {
     }
   }
 
-  // Check file access
   if (["Read", "Write", "Edit"].includes(toolName)) {
-    const filePath = toolInput?.file_path as string | undefined;
+    const filePath = typeof toolInput.file_path === "string" ? toolInput.file_path : undefined;
     if (filePath) {
       for (const pattern of DENIED_PATHS) {
         if (pattern.test(filePath)) {

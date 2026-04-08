@@ -99,10 +99,10 @@ function selectMutationType(history: EvolutionEntry[]): MutationType {
   ) {
     return leastUsed.includes("agent_prompt")
       ? "agent_prompt"
-      : leastUsed[Math.floor(Math.random() * leastUsed.length)];
+      : leastUsed[Math.floor(Math.random() * leastUsed.length)] ?? "agent_prompt";
   }
 
-  return leastUsed[Math.floor(Math.random() * leastUsed.length)];
+  return leastUsed[Math.floor(Math.random() * leastUsed.length)] ?? "agent_prompt";
 }
 
 // ── Main mutation generator ──

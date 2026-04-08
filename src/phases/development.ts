@@ -115,13 +115,12 @@ export async function runDevelopment(
   let lastSessionId: string | undefined;
 
   for (let batchIdx = 0; batchIdx < taskBatches.length; batchIdx++) {
-    const batch = taskBatches[batchIdx];
+    const batch = taskBatches[batchIdx]!;
     console.log(
       `[development] Batch ${batchIdx + 1}/${taskBatches.length}: ` +
         `${batch.length} task(s) — ${batch.map((t) => t.title).join(", ")}`
     );
 
-    // Build subagent definitions for this batch
     const batchAgentDefs = buildBatchAgents(
       batch,
       updatedState,
@@ -129,7 +128,6 @@ export async function runDevelopment(
       config
     );
 
-    // Execute the batch
     const batchResult = await executeBatch(
       batch,
       batchAgentDefs,

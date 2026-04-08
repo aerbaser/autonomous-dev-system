@@ -59,7 +59,8 @@ function selectTargetAgent(
 
   // Fall back to round-robin if no performance data
   if (!worstAgent) {
-    return agents[iteration % agents.length];
+    // agents.length > 0 guaranteed by the check above
+    return agents[iteration % agents.length]!;
   }
 
   return worstAgent;

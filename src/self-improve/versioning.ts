@@ -91,14 +91,14 @@ export function listPromptVersions(
       const filePath = join(dir, f);
       const stat = statSync(filePath);
       const versionMatch = f.match(/^v(\d+)\.md$/);
-      const version = versionMatch ? parseInt(versionMatch[1], 10) : 0;
+      const version = versionMatch?.[1] ? parseInt(versionMatch[1], 10) : 0;
 
       // Try to extract timestamp from metadata
       let timestamp = stat.mtime.toISOString();
       try {
         const content = readFileSync(filePath, "utf-8");
         const tsMatch = content.match(/<!-- timestamp: (.+?) -->/);
-        if (tsMatch) timestamp = tsMatch[1];
+        if (tsMatch?.[1]) timestamp = tsMatch[1];
       } catch {
         // Use file mtime as fallback
       }
@@ -141,26 +141,30 @@ export function diffPromptVersions(
   let k = 0;
 
   while (i < lines1.length || j < lines2.length) {
-    if (k < lcs.length && i < lines1.length && lines1[i] === lcs[k]) {
-      if (j < lines2.length && lines2[j] === lcs[k]) {
-        // Common line
-        output.push(`  ${lines1[i]}`);
+    const l1 = lines1[i];
+    const l2 = lines2[j];
+    const lk = lcs[k];
+
+    if (k < lcs.length && i < lines1.length && l1 === lk) {
+      if (j < lines2.length && l2 === lk) {
+        output.push(`  ${l1}`);
         i++;
         j++;
         k++;
+      } else if (l2 !== undefined) {
+        output.push(`+ ${l2}`);
+        j++;
       } else {
-        // Added in v2
-        output.push(`+ ${lines2[j]}`);
         j++;
       }
-    } else if (i < lines1.length && (k >= lcs.length || lines1[i] !== lcs[k])) {
-      // Removed from v1
-      output.push(`- ${lines1[i]}`);
+    } else if (i < lines1.length && l1 !== undefined && (k >= lcs.length || l1 !== lk)) {
+      output.push(`- ${l1}`);
       i++;
-    } else if (j < lines2.length) {
-      // Added in v2
-      output.push(`+ ${lines2[j]}`);
+    } else if (j < lines2.length && l2 !== undefined) {
+      output.push(`+ ${l2}`);
       j++;
+    } else {
+      break;
     }
   }
 
@@ -180,23 +184,22 @@ function computeLcs(a: string[], b: string[]): string[] {
   for (let i = 1; i <= m; i++) {
     for (let j = 1; j <= n; j++) {
       if (a[i - 1] === b[j - 1]) {
-        dp[i][j] = dp[i - 1][j - 1] + 1;
+        dp[i]![j] = dp[i - 1]![j - 1]! + 1;
       } else {
-        dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
+        dp[i]![j] = Math.max(dp[i - 1]![j]!, dp[i]![j - 1]!);
       }
     }
   }
 
-  // Backtrack to find the LCS
   const result: string[] = [];
   let i = m;
   let j = n;
   while (i > 0 && j > 0) {
     if (a[i - 1] === b[j - 1]) {
-      result.unshift(a[i - 1]);
+      result.unshift(a[i - 1]!);
       i--;
       j--;
-    } else if (dp[i - 1][j] > dp[i][j - 1]) {
+    } else if ((dp[i - 1]![j]!) > (dp[i]![j - 1]!)) {
       i--;
     } else {
       j--;

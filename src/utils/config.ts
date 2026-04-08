@@ -49,14 +49,16 @@ export function loadConfig(configPath?: string): Config {
     if (!existsSync(absPath)) {
       throw new Error(`Config file not found: ${absPath}`);
     }
-    const fileConfig = JSON.parse(readFileSync(absPath, "utf-8")) as Record<string, unknown>;
+    const raw: unknown = JSON.parse(readFileSync(absPath, "utf-8"));
+    const fileConfig = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
     return ConfigSchema.parse({ ...defaults, ...fileConfig });
   }
 
   // Try loading from default location
   const defaultPath = resolve(".autonomous-dev/config.json");
   if (existsSync(defaultPath)) {
-    const fileConfig = JSON.parse(readFileSync(defaultPath, "utf-8")) as Record<string, unknown>;
+    const raw: unknown = JSON.parse(readFileSync(defaultPath, "utf-8"));
+    const fileConfig = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
     return ConfigSchema.parse({ ...defaults, ...fileConfig });
   }
 

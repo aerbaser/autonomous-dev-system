@@ -15,8 +15,7 @@ export function getMcpServersForPhase(
   // Always include defaults
   Object.assign(servers, DEFAULT_MCP_SERVERS);
 
-  // Add domain-specific servers
-  if (domain) {
+  if (domain && domain.classification in DOMAIN_MCP_SERVERS) {
     const domainServers = DOMAIN_MCP_SERVERS[domain.classification];
     if (domainServers) {
       Object.assign(servers, domainServers);
