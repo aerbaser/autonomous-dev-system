@@ -24,7 +24,7 @@ idea → ideation → specification → architecture → environment-setup
 ### Prerequisites
 
 - Node.js 20+
-- An Anthropic API key (`ANTHROPIC_API_KEY` env var)
+- [Claude Code](https://claude.ai/code) subscription (Pro, Max, or Team) — the system uses `@anthropic-ai/claude-agent-sdk` which runs through Claude Code's authentication, no separate API key needed
 
 ### Install
 
@@ -35,11 +35,22 @@ npm install
 npm run build
 ```
 
-### Run
+### Run via Claude Code (recommended)
+
+The system is designed to run inside Claude Code. Open the project directory in Claude Code and ask it to start development:
 
 ```bash
-# Start a new project from an idea
-export ANTHROPIC_API_KEY=sk-ant-...
+# Open the project in Claude Code
+cd autonomous-dev-system
+claude
+
+# Then in Claude Code, say:
+# "Run autonomous-dev with idea: Build a real-time collaborative todo app"
+```
+
+Or run directly — Claude Code's SDK handles auth automatically when invoked within its context:
+
+```bash
 npx autonomous-dev run --idea "Build a real-time collaborative todo app with WebSocket sync"
 
 # Check project status
@@ -83,11 +94,12 @@ The system looks for config in `.autonomous-dev/config.json`, or you can pass `-
 }
 ```
 
-Environment variables:
-- `ANTHROPIC_API_KEY` — required
+Environment variables (all optional):
 - `GITHUB_TOKEN` — for GitHub integrations
 - `SLACK_WEBHOOK_URL` — for Slack notifications
 - `POSTHOG_API_KEY` — for analytics
+
+> **Note:** No `ANTHROPIC_API_KEY` needed — the system uses Claude Agent SDK which authenticates through your Claude Code subscription.
 
 ## Architecture
 
