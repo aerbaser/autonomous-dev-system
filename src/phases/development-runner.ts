@@ -5,6 +5,7 @@ import type {
   ProjectState,
   PhaseCheckpoint,
   Task,
+  UserStory,
 } from "../state/project-state.js";
 import type { PhaseResult } from "../orchestrator.js";
 import type {
@@ -25,6 +26,24 @@ import {
   saveState,
 } from "../state/project-state.js";
 import { execSync } from "node:child_process";
+
+function extractFirstJson(text: string): string | null {
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (text[i] === '}') {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        const candidate = text.slice(start, i + 1);
+        try { JSON.parse(candidate); return candidate; } catch { start = -1; }
+      }
+    }
+  }
+  return null;
+}
 
 // --- Main entry point ---
 
@@ -204,13 +223,7 @@ export async function runDevelopment(
 // --- Task Decomposition ---
 
 async function decomposeUserStories(
-  stories: ProjectState["spec"] extends infer S
-    ? S extends { userStories: infer U }
-      ? U extends Array<infer V>
-        ? V[]
-        : never
-      : never
-    : never,
+  stories: UserStory[],
   state: ProjectState,
   config: Config
 ): Promise<DevTask[]> {
@@ -481,10 +494,10 @@ Report what you implemented and any decisions you made.`;
  */
 function parseTaskResults(output: string, tasks: Task[]): TaskResult[] {
   // Try to find a JSON block with a "tasks" array in the output
-  const jsonMatch = output.match(/\{[\s\S]*"tasks"[\s\S]*\}/);
-  if (jsonMatch) {
+  const jsonStr = extractFirstJson(output);
+  if (jsonStr) {
     try {
-      const parsed = JSON.parse(jsonMatch[0]) as {
+      const parsed = JSON.parse(jsonStr) as {
         tasks: Array<{ title: string; status: string }>;
       };
       if (Array.isArray(parsed.tasks)) {

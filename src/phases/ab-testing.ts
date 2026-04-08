@@ -6,6 +6,24 @@ import { getMcpServerConfigs } from "../environment/mcp-manager.js";
 import { randomUUID } from "node:crypto";
 import { consumeQuery } from "../utils/sdk-helpers.js";
 
+function extractFirstJson(text: string): string | null {
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (text[i] === '}') {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        const candidate = text.slice(start, i + 1);
+        try { JSON.parse(candidate); return candidate; } catch { start = -1; }
+      }
+    }
+  }
+  return null;
+}
+
 export async function runABTesting(
   state: ProjectState,
   config: Config
@@ -71,13 +89,13 @@ Output JSON:
     };
   }
 
-  const jsonMatch = resultText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
+  const jsonStr = extractFirstJson(resultText);
+  if (!jsonStr) {
     return { success: false, state, error: "Failed to design A/B test" };
   }
 
   try {
-    const design = JSON.parse(jsonMatch[0]) as {
+    const design = JSON.parse(jsonStr) as {
       name: string;
       hypothesis: string;
       variants: string[];
@@ -134,8 +152,9 @@ For each test, output:
 
 Output a JSON array.`;
 
+  let analysisText = "";
   try {
-    await consumeQuery(
+    const { result } = await consumeQuery(
       query({
         prompt,
         options: {
@@ -148,14 +167,46 @@ Output a JSON array.`;
       }),
       "ab-test-analysis"
     );
+    analysisText = result;
   } catch (err) {
     console.warn(`[ab-test] Analysis query failed: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // Mark tests as completed and move to next iteration
-  const completedTests = state.abTests.map((t) =>
-    t.status === "running" ? { ...t, status: "completed" as const } : t
-  );
+  // Parse analysis results and build a lookup by testId
+  const analysisById = new Map<string, ABTest["result"]>();
+  if (analysisText) {
+    // Try to extract individual JSON objects for each test
+    let remaining = analysisText;
+    let jsonObj = extractFirstJson(remaining);
+    while (jsonObj) {
+      try {
+        const parsed = JSON.parse(jsonObj) as {
+          testId?: string;
+          winner?: string;
+          pValue?: number;
+          metrics?: Record<string, number>;
+        };
+        if (parsed.testId && parsed.winner != null && parsed.pValue != null) {
+          analysisById.set(parsed.testId, {
+            winner: parsed.winner,
+            pValue: parsed.pValue,
+            metrics: parsed.metrics ?? {},
+          });
+        }
+      } catch { /* skip malformed */ }
+      // Remove the parsed JSON from remaining text and continue
+      const idx = remaining.indexOf(jsonObj);
+      remaining = remaining.slice(idx + jsonObj.length);
+      jsonObj = extractFirstJson(remaining);
+    }
+  }
+
+  // Mark tests as completed and attach analysis results
+  const completedTests = state.abTests.map((t) => {
+    if (t.status !== "running") return t;
+    const analysis = analysisById.get(t.id);
+    return { ...t, status: "completed" as const, ...(analysis ? { result: analysis } : {}) };
+  });
 
   const newState: ProjectState = {
     ...state,
