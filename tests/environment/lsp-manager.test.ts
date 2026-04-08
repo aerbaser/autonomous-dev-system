@@ -1,11 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 
 // Mock child_process
 vi.mock("node:child_process", () => ({
+  execFileSync: vi.fn(),
   execSync: vi.fn(),
 }));
 
+const mockedExecFileSync = vi.mocked(execFileSync);
 const mockedExecSync = vi.mocked(execSync);
 
 const { installLspServers, smokeTestLsp } = await import("../../src/environment/lsp-manager.js");
@@ -14,17 +16,18 @@ import type { LspConfig } from "../../src/state/project-state.js";
 
 describe("LSP Manager", () => {
   beforeEach(() => {
+    mockedExecFileSync.mockReset();
     mockedExecSync.mockReset();
   });
 
   describe("smokeTestLsp", () => {
     it("returns true when binary is found in PATH", () => {
-      mockedExecSync.mockReturnValue(Buffer.from("/usr/local/bin/vtsls"));
+      mockedExecFileSync.mockReturnValue(Buffer.from("/usr/local/bin/vtsls"));
       expect(smokeTestLsp("vtsls", "typescript")).toBe(true);
     });
 
     it("returns false when binary is not found", () => {
-      mockedExecSync.mockImplementation(() => {
+      mockedExecFileSync.mockImplementation(() => {
         throw new Error("not found");
       });
       expect(smokeTestLsp("nonexistent-lsp", "unknown")).toBe(false);
@@ -33,8 +36,9 @@ describe("LSP Manager", () => {
 
   describe("installLspServers", () => {
     it("installs and verifies LSP server successfully", () => {
-      // First call: install command, Second call: which (smoke test)
+      // execSync for install command, execFileSync for smoke test (which)
       mockedExecSync.mockReturnValue(Buffer.from("ok"));
+      mockedExecFileSync.mockReturnValue(Buffer.from("/usr/local/bin/vtsls"));
 
       const servers: LspConfig[] = [
         {
@@ -47,15 +51,13 @@ describe("LSP Manager", () => {
 
       const results = installLspServers(servers);
       expect(results[0].installed).toBe(true);
-      // Verify both install and smoke test were called
-      expect(mockedExecSync).toHaveBeenCalledTimes(2);
+      expect(mockedExecSync).toHaveBeenCalledTimes(1);
+      expect(mockedExecFileSync).toHaveBeenCalledTimes(1);
     });
 
     it("marks as not installed when smoke test fails", () => {
-      let callCount = 0;
-      mockedExecSync.mockImplementation(() => {
-        callCount++;
-        if (callCount === 1) return Buffer.from("installed"); // install succeeds
+      mockedExecSync.mockReturnValue(Buffer.from("installed")); // install succeeds
+      mockedExecFileSync.mockImplementation(() => {
         throw new Error("not found"); // smoke test fails
       });
 
@@ -121,12 +123,13 @@ describe("LSP Manager", () => {
     });
 
     it("handles multiple servers independently", () => {
-      let callCount = 0;
+      let installCount = 0;
       mockedExecSync.mockImplementation(() => {
-        callCount++;
-        if (callCount <= 2) return Buffer.from("ok"); // first server: install + smoke
-        throw new Error("fail"); // second server: install fails
+        installCount++;
+        if (installCount === 1) return Buffer.from("ok"); // first server install
+        throw new Error("fail"); // second server install fails
       });
+      mockedExecFileSync.mockReturnValue(Buffer.from("ok")); // smoke test passes
 
       const servers: LspConfig[] = [
         {

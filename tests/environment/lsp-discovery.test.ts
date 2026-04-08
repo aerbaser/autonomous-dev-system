@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 // Mock child_process
 vi.mock("node:child_process", () => ({
+  execFileSync: vi.fn(),
   execSync: vi.fn(),
 }));
 
-const mockedExecSync = vi.mocked(execSync);
+const mockedExecFileSync = vi.mocked(execFileSync);
 
 const { discoverLspServers, checkExistingLsp } = await import(
   "../../src/environment/lsp-manager.js"
@@ -14,7 +15,7 @@ const { discoverLspServers, checkExistingLsp } = await import(
 
 describe("LSP Discovery", () => {
   beforeEach(() => {
-    mockedExecSync.mockReset();
+    mockedExecFileSync.mockReset();
   });
 
   describe("discoverLspServers", () => {
@@ -66,7 +67,7 @@ describe("LSP Discovery", () => {
 
   describe("checkExistingLsp", () => {
     it("returns installed config when server binary is found", () => {
-      mockedExecSync.mockReturnValue(Buffer.from("/usr/local/bin/pyright"));
+      mockedExecFileSync.mockReturnValue(Buffer.from("/usr/local/bin/pyright"));
 
       const result = checkExistingLsp("python");
 
@@ -77,7 +78,7 @@ describe("LSP Discovery", () => {
     });
 
     it("returns null when no server is installed", () => {
-      mockedExecSync.mockImplementation(() => {
+      mockedExecFileSync.mockImplementation(() => {
         throw new Error("not found");
       });
 
@@ -88,19 +89,19 @@ describe("LSP Discovery", () => {
     it("returns null for unknown language", () => {
       const result = checkExistingLsp("cobol");
       expect(result).toBeNull();
-      expect(mockedExecSync).not.toHaveBeenCalled();
+      expect(mockedExecFileSync).not.toHaveBeenCalled();
     });
 
     it("returns first found server when multiple are installed", () => {
       // First which call succeeds (first server in registry)
-      mockedExecSync.mockReturnValue(Buffer.from("/usr/local/bin/vtsls"));
+      mockedExecFileSync.mockReturnValue(Buffer.from("/usr/local/bin/vtsls"));
 
       const result = checkExistingLsp("typescript");
 
       expect(result).not.toBeNull();
       expect(result!.server).toBe("vtsls");
       // Should only check once since the first one was found
-      expect(mockedExecSync).toHaveBeenCalledTimes(1);
+      expect(mockedExecFileSync).toHaveBeenCalledTimes(1);
     });
   });
 });

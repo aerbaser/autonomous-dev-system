@@ -1,6 +1,5 @@
 import { fork, execFile, type ChildProcess } from "node:child_process";
 import { resolve, join } from "node:path";
-import { mkdtempSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 
@@ -107,10 +106,23 @@ export async function runCommandInSandbox(
   const startTime = Date.now();
   const memoryMb = options.memoryLimitMb ?? 512;
 
-  // Split command into executable + args for execFile (avoids shell injection)
-  const parts = command.split(/\s+/);
-  const executable = parts[0] ?? command;
-  const args = parts.slice(1);
+  // Parse command into executable + args, respecting quoted strings
+  const args: string[] = [];
+  let current = "";
+  let inQuote: string | null = null;
+  for (const ch of command) {
+    if (inQuote) {
+      if (ch === inQuote) { inQuote = null; } else { current += ch; }
+    } else if (ch === '"' || ch === "'") {
+      inQuote = ch;
+    } else if (/\s/.test(ch)) {
+      if (current) { args.push(current); current = ""; }
+    } else {
+      current += ch;
+    }
+  }
+  if (current) args.push(current);
+  const executable = args.shift() ?? command;
 
   return new Promise<SandboxResult>((res) => {
     const child = execFile(

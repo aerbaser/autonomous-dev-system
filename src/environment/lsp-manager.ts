@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import type { LspConfig } from "../state/project-state.js";
 import { validateLsp } from "./validator.js";
 
@@ -83,7 +83,7 @@ export function checkExistingLsp(language: string): LspConfig | null {
  */
 export function smokeTestLsp(server: string, _language: string): boolean {
   try {
-    execSync(`which ${server}`, { stdio: "pipe", timeout: 5000 });
+    execFileSync("which", [server], { stdio: "pipe", timeout: 5000 });
     return true;
   } catch {
     return false;

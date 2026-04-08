@@ -321,7 +321,7 @@ export async function runBenchmark(
   const verifier: Verifier =
     benchmark.verifier === "deterministic"
       ? createDeterministicVerifier()
-      : createLlmVerifier("", {});
+      : createLlmVerifier("Rate the quality of the output on a scale of 0 to 1, considering correctness, completeness, and clarity.", {});
 
   for (const task of benchmark.tasks) {
     const result = await verifier.run(task);
