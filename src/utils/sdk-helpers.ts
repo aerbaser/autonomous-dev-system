@@ -1,4 +1,5 @@
 import type { Query, SDKMessage, SDKResultError } from "@anthropic-ai/claude-agent-sdk";
+import { isApiRetry } from "./shared.js";
 
 export interface QueryResult {
   result: string;
@@ -31,8 +32,9 @@ export class QueryExecutionError extends Error {
 
 export function streamToConsole(message: SDKMessage): void {
   if (message.type === "assistant" && "content" in message) {
-    for (const block of (message as any).content ?? []) {
-      if (block.type === "text") {
+    const msg = message as { content?: Array<{ type: string; text?: string }> };
+    for (const block of msg.content ?? []) {
+      if (block.type === "text" && block.text) {
         process.stdout.write(block.text);
       }
     }
@@ -86,7 +88,7 @@ export function getPermissionMode(level?: PermissionLevel): "bypassPermissions" 
     case "bypass": return "bypassPermissions";
     case "auto": return "auto";
     case "interactive": return "default";
-    default: return "bypassPermissions"; // backward compat
+    default: return "default"; // safe default
   }
 }
 
@@ -109,12 +111,4 @@ export function estimateCost(inputTokens: number, outputTokens: number, model: s
   const p = pricing[model] ?? defaultPricing;
   const estimatedUsd = (inputTokens * p.input + outputTokens * p.output) / 1_000_000;
   return { inputTokens, outputTokens, estimatedUsd };
-}
-
-function isApiRetry(
-  message: SDKMessage
-): message is Extract<SDKMessage, { subtype: "api_retry" }> {
-  if (message.type !== "system" || !("subtype" in message)) return false;
-  const record: Record<string, unknown> = message;
-  return record.subtype === "api_retry";
 }

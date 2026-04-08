@@ -1,10 +1,7 @@
 import { z } from "zod";
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";
-
-function isRecord(val: unknown): val is Record<string, unknown> {
-  return typeof val === "object" && val !== null;
-}
+import { isRecord } from "./shared.js";
 
 const selfImproveSchema = z.object({
   enabled: z.boolean().default(true),
@@ -16,12 +13,6 @@ const deployTargetSchema = z.object({
   provider: z.enum(["vercel", "netlify", "docker", "custom"]),
   config: z.record(z.string(), z.string()).default({}),
 });
-
-export const ErrorType = {
-  BUDGET_EXCEEDED: "BUDGET_EXCEEDED",
-} as const;
-
-export type ErrorType = (typeof ErrorType)[keyof typeof ErrorType];
 
 export const ConfigSchema = z.object({
   anthropicApiKey: z.string().optional(),
