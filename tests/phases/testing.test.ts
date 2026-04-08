@@ -137,8 +137,8 @@ describe("Testing Phase", () => {
     const state = makeStateWithSpec();
     const result = await runTesting(state, makeConfig());
 
-    // Error handling sends back to development
-    expect(result.success).toBe(true);
-    expect(result.nextPhase).toBe("development");
+    // Error is now properly reported (not swallowed)
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
   });
 });

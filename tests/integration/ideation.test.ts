@@ -171,7 +171,7 @@ describe("Ideation Phase", () => {
     const result = await runIdeation(state, makeConfig());
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("no JSON");
+    expect(result.error).toContain("no valid JSON");
   });
 
   it("returns failure when query returns invalid JSON", async () => {
@@ -205,6 +205,6 @@ describe("Ideation Phase", () => {
     const result = await runIdeation(state, makeConfig());
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("parse spec JSON");
+    expect(result.error).toContain("no valid JSON");
   });
 });

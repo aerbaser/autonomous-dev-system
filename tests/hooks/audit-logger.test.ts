@@ -88,7 +88,7 @@ describe("Audit Logger Hook", () => {
     expect(mockedAppendFileSync).not.toHaveBeenCalled();
   });
 
-  it("skips logging when tool_input has no file_path", async () => {
+  it("logs Bash commands", async () => {
     const result = await auditLoggerHook(
       makePostToolUseInput("Bash", { command: "ls -la" }),
       undefined,
@@ -96,6 +96,11 @@ describe("Audit Logger Hook", () => {
     );
 
     expect(result).toEqual({});
-    expect(mockedAppendFileSync).not.toHaveBeenCalled();
+    expect(mockedAppendFileSync).toHaveBeenCalledOnce();
+
+    const written = mockedAppendFileSync.mock.calls[0]![1] as string;
+    const entry = JSON.parse(written.trim());
+    expect(entry.toolName).toBe("Bash");
+    expect(entry.command).toBe("ls -la");
   });
 });

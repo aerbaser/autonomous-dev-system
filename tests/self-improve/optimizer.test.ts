@@ -2,12 +2,15 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdirSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type {
-  AgentBlueprint,
-  ProjectState,
+import {
+  type AgentBlueprint,
+  type ProjectState,
+  saveState,
 } from "../../src/state/project-state.js";
 import type { BenchmarkResult } from "../../src/self-improve/benchmarks.js";
 import type { Mutation } from "../../src/self-improve/mutation-engine.js";
+
+const mockedSaveState = vi.mocked(saveState);
 
 const TEST_STATE_DIR = join(tmpdir(), `ads-test-optimizer-${process.pid}`);
 
@@ -182,6 +185,7 @@ describe("Optimizer", () => {
     mockQuery.mockReset();
     mockGenerateMutations.mockReset();
     mockGenerateMutations.mockResolvedValue([]);
+    mockedSaveState.mockReset();
 
     if (existsSync(TEST_STATE_DIR))
       rmSync(TEST_STATE_DIR, { recursive: true });
@@ -207,10 +211,11 @@ describe("Optimizer", () => {
     const state = makeState();
     await runOptimizer(state, makeConfig(), { maxIterations: 1 });
 
-    // The mutation targets "developer" (worst performer);
-    // verify through the evolution entry pushed to state.evolution (shared ref)
-    expect(state.evolution.length).toBeGreaterThanOrEqual(1);
-    expect(state.evolution[0]!.target).toBe("developer");
+    // State is now immutable — read final state from last saveState call
+    const lastCall = mockedSaveState.mock.calls[mockedSaveState.mock.calls.length - 1];
+    const finalState = lastCall![1] as ProjectState;
+    expect(finalState.evolution.length).toBeGreaterThanOrEqual(1);
+    expect(finalState.evolution[0]!.target).toBe("developer");
   });
 
   it("accepts mutations that improve the score", async () => {
@@ -221,7 +226,9 @@ describe("Optimizer", () => {
     const state = makeState();
     await runOptimizer(state, makeConfig(), { maxIterations: 1 });
 
-    const accepted = state.evolution.filter((e) => e.accepted);
+    const lastCall = mockedSaveState.mock.calls[mockedSaveState.mock.calls.length - 1];
+    const finalState = lastCall![1] as ProjectState;
+    const accepted = finalState.evolution.filter((e) => e.accepted);
     expect(accepted.length).toBe(1);
     expect(accepted[0]!.scoreAfter).toBe(0.7);
     expect(accepted[0]!.scoreBefore).toBe(0.5);
@@ -235,7 +242,9 @@ describe("Optimizer", () => {
     const state = makeState();
     await runOptimizer(state, makeConfig(), { maxIterations: 1 });
 
-    const rejected = state.evolution.filter((e) => !e.accepted);
+    const lastCall = mockedSaveState.mock.calls[mockedSaveState.mock.calls.length - 1];
+    const finalState = lastCall![1] as ProjectState;
+    const rejected = finalState.evolution.filter((e) => !e.accepted);
     expect(rejected.length).toBe(1);
     expect(rejected[0]!.scoreAfter).toBe(0.4);
     expect(rejected[0]!.scoreBefore).toBe(0.5);
@@ -278,9 +287,11 @@ describe("Optimizer", () => {
       convergence: { maxStagnantIterations: 100, minIterations: 100 },
     });
 
-    expect(state.evolution.length).toBe(2);
-    expect(state.evolution[0]!.accepted).toBe(true);
-    expect(state.evolution[1]!.accepted).toBe(false);
+    const lastCall = mockedSaveState.mock.calls[mockedSaveState.mock.calls.length - 1];
+    const finalState = lastCall![1] as ProjectState;
+    expect(finalState.evolution.length).toBe(2);
+    expect(finalState.evolution[0]!.accepted).toBe(true);
+    expect(finalState.evolution[1]!.accepted).toBe(false);
   });
 
   it("handles zero mutations gracefully", async () => {
@@ -309,7 +320,9 @@ describe("Optimizer", () => {
 
     // With no perf data, round-robin picks agents[iteration % length]
     // iteration=0, agents.length=2 → agents[0] = "developer"
-    expect(state.evolution.length).toBe(1);
-    expect(state.evolution[0]!.target).toBe("developer");
+    const lastCall = mockedSaveState.mock.calls[mockedSaveState.mock.calls.length - 1];
+    const finalState = lastCall![1] as ProjectState;
+    expect(finalState.evolution.length).toBe(1);
+    expect(finalState.evolution[0]!.target).toBe("developer");
   });
 });

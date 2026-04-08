@@ -38,8 +38,8 @@ export const securityHook: HookCallback = async (input, _toolUseID, _ctx) => {
   if (toolName === "Bash") {
     const command = typeof toolInput.command === "string" ? toolInput.command : undefined;
     if (command) {
-      // Split on shell operators to catch chained dangerous commands
-      const parts = command.split(/\s*(?:&&|\|\||[;|])\s*/);
+      // Split on shell command separators (not pipe — pipe is part of curl|sh patterns)
+      const parts = command.split(/\s*(?:&&|\|\||;)\s*/);
       for (const part of parts) {
         for (const pattern of DENY_PATTERNS) {
           if (pattern.test(part)) {

@@ -139,7 +139,7 @@ describe("Architecture Phase", () => {
     const result = await runArchitecture(state, makeConfig());
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("no JSON");
+    expect(result.error).toContain("no valid JSON");
   });
 
   it("returns failure when query returns invalid JSON", async () => {
@@ -151,6 +151,6 @@ describe("Architecture Phase", () => {
     const result = await runArchitecture(state, makeConfig());
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("parse architecture JSON");
+    expect(result.error).toContain("no valid JSON");
   });
 });

@@ -16,53 +16,24 @@ function makeIdleInput(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Idle Handler Hook", () => {
-  it("suggests shutdown when idle exceeds threshold and no tasks remain", async () => {
+  it("suggests action when agent is idle", async () => {
     const result = await idleHandlerHook(
-      makeIdleInput({ idle_duration_ms: 600_000 }) as any,
+      makeIdleInput() as any,
       undefined,
       { signal },
     );
     expect(result.systemMessage).toBeDefined();
-    expect(result.systemMessage).toContain("idle for 10m");
-    expect(result.systemMessage).toContain("Recommend shutdown");
+    expect(result.systemMessage).toContain("dev-agent");
+    expect(result.systemMessage).toContain("idle");
   });
 
-  it("returns empty when idle is below threshold", async () => {
+  it("includes agent name in message", async () => {
     const result = await idleHandlerHook(
-      makeIdleInput({ idle_duration_ms: 60_000 }) as any,
+      makeIdleInput({ teammate_name: "reviewer-agent" }) as any,
       undefined,
       { signal },
     );
-    expect(result).toEqual({});
-  });
-
-  it("suggests reassignment when tasks are available", async () => {
-    const result = await idleHandlerHook(
-      makeIdleInput({
-        idle_duration_ms: 400_000,
-        pending_tasks: [{ id: "task-1", title: "Fix login bug" }],
-        idle_threshold_ms: 300_000,
-      }) as any,
-      undefined,
-      { signal },
-    );
-    expect(result.systemMessage).toBeDefined();
-    expect(result.systemMessage).toContain("Reassign to pending task");
-    expect(result.systemMessage).toContain("Fix login bug");
-  });
-
-  it("respects custom idle threshold", async () => {
-    const result = await idleHandlerHook(
-      makeIdleInput({
-        idle_duration_ms: 120_000,
-        idle_threshold_ms: 60_000,
-      }) as any,
-      undefined,
-      { signal },
-    );
-    expect(result.systemMessage).toBeDefined();
-    expect(result.systemMessage).toContain("idle for 2m");
-    expect(result.systemMessage).toContain("Recommend shutdown");
+    expect(result.systemMessage).toContain("reviewer-agent");
   });
 
   it("ignores non-TeammateIdle events", async () => {

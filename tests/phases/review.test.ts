@@ -96,8 +96,8 @@ describe("Review Phase", () => {
     const state = createInitialState("Build a blog");
     const result = await runReview(state, makeConfig());
 
-    // Error handling falls back to development
-    expect(result.success).toBe(true);
-    expect(result.nextPhase).toBe("development");
+    // Error is now properly reported (not swallowed)
+    expect(result.success).toBe(false);
+    expect(result.error).toBeDefined();
   });
 });
