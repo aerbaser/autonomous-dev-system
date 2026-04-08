@@ -1,5 +1,8 @@
 import { fork, execFile, type ChildProcess } from "node:child_process";
-import { resolve } from "node:path";
+import { resolve, join } from "node:path";
+import { mkdtempSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { randomUUID } from "node:crypto";
 
 export interface SandboxOptions {
   timeoutMs: number;
@@ -155,5 +158,122 @@ export async function runCommandInSandbox(
         durationMs: Date.now() - startTime,
       });
     }
+  });
+}
+
+// ── Worktree-based isolation ──
+
+export interface WorktreeSandboxOptions extends SandboxOptions {
+  repoDir: string;
+}
+
+/**
+ * Execute a task function inside an isolated git worktree.
+ * Creates a detached worktree, runs taskFn with the worktree path,
+ * and always cleans up afterwards.
+ */
+export async function runInWorktreeSandbox(
+  taskFn: (worktreeDir: string) => Promise<SandboxResult>,
+  options: WorktreeSandboxOptions
+): Promise<SandboxResult> {
+  const startTime = Date.now();
+  const worktreeDir = join(
+    tmpdir(),
+    `worktree-sandbox-${randomUUID().slice(0, 8)}`
+  );
+
+  // Create isolated worktree
+  try {
+    await execGit(["worktree", "add", worktreeDir, "--detach"], options.repoDir);
+  } catch (err) {
+    return {
+      success: false,
+      output: "",
+      error: `Failed to create worktree: ${err instanceof Error ? err.message : String(err)}`,
+      exitCode: null,
+      durationMs: Date.now() - startTime,
+    };
+  }
+
+  try {
+    // Run task with timeout
+    const result = await withTimeout(
+      taskFn(worktreeDir),
+      options.timeoutMs,
+      startTime
+    );
+    return result;
+  } catch (err) {
+    return {
+      success: false,
+      output: "",
+      error: err instanceof Error ? err.message : String(err),
+      exitCode: null,
+      durationMs: Date.now() - startTime,
+    };
+  } finally {
+    // Always clean up the worktree
+    await removeWorktree(worktreeDir, options.repoDir);
+  }
+}
+
+/**
+ * Run a git command in the given repo directory.
+ */
+function execGit(args: string[], cwd: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    execFile("git", args, { cwd, timeout: 30_000 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error(stderr || error.message));
+      } else {
+        resolve(stdout);
+      }
+    });
+  });
+}
+
+/**
+ * Remove a git worktree. Best-effort — logs but does not throw.
+ */
+async function removeWorktree(
+  worktreeDir: string,
+  repoDir: string
+): Promise<void> {
+  try {
+    await execGit(["worktree", "remove", worktreeDir, "--force"], repoDir);
+  } catch {
+    // Best-effort cleanup — worktree may already be removed
+  }
+}
+
+/**
+ * Wrap a promise with a timeout. Rejects with a timeout error if
+ * the promise does not settle within the given duration.
+ */
+function withTimeout(
+  promise: Promise<SandboxResult>,
+  timeoutMs: number,
+  startTime: number
+): Promise<SandboxResult> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      resolve({
+        success: false,
+        output: "",
+        error: `Timeout after ${timeoutMs}ms`,
+        exitCode: null,
+        durationMs: Date.now() - startTime,
+      });
+    }, timeoutMs);
+
+    promise
+      .then((result) => {
+        clearTimeout(timer);
+        resolve(result);
+      })
+      .catch((err) => {
+        clearTimeout(timer);
+        reject(err);
+      });
   });
 }
