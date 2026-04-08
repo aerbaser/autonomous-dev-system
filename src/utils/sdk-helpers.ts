@@ -79,52 +79,28 @@ export async function consumeQuery(
   throw new Error(`${tag} Query stream ended without a result message`);
 }
 
-// --- Permission model ---
-
-export type PermissionLevel = "bypass" | "auto" | "interactive";
-
-export function getPermissionMode(level?: PermissionLevel): "bypassPermissions" | "auto" | "default" {
-  if (level === undefined) return "default";
-  switch (level) {
-    case "bypass": return "bypassPermissions";
-    case "auto": return "auto";
-    case "interactive": return "default";
-    default: {
-      const _exhaustive: never = level;
-      throw new Error(`Unknown permission level: ${_exhaustive}`);
-    }
-  }
-}
-
 // --- Query permissions from config ---
 
-import type { Config } from "./config.js";
+import { MAX_TURNS_DEFAULTS, type Config } from "./config.js";
 
 export interface QueryPermissions {
   permissionMode: "bypassPermissions" | "default";
   allowDangerouslySkipPermissions: boolean;
 }
 
+const BYPASS_PERMISSIONS: QueryPermissions = { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true };
+const DEFAULT_PERMISSIONS: QueryPermissions = { permissionMode: "default", allowDangerouslySkipPermissions: false };
+
 export function getQueryPermissions(config?: Config): QueryPermissions {
-  if (!config || config.autonomousMode) {
-    return { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true };
-  }
-  return { permissionMode: "default", allowDangerouslySkipPermissions: false };
+  return (!config || config.autonomousMode) ? BYPASS_PERMISSIONS : DEFAULT_PERMISSIONS;
 }
 
 // --- Max turns from config ---
 
 export type MaxTurnsKey = keyof Config["maxTurns"];
 
-const MAX_TURNS_FALLBACKS: Record<MaxTurnsKey, number> = {
-  default: 50, decomposition: 3, development: 200, qualityFix: 30,
-  testing: 30, review: 20, deployment: 20, monitoring: 10,
-  ideation: 10, architecture: 10, abTesting: 10, stackResearch: 15,
-  domainAnalysis: 5, ossScan: 10,
-};
-
 export function getMaxTurns(config: Config | undefined, key: MaxTurnsKey): number {
-  return config?.maxTurns?.[key] ?? MAX_TURNS_FALLBACKS[key];
+  return config?.maxTurns?.[key] ?? MAX_TURNS_DEFAULTS[key];
 }
 
 // --- Cost estimation ---

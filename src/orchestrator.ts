@@ -96,7 +96,7 @@ export async function runOrchestrator(
   resumeSessionId?: string,
   singlePhase?: Phase
 ): Promise<void> {
-  shuttingDown = false;
+  resetShutdown();
   let state = structuredClone(initialState);
 
   const { budgetUsd, dryRun, quickMode, confirmSpec } = config;

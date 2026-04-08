@@ -24,6 +24,10 @@ class ProgressEmitter {
     this.emitter.on(event, listener);
   }
 
+  off<K extends EventName>(event: K, listener: (data: ProgressEvents[K]) => void): void {
+    this.emitter.off(event, listener);
+  }
+
   removeAllListeners(): void {
     this.emitter.removeAllListeners();
   }

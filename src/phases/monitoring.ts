@@ -64,8 +64,8 @@ or
   // Try structured output first, fall back to text parsing
   let status: "healthy" | "regression" | "improvement" = "healthy";
 
-  const parsed = MonitoringResultSchema.safeParse(structuredOutput);
-  if (parsed.success) {
+  const parsed = structuredOutput != null ? MonitoringResultSchema.safeParse(structuredOutput) : null;
+  if (parsed?.success) {
     status = parsed.data.status;
     if (status !== "healthy") {
       console.log(`[monitoring] Action needed: ${parsed.data.description}`);

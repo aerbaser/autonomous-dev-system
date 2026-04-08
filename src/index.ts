@@ -2,7 +2,7 @@
 
 import { Command } from "commander";
 import { loadConfig } from "./utils/config.js";
-import { loadState, createInitialState, saveState, type Phase } from "./state/project-state.js";
+import { loadState, createInitialState, saveState, type Phase, type ProjectState } from "./state/project-state.js";
 import { runOrchestrator, requestShutdown } from "./orchestrator.js";
 import { runOptimizer } from "./self-improve/optimizer.js";
 
@@ -43,7 +43,7 @@ program
 
     const existingState = loadState(stateDir);
 
-    let state: NonNullable<ReturnType<typeof loadState>>;
+    let state: ProjectState;
     if (opts.resume) {
       // --resume flag: require existing state
       if (!existingState) {

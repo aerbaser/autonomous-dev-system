@@ -68,8 +68,8 @@ or
   let deployed = false;
   let deployUrl: string | undefined;
 
-  const parsed = DeploymentResultSchema.safeParse(structuredOutput);
-  if (parsed.success) {
+  const parsed = structuredOutput != null ? DeploymentResultSchema.safeParse(structuredOutput) : null;
+  if (parsed?.success) {
     deployed = parsed.data.status === "deployed";
     deployUrl = parsed.data.url;
   } else {

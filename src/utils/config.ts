@@ -26,7 +26,7 @@ const maxTurnsSchema = z.object({
   ossScan: z.number().default(10),
 });
 
-const MAX_TURNS_DEFAULTS = {
+export const MAX_TURNS_DEFAULTS = {
   default: 50,
   decomposition: 3,
   development: 200,
