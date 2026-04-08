@@ -22,12 +22,18 @@ import {
   DEFAULT_CONVERGENCE,
 } from "./convergence.js";
 import { savePromptVersion } from "./versioning.js";
+import { runInWorktreeSandbox } from "./sandbox.js";
 
 interface OptimizerOptions {
   benchmarkId?: string;
   maxIterations: number;
   convergence?: Partial<ConvergenceConfig>;
   parallel?: boolean;
+  /** When set, mutations are evaluated inside an isolated git worktree */
+  worktreeIsolation?: {
+    repoDir: string;
+    timeoutMs?: number;
+  };
 }
 
 /**
@@ -174,15 +180,58 @@ export async function runOptimizer(
       const mutatedBlueprint = mutation.apply();
       registry.register(mutatedBlueprint);
 
-      // Re-run benchmarks
-      const {
-        totalScore: newScore,
-        results: newResults,
-        totalCostUsd: iterCost,
-      } = await runAllBenchmarks(benchmarks, {
-        parallel: options.parallel,
-        stateDir: config.stateDir,
-      });
+      // Re-run benchmarks (optionally inside an isolated worktree)
+      let newScore: number;
+      let newResults: BenchmarkResult[];
+      let iterCost: number;
+
+      if (options.worktreeIsolation) {
+        const worktreeResult = await runInWorktreeSandbox(
+          async (_worktreeDir) => {
+            const benchResult = await runAllBenchmarks(benchmarks, {
+              parallel: options.parallel,
+              stateDir: config.stateDir,
+            });
+            return {
+              success: true,
+              output: JSON.stringify(benchResult),
+              exitCode: 0,
+              durationMs: 0,
+            };
+          },
+          {
+            repoDir: options.worktreeIsolation.repoDir,
+            timeoutMs: options.worktreeIsolation.timeoutMs ?? 300_000,
+          }
+        );
+
+        if (worktreeResult.success) {
+          const parsed = JSON.parse(worktreeResult.output) as {
+            totalScore: number;
+            results: BenchmarkResult[];
+            totalCostUsd: number;
+          };
+          newScore = parsed.totalScore;
+          newResults = parsed.results;
+          iterCost = parsed.totalCostUsd;
+        } else {
+          console.log(
+            `[optimizer] Worktree sandbox failed: ${worktreeResult.error}`
+          );
+          newScore = 0;
+          newResults = [];
+          iterCost = 0;
+        }
+      } else {
+        const benchResult = await runAllBenchmarks(benchmarks, {
+          parallel: options.parallel,
+          stateDir: config.stateDir,
+        });
+        newScore = benchResult.totalScore;
+        newResults = benchResult.results;
+        iterCost = benchResult.totalCostUsd;
+      }
+
       totalCostUsd += iterCost;
 
       // Record performance
