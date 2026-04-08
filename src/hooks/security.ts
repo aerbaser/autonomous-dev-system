@@ -1,4 +1,5 @@
 import type { HookCallback } from "@anthropic-ai/claude-agent-sdk";
+import { isRecord } from "../utils/shared.js";
 
 const DENY_PATTERNS = [
   /\brm\s+(-\w+\s+)*-r/,          // rm -rf, rm -r, rm -fr, etc.
@@ -24,10 +25,6 @@ const DENIED_PATHS = [
   /\.pem$/,
   /id_rsa/,
 ] as const;
-
-function isRecord(val: unknown): val is Record<string, unknown> {
-  return typeof val === "object" && val !== null;
-}
 
 export const securityHook: HookCallback = async (input, _toolUseID, _ctx) => {
   if (input.hook_event_name !== "PreToolUse") return {};

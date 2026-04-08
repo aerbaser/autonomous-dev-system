@@ -199,37 +199,10 @@ export const ProjectStateSchema = z.object({
   abTests: z.array(z.unknown()),
   evolution: z.array(z.unknown()),
   checkpoints: z.array(z.unknown()),
-  sessionIds: z.record(z.string(), z.string()),
   baselineScore: z.number(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
-
-/** Safely extract JSON from LLM text output. Tries to find the first valid JSON object. */
-export function extractJson(text: string): string | null {
-  // Try to find JSON by looking for balanced braces starting from each {
-  let depth = 0;
-  let start = -1;
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '{') {
-      if (depth === 0) start = i;
-      depth++;
-    } else if (text[i] === '}') {
-      depth--;
-      if (depth === 0 && start >= 0) {
-        const candidate = text.slice(start, i + 1);
-        try {
-          JSON.parse(candidate);
-          return candidate;
-        } catch {
-          // Not valid JSON, continue looking
-          start = -1;
-        }
-      }
-    }
-  }
-  return null;
-}
 
 // --- Deployment and Monitoring structured output ---
 

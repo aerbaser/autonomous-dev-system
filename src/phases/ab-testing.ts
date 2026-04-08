@@ -1,29 +1,12 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
 import type { ProjectState, ABTest } from "../state/project-state.js";
-import type { PhaseResult } from "../orchestrator.js";
+import type { PhaseResult } from "./types.js";
 import { getMcpServerConfigs } from "../environment/mcp-manager.js";
 import { randomUUID } from "node:crypto";
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 import { ABTestDesignResponseSchema, ABTestAnalysisSchema } from "../types/llm-schemas.js";
-
-function extractFirstJson(text: string): string | null {
-  let depth = 0;
-  let start = -1;
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '{') {
-      if (depth === 0) start = i;
-      depth++;
-    } else if (text[i] === '}') {
-      depth--;
-      if (depth === 0 && start >= 0) {
-        const candidate = text.slice(start, i + 1);
-        try { JSON.parse(candidate); return candidate; } catch { start = -1; }
-      }
-    }
-  }
-  return null;
-}
+import { extractFirstJson, errMsg } from "../utils/shared.js";
 
 export async function runABTesting(
   state: ProjectState,
@@ -85,7 +68,7 @@ Output JSON:
     return {
       success: false,
       state,
-      error: `Failed to design A/B test: ${err instanceof Error ? err.message : String(err)}`,
+      error: `Failed to design A/B test: ${errMsg(err)}`,
     };
   }
 
@@ -167,7 +150,7 @@ Output a JSON array.`;
     );
     analysisText = result;
   } catch (err) {
-    console.warn(`[ab-test] Analysis query failed: ${err instanceof Error ? err.message : String(err)}`);
+    console.warn(`[ab-test] Analysis query failed: ${errMsg(err)}`);
   }
 
   // Parse analysis results and build a lookup by testId

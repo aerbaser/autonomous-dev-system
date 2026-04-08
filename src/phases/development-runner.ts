@@ -7,7 +7,7 @@ import type {
   Task,
   UserStory,
 } from "../state/project-state.js";
-import type { PhaseResult } from "../orchestrator.js";
+import type { PhaseResult } from "./types.js";
 import type {
   DevTask,
   TaskDecomposition,
@@ -28,6 +28,7 @@ import {
 import { execFileSync } from "node:child_process";
 import { TaskResultsSchema } from "../types/llm-schemas.js";
 import { getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { isApiRetry } from "../utils/shared.js";
 import { progress } from "../utils/progress.js";
 
 function extractFirstJson(text: string): string | null {
@@ -619,7 +620,7 @@ Also include a brief text summary for each task.`;
       }
     }
 
-    if (message.type === "system" && message.subtype === "api_retry") {
+    if (isApiRetry(message)) {
       console.warn(
         `[development] API retry attempt ${message.attempt}, waiting ${message.retry_delay_ms}ms`
       );

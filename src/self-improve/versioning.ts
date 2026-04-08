@@ -25,9 +25,7 @@ export function savePromptVersion(
   blueprint: AgentBlueprint
 ): void {
   const dir = getAgentVersionDir(stateDir, blueprint.name);
-  if (!existsSync(dir)) {
-    mkdirSync(dir, { recursive: true });
-  }
+  mkdirSync(dir, { recursive: true });
 
   const filename = `v${blueprint.version}.md`;
   const filePath = join(dir, filename);

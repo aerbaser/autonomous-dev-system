@@ -1,6 +1,7 @@
 import type { HookCallback } from "@anthropic-ai/claude-agent-sdk";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
+import { isRecord } from "../utils/shared.js";
 
 const AUDIT_LOG_PATH = process.env.AUDIT_LOG_PATH
   ?? resolve(".autonomous-dev", "audit.jsonl");
@@ -12,10 +13,6 @@ interface AuditEntry {
   filePath?: string;
   command?: string;
   summary?: string;
-}
-
-function isRecord(val: unknown): val is Record<string, unknown> {
-  return typeof val === "object" && val !== null;
 }
 
 export const auditLoggerHook: HookCallback = async (input, _toolUseID, _ctx) => {
@@ -46,7 +43,7 @@ export const auditLoggerHook: HookCallback = async (input, _toolUseID, _ctx) => 
   }
 
   const dir = dirname(AUDIT_LOG_PATH);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true });
 
   appendFileSync(AUDIT_LOG_PATH, JSON.stringify(entry) + "\n");
 

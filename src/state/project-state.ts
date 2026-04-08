@@ -176,7 +176,6 @@ export interface ProjectState {
   abTests: ABTest[];
   evolution: EvolutionEntry[];
   checkpoints: PhaseCheckpoint[];
-  sessionIds: Record<string, string>;
   baselineScore: number;
   createdAt: string;
   updatedAt: string;
@@ -220,7 +219,6 @@ export function createInitialState(idea: string): ProjectState {
     abTests: [],
     evolution: [],
     checkpoints: [],
-    sessionIds: {},
     baselineScore: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -237,7 +235,7 @@ export function loadState(stateDir: string): ProjectState | null {
 export function saveState(stateDir: string, state: ProjectState): void {
   const statePath = resolve(stateDir, "state.json");
   const dir = dirname(statePath);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true });
   const toSave = { ...state, updatedAt: new Date().toISOString() };
   writeFileSync(statePath, JSON.stringify(toSave, null, 2));
 }

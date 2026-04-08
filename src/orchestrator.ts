@@ -217,7 +217,6 @@ export async function runOrchestrator(
     }
 
     state = result.state;
-    saveState(config.stateDir, state);
 
     if (!result.success) {
       console.error(`[error] Phase ${phase} failed after retries: ${result.error}`);
@@ -334,8 +333,6 @@ async function executePhaseSafe(
           `[orchestrator] Phase "${phase}" failed (attempt ${attempt}/3): ${error.message}. ` +
             `Retrying in ${Math.round(delayMs / 1000)}s...`
         );
-        // Save state before retry in case of crash
-        saveState(config.stateDir, state);
       }
     );
 

@@ -30,7 +30,7 @@ export class AgentRegistry {
     if (existsSync(indexPath)) {
       const raw: unknown = JSON.parse(readFileSync(indexPath, "utf-8"));
       const parseResult = RegistryDataSchema.safeParse(raw);
-      if (parseResult.success) return raw as RegistryData;
+      if (parseResult.success) return parseResult.data as RegistryData;
     }
 
     // Initialize with base blueprints
@@ -42,9 +42,7 @@ export class AgentRegistry {
   }
 
   save(): void {
-    if (!existsSync(this.persistDir)) {
-      mkdirSync(this.persistDir, { recursive: true });
-    }
+    mkdirSync(this.persistDir, { recursive: true });
     writeFileSync(
       resolve(this.persistDir, "index.json"),
       JSON.stringify(this.data, null, 2)

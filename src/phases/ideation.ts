@@ -1,27 +1,10 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
 import type { ProjectState, ProductSpec } from "../state/project-state.js";
-import type { PhaseResult } from "../orchestrator.js";
+import type { PhaseResult } from "./types.js";
 import { analyzeDomain } from "../agents/domain-analyzer.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
-
-function extractFirstJson(text: string): string | null {
-  let depth = 0;
-  let start = -1;
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '{') {
-      if (depth === 0) start = i;
-      depth++;
-    } else if (text[i] === '}') {
-      depth--;
-      if (depth === 0 && start >= 0) {
-        const candidate = text.slice(start, i + 1);
-        try { JSON.parse(candidate); return candidate; } catch { start = -1; }
-      }
-    }
-  }
-  return null;
-}
+import { extractFirstJson, errMsg } from "../utils/shared.js";
 
 const SPEC_PROMPT = `You are a Product Manager creating a complete product specification.
 
@@ -82,7 +65,7 @@ export async function runIdeation(
     return {
       success: false,
       state,
-      error: `Failed to generate spec: ${err instanceof Error ? err.message : String(err)}`,
+      error: `Failed to generate spec: ${errMsg(err)}`,
     };
   }
 

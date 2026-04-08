@@ -1,8 +1,9 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
 import type { ProjectState } from "../state/project-state.js";
-import type { PhaseResult } from "../orchestrator.js";
+import type { PhaseResult } from "./types.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { errMsg } from "../utils/shared.js";
 
 export async function runReview(
   state: ProjectState,
@@ -40,8 +41,8 @@ End with: "APPROVE" or "REQUEST_CHANGES: <summary of critical issues>"`;
     );
     resultText = result;
   } catch (err) {
-    console.error(`[review] Query failed: ${err instanceof Error ? err.message : String(err)}`);
-    return { success: false, state, error: err instanceof Error ? err.message : String(err) };
+    console.error(`[review] Query failed: ${errMsg(err)}`);
+    return { success: false, state, error: errMsg(err) };
   }
 
   const approved = resultText.includes("APPROVE") && !resultText.includes("REQUEST_CHANGES");

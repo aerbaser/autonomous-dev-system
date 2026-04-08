@@ -1,11 +1,12 @@
 import type { HookCallback } from "@anthropic-ai/claude-agent-sdk";
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 
 const TRACKER_LOG_PATH = process.env.TRACKER_LOG_PATH
   ?? resolve(".autonomous-dev", "improvement-data.jsonl");
 
 const toolStartTimes = new Map<string, number>();
+const TOOL_START_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
 interface ToolUsageRecord {
   timestamp: string;
@@ -22,6 +23,11 @@ export const improvementTrackerHook: HookCallback = async (input, toolUseID, _ct
 
   if (event === "PreToolUse" && toolUseID) {
     toolStartTimes.set(toolUseID, Date.now());
+    // Evict stale entries to prevent unbounded growth
+    const cutoff = Date.now() - TOOL_START_TTL_MS;
+    for (const [id, ts] of toolStartTimes) {
+      if (ts < cutoff) toolStartTimes.delete(id);
+    }
     return {};
   }
 
@@ -44,7 +50,7 @@ export const improvementTrackerHook: HookCallback = async (input, toolUseID, _ct
   };
 
   const dir = dirname(TRACKER_LOG_PATH);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true });
   appendFileSync(TRACKER_LOG_PATH, JSON.stringify(record) + "\n");
 
   return {};

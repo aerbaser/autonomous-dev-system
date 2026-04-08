@@ -1,9 +1,10 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
 import type { ProjectState, Deployment } from "../state/project-state.js";
-import type { PhaseResult } from "../orchestrator.js";
+import type { PhaseResult } from "./types.js";
 import { randomUUID } from "node:crypto";
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { errMsg } from "../utils/shared.js";
 import { DeploymentResultSchema } from "../types/llm-schemas.js";
 
 export async function runDeployment(
@@ -50,7 +51,7 @@ or
     resultText = queryResult.result;
     structuredOutput = queryResult.structuredOutput;
   } catch (err) {
-    console.error(`[deploy] Query failed: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`[deploy] Query failed: ${errMsg(err)}`);
     const deployment: Deployment = {
       id: randomUUID(),
       environment,

@@ -1,9 +1,10 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
 import type { ProjectState } from "../state/project-state.js";
-import type { PhaseResult } from "../orchestrator.js";
+import type { PhaseResult } from "./types.js";
 import { getMcpServerConfigs } from "../environment/mcp-manager.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { errMsg } from "../utils/shared.js";
 
 export async function runTesting(
   state: ProjectState,
@@ -55,8 +56,8 @@ Output ONLY "PASS" or "FAIL: <reasons>" on the final line.`;
     );
     resultText = result;
   } catch (err) {
-    console.error(`[testing] Query failed: ${err instanceof Error ? err.message : String(err)}`);
-    return { success: false, state, error: err instanceof Error ? err.message : String(err) };
+    console.error(`[testing] Query failed: ${errMsg(err)}`);
+    return { success: false, state, error: errMsg(err) };
   }
 
   const lastLine = resultText.trim().split("\n").pop()?.trim() ?? "";

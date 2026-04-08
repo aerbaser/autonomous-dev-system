@@ -3,6 +3,7 @@ import type { DomainAnalysis, AgentBlueprint } from "../state/project-state.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 import type { Config } from "../utils/config.js";
 import { DomainAnalysisSchema, DomainAgentArraySchema } from "../types/llm-schemas.js";
+import { extractFirstJson } from "../utils/shared.js";
 
 const DOMAIN_ANALYSIS_PROMPT = `You are a Domain Analyzer. Given a project idea, analyze what domain expertise
 and specialized roles are needed beyond the standard development team (PM, Dev, QA, DevOps, Reviewer).
@@ -25,24 +26,6 @@ Output a JSON object with this structure:
 IMPORTANT: Only output the JSON, nothing else. Be conservative -- only suggest roles that are
 genuinely needed for THIS specific project, not generic nice-to-haves.`;
 
-function extractFirstJson(text: string): string | null {
-  let depth = 0;
-  let start = -1;
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '{') {
-      if (depth === 0) start = i;
-      depth++;
-    } else if (text[i] === '}') {
-      depth--;
-      if (depth === 0 && start >= 0) {
-        const candidate = text.slice(start, i + 1);
-        try { JSON.parse(candidate); return candidate; } catch { start = -1; }
-      }
-    }
-  }
-  return null;
-}
-
 export async function analyzeDomain(idea: string, config?: Config): Promise<DomainAnalysis> {
   let resultText: string;
 
@@ -59,7 +42,8 @@ export async function analyzeDomain(idea: string, config?: Config): Promise<Doma
       "domain-analysis"
     );
     resultText = result;
-  } catch {
+  } catch (err) {
+    console.warn(`[domain-analyzer] Query failed: ${err instanceof Error ? err.message : String(err)}`);
     return getDefaultDomain();
   }
 

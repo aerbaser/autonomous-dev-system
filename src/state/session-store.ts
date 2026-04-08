@@ -23,7 +23,7 @@ export function loadSessions(stateDir: string): SessionStore {
 export function saveSessions(stateDir: string, store: SessionStore): void {
   const path = resolve(stateDir, "sessions.json");
   const dir = dirname(path);
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true });
   writeFileSync(path, JSON.stringify(store, null, 2));
 }
 

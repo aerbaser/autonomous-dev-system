@@ -3,6 +3,7 @@ import type { ArchDesign, DomainAnalysis, StackEnvironment, LspConfig, McpDiscov
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 import type { Config } from "../utils/config.js";
 import { StackResearchResultSchema } from "../types/llm-schemas.js";
+import { extractFirstJson } from "../utils/shared.js";
 
 const VALID_SCOPES = ["project", "user"] as const;
 type Scope = (typeof VALID_SCOPES)[number];
@@ -54,24 +55,6 @@ Output a JSON object:
 Be conservative: only suggest tools that will genuinely help. Quality over quantity.
 Output ONLY the JSON.`;
 
-function extractFirstJson(text: string): string | null {
-  let depth = 0;
-  let start = -1;
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '{') {
-      if (depth === 0) start = i;
-      depth++;
-    } else if (text[i] === '}') {
-      depth--;
-      if (depth === 0 && start >= 0) {
-        const candidate = text.slice(start, i + 1);
-        try { JSON.parse(candidate); return candidate; } catch { start = -1; }
-      }
-    }
-  }
-  return null;
-}
-
 export async function researchStack(
   architecture: ArchDesign,
   domain: DomainAnalysis,
@@ -103,7 +86,8 @@ Recommended MCP servers from domain analysis: ${domain.requiredMcpServers.join("
       "stack-research"
     );
     resultText = result;
-  } catch {
+  } catch (err) {
+    console.warn(`[stack-researcher] Query failed: ${err instanceof Error ? err.message : String(err)}`);
     return getDefaultEnvironment(architecture, domain);
   }
 

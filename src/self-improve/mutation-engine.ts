@@ -1,9 +1,9 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
-import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentBlueprint, EvolutionEntry } from "../state/project-state.js";
 import type { BenchmarkResult } from "./benchmarks.js";
 import { randomUUID } from "node:crypto";
 import { ToolConfigResponseSchema, PhaseLogicResponseSchema } from "../types/llm-schemas.js";
+import { extractFirstJson, isApiRetry } from "../utils/shared.js";
 
 export type MutationType =
   | "agent_prompt"
@@ -426,53 +426,6 @@ async function generateQualityThresholdMutation(
   ];
 }
 
-// ── JSON extraction ──
-
-/**
- * Extract the first balanced JSON object from a string.
- * Walks character-by-character tracking brace depth to avoid
- * greedy/lazy regex mismatches with nested objects.
- */
-function extractFirstJson(text: string): string | null {
-  let start = -1;
-  let depth = 0;
-  let inString = false;
-  let escape = false;
-
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i]!;
-
-    if (escape) {
-      escape = false;
-      continue;
-    }
-
-    if (ch === '\\' && inString) {
-      escape = true;
-      continue;
-    }
-
-    if (ch === '"') {
-      inString = !inString;
-      continue;
-    }
-
-    if (inString) continue;
-
-    if (ch === '{') {
-      if (depth === 0) start = i;
-      depth++;
-    } else if (ch === '}') {
-      depth--;
-      if (depth === 0 && start !== -1) {
-        return text.slice(start, i + 1);
-      }
-    }
-  }
-
-  return null;
-}
-
 // ── Helpers ──
 
 function formatHistory(agentName: string, history: EvolutionEntry[]): string {
@@ -492,8 +445,3 @@ function formatBenchmarks(results: BenchmarkResult[]): string {
     .join("\n");
 }
 
-function isApiRetry(
-  message: SDKMessage
-): message is Extract<SDKMessage, { subtype: "api_retry" }> {
-  return message.type === "system" && "subtype" in message && message.subtype === "api_retry";
-}

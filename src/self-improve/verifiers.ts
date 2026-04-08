@@ -1,5 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { isApiRetry } from "../utils/shared.js";
 import {
   mkdirSync,
   existsSync,
@@ -179,11 +180,6 @@ Respond with ONLY a single number between 0.0 and 1.0`,
 
 // ── Helpers ──
 
-function isApiRetry(
-  message: SDKMessage
-): message is Extract<SDKMessage, { subtype: "api_retry" }> {
-  return message.type === "system" && "subtype" in message && message.subtype === "api_retry";
-}
 
 function cleanupFixture(fixtureCwd: string | undefined): void {
   if (fixtureCwd && existsSync(fixtureCwd)) {

@@ -81,7 +81,7 @@ export function generateClaudeMd(
 
   // Also write to .claude/ directory
   const dotClaudeDir = resolve(projectDir, ".claude");
-  if (!existsSync(dotClaudeDir)) mkdirSync(dotClaudeDir, { recursive: true });
+  mkdirSync(dotClaudeDir, { recursive: true });
   const dotClaudeMdPath = resolve(dotClaudeDir, "CLAUDE.md");
   writeFileSync(dotClaudeMdPath, sections.join("\n"));
 }
