@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import type { AgentBlueprint } from "../state/project-state.js";
 import { getBaseBlueprints } from "./base-blueprints.js";
@@ -57,11 +57,11 @@ export class AgentRegistry {
     const filename = `${bp.name}.v${bp.version}.md`;
     const mdPath = resolve(this.persistDir, filename);
 
-    const modelMap: Record<string, string> = {
+    const modelMap = {
       opus: "claude-opus-4-6",
       sonnet: "claude-sonnet-4-6",
       haiku: "claude-haiku-4-5-20251001",
-    };
+    } as const satisfies Record<string, string>;
 
     const frontmatter = [
       "---",

@@ -60,9 +60,7 @@ export async function consumeQuery(queryStream: Query, label?: string): Promise<
 function isApiRetry(
   message: SDKMessage
 ): message is Extract<SDKMessage, { subtype: "api_retry" }> {
-  return (
-    message.type === "system" &&
-    "subtype" in message &&
-    (message as Record<string, unknown>).subtype === "api_retry"
-  );
+  if (message.type !== "system" || !("subtype" in message)) return false;
+  const record: Record<string, unknown> = message;
+  return record.subtype === "api_retry";
 }

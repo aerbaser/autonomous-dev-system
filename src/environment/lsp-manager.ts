@@ -2,8 +2,7 @@ import { execFileSync, execSync } from "node:child_process";
 import type { LspConfig } from "../state/project-state.js";
 import { validateLsp } from "./validator.js";
 
-// Known LSP servers per language with their install commands
-const LSP_SERVER_REGISTRY: Record<string, Array<{ server: string; installCommand: string }>> = {
+const LSP_SERVER_REGISTRY = {
   typescript: [
     { server: "vtsls", installCommand: "npm i -g @vtsls/language-server" },
     { server: "typescript-language-server", installCommand: "npm i -g typescript-language-server" },
@@ -29,22 +28,25 @@ const LSP_SERVER_REGISTRY: Record<string, Array<{ server: string; installCommand
   html: [
     { server: "html-language-server", installCommand: "npm i -g vscode-langservers-extracted" },
   ],
-};
+} as const satisfies Record<string, ReadonlyArray<{ server: string; installCommand: string }>>;
 
-/**
- * Discover available LSP servers for the given languages.
- * Returns configs for all known servers matching the requested languages.
- */
+type LspLanguage = keyof typeof LSP_SERVER_REGISTRY;
+
+function isLspLanguage(lang: string): lang is LspLanguage {
+  return lang in LSP_SERVER_REGISTRY;
+}
+
 export function discoverLspServers(languages: string[]): LspConfig[] {
   const results: LspConfig[] = [];
 
   for (const lang of languages) {
-    const entries = LSP_SERVER_REGISTRY[lang.toLowerCase()];
-    if (!entries) continue;
+    const key = lang.toLowerCase();
+    if (!isLspLanguage(key)) continue;
+    const entries = LSP_SERVER_REGISTRY[key];
 
     for (const entry of entries) {
       results.push({
-        language: lang.toLowerCase(),
+        language: key,
         server: entry.server,
         installCommand: entry.installCommand,
         installed: false,
@@ -55,13 +57,10 @@ export function discoverLspServers(languages: string[]): LspConfig[] {
   return results;
 }
 
-/**
- * Check if an LSP server is already installed for the given language.
- * Returns the first found installed server config, or null.
- */
 export function checkExistingLsp(language: string): LspConfig | null {
-  const entries = LSP_SERVER_REGISTRY[language.toLowerCase()];
-  if (!entries) return null;
+  const key = language.toLowerCase();
+  if (!isLspLanguage(key)) return null;
+  const entries = LSP_SERVER_REGISTRY[key];
 
   for (const entry of entries) {
     if (smokeTestLsp(entry.server, language)) {

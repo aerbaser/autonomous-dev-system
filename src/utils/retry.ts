@@ -5,12 +5,12 @@ export interface RetryOptions {
   backoffFactor: number;
 }
 
-export const DEFAULT_RETRY: RetryOptions = {
+export const DEFAULT_RETRY = {
   maxRetries: 3,
   baseDelayMs: 1000,
   maxDelayMs: 30000,
   backoffFactor: 2,
-};
+} as const satisfies RetryOptions;
 
 /**
  * Compute delay for a given retry attempt using exponential backoff + jitter.

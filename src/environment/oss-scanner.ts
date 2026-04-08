@@ -1,6 +1,13 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { OssTool, DomainAnalysis, ArchDesign } from "../state/project-state.js";
 
+const VALID_OSS_TYPES = ["agent", "skill", "hook", "mcp-server", "pattern"] as const;
+type OssType = (typeof VALID_OSS_TYPES)[number];
+
+function isValidOssType(value: string): value is OssType {
+  return (VALID_OSS_TYPES as readonly string[]).includes(value);
+}
+
 const SCAN_PROMPT = `You are an Open Source Scanner. Search GitHub and the web for
 reusable AI agent tools, Claude Code plugins, MCP servers, and patterns
 that would help with this specific project.
@@ -65,7 +72,7 @@ Specializations: ${domain.specializations.join(", ")}`,
     return raw.map((o) => ({
       name: o.name,
       repo: o.repo,
-      type: o.type as OssTool["type"],
+      type: isValidOssType(o.type) ? o.type : "pattern",
       integrationPlan: o.integrationPlan,
       integrated: false,
     }));

@@ -11,6 +11,7 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
     "resolveJsonModule": true,
     "declaration": true,
     "declarationMap": true,

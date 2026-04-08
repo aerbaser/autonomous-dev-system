@@ -15,7 +15,7 @@ const DENY_PATTERNS = [
   /^wget.*\|.*sh/,
   /^npm\s+config\s+set/,
   /--unsafe-perm/,
-];
+] as const;
 
 const DENIED_PATHS = [
   /\.ssh\//,
@@ -23,7 +23,7 @@ const DENIED_PATHS = [
   /\.netrc$/,
   /\.env$/,
   /credentials\.json$/,
-];
+] as const;
 
 function isRecord(val: unknown): val is Record<string, unknown> {
   return typeof val === "object" && val !== null;

@@ -5,7 +5,6 @@ export interface ValidationResult {
   reason?: string;
 }
 
-/** Security patterns to reject */
 const SUSPICIOUS_PATTERNS = [
   /exfiltrat/i,
   /reverse.?shell/i,
