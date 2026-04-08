@@ -41,7 +41,14 @@ export const ConfigSchema = z.object({
 
 export type Config = z.infer<typeof ConfigSchema>;
 
+export function validateRequiredEnv(): void {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error("Missing required environment variable: ANTHROPIC_API_KEY");
+  }
+}
+
 export function loadConfig(configPath?: string): Config {
+  validateRequiredEnv();
   const defaults: Record<string, unknown> = {
     anthropicApiKey: process.env.ANTHROPIC_API_KEY,
     posthogApiKey: process.env.POSTHOG_API_KEY,

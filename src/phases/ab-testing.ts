@@ -5,6 +5,7 @@ import type { PhaseResult } from "../orchestrator.js";
 import { getMcpServerConfigs } from "../environment/mcp-manager.js";
 import { randomUUID } from "node:crypto";
 import { consumeQuery } from "../utils/sdk-helpers.js";
+import { ABTestDesignResponseSchema, ABTestAnalysisSchema } from "../types/llm-schemas.js";
 
 function extractFirstJson(text: string): string | null {
   let depth = 0;
@@ -95,13 +96,12 @@ Output JSON:
   }
 
   try {
-    const design = JSON.parse(jsonStr) as {
-      name: string;
-      hypothesis: string;
-      variants: string[];
-      featureFlagKey: string;
-    };
+    const parseResult = ABTestDesignResponseSchema.safeParse(JSON.parse(jsonStr));
+    if (!parseResult.success) {
+      return { success: false, state, error: "Failed to parse A/B test design" };
+    }
 
+    const design = parseResult.data;
     const test: ABTest = {
       id: randomUUID(),
       name: design.name,
@@ -180,18 +180,16 @@ Output a JSON array.`;
     let jsonObj = extractFirstJson(remaining);
     while (jsonObj) {
       try {
-        const parsed = JSON.parse(jsonObj) as {
-          testId?: string;
-          winner?: string;
-          pValue?: number;
-          metrics?: Record<string, number>;
-        };
-        if (parsed.testId && parsed.winner != null && parsed.pValue != null) {
-          analysisById.set(parsed.testId, {
-            winner: parsed.winner,
-            pValue: parsed.pValue,
-            metrics: parsed.metrics ?? {},
-          });
+        const parseResult = ABTestAnalysisSchema.safeParse(JSON.parse(jsonObj));
+        if (parseResult.success) {
+          const parsed = parseResult.data;
+          if (parsed.testId && parsed.winner != null && parsed.pValue != null) {
+            analysisById.set(parsed.testId, {
+              winner: parsed.winner,
+              pValue: parsed.pValue,
+              metrics: parsed.metrics ?? {},
+            });
+          }
         }
       } catch { /* skip malformed */ }
       // Remove the parsed JSON from remaining text and continue

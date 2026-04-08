@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { ArchDesign, DomainAnalysis, StackEnvironment, LspConfig, McpDiscovery, PluginDiscovery, OssTool } from "../state/project-state.js";
 import { consumeQuery } from "../utils/sdk-helpers.js";
+import { StackResearchResultSchema } from "../types/llm-schemas.js";
 
 const VALID_SCOPES = ["project", "user"] as const;
 type Scope = (typeof VALID_SCOPES)[number];
@@ -111,13 +112,9 @@ Recommended MCP servers from domain analysis: ${domain.requiredMcpServers.join("
   }
 
   try {
-    const raw = JSON.parse(jsonStr) as {
-      lspServers?: Array<{ language: string; server: string; installCommand: string; reason?: string }>;
-      mcpServers?: Array<{ name: string; source: string; config: { command: string; args?: string[] }; reason?: string }>;
-      plugins?: Array<{ name: string; source: string; scope?: string; reason?: string }>;
-      openSourceTools?: Array<{ name: string; repo: string; type: string; integrationPlan: string }>;
-      claudeMdSuggestions?: string[];
-    };
+    const parseResult = StackResearchResultSchema.safeParse(JSON.parse(jsonStr));
+    if (!parseResult.success) return getDefaultEnvironment(architecture, domain);
+    const raw = parseResult.data;
 
     const lspServers: LspConfig[] = (raw.lspServers ?? []).map((l) => ({
       language: l.language,
@@ -129,7 +126,7 @@ Recommended MCP servers from domain analysis: ${domain.requiredMcpServers.join("
     const mcpServers: McpDiscovery[] = (raw.mcpServers ?? []).map((m) => ({
       name: m.name,
       source: m.source,
-      config: { command: m.config.command, args: m.config.args },
+      config: { command: m.config.command, ...(m.config.args ? { args: m.config.args } : {}) },
       installed: false,
       reason: m.reason ?? "",
     }));

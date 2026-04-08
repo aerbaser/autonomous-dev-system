@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import type { AgentBlueprint } from "../state/project-state.js";
 import { getBaseBlueprints } from "./base-blueprints.js";
+import { RegistryDataSchema } from "../types/llm-schemas.js";
 
 export interface AgentPerformance {
   benchmarkId: string;
@@ -27,7 +28,9 @@ export class AgentRegistry {
   private load(): RegistryData {
     const indexPath = resolve(this.persistDir, "index.json");
     if (existsSync(indexPath)) {
-      return JSON.parse(readFileSync(indexPath, "utf-8")) as RegistryData;
+      const raw: unknown = JSON.parse(readFileSync(indexPath, "utf-8"));
+      const parseResult = RegistryDataSchema.safeParse(raw);
+      if (parseResult.success) return raw as RegistryData;
     }
 
     // Initialize with base blueprints

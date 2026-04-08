@@ -159,11 +159,9 @@ export async function runEnvironmentSetup(
 
   return {
     success: overallSuccess,
-    nextPhase: overallSuccess ? "development" : undefined,
+    ...(overallSuccess ? { nextPhase: "development" as const } : {}),
     state: updatedState,
-    error: overallSuccess
-      ? undefined
-      : `Critical setup steps failed: ${criticalFailures.map((s) => s.name).join(", ")}`,
+    ...(!overallSuccess ? { error: `Critical setup steps failed: ${criticalFailures.map((s) => s.name).join(", ")}` } : {}),
   };
 }
 

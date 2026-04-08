@@ -1,5 +1,6 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
+import { SessionStoreSchema } from "../types/llm-schemas.js";
 
 interface SessionEntry {
   agentRole: string;
@@ -15,7 +16,8 @@ interface SessionStore {
 export function loadSessions(stateDir: string): SessionStore {
   const path = resolve(stateDir, "sessions.json");
   if (!existsSync(path)) return { sessions: {} };
-  return JSON.parse(readFileSync(path, "utf-8")) as SessionStore;
+  const parsed = SessionStoreSchema.safeParse(JSON.parse(readFileSync(path, "utf-8")));
+  return parsed.success ? parsed.data : { sessions: {} };
 }
 
 export function saveSessions(stateDir: string, store: SessionStore): void {

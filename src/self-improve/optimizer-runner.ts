@@ -11,6 +11,7 @@ import type { BenchmarkResult } from "./benchmarks.js";
 import { generateMutations } from "./mutation-engine.js";
 import type { Mutation } from "./mutation-engine.js";
 import { randomUUID } from "node:crypto";
+import { BenchmarkRunResultSchema } from "../types/llm-schemas.js";
 import {
   createConvergenceState,
   updateConvergence,
@@ -96,7 +97,7 @@ export async function runOptimizerImpl(
     results: baselineResults,
     totalCostUsd: baselineCost,
   } = await runAllBenchmarks(benchmarks, {
-    parallel: options.parallel,
+    ...(options.parallel !== undefined ? { parallel: options.parallel } : {}),
     stateDir: config.stateDir,
   });
 
@@ -169,7 +170,7 @@ export async function runOptimizerImpl(
         const worktreeResult = await runInWorktreeSandbox(
           async (_worktreeDir) => {
             const benchResult = await runAllBenchmarks(benchmarks, {
-              parallel: options.parallel,
+              ...(options.parallel !== undefined ? { parallel: options.parallel } : {}),
               stateDir: config.stateDir,
             });
             return {
@@ -186,9 +187,20 @@ export async function runOptimizerImpl(
         );
 
         if (worktreeResult.success) {
-          let parsed: { totalScore: number; results: BenchmarkResult[]; totalCostUsd: number };
           try {
-            parsed = JSON.parse(worktreeResult.output) as typeof parsed;
+            const parsedResult = BenchmarkRunResultSchema.safeParse(JSON.parse(worktreeResult.output));
+            if (!parsedResult.success) {
+              console.log(`[optimizer] Failed to parse worktree result: ${worktreeResult.output.slice(0, 100)}`);
+              newScore = 0;
+              newResults = [];
+              iterCost = 0;
+              totalCostUsd += iterCost;
+              continue;
+            }
+            const parsed = parsedResult.data;
+            newScore = parsed.totalScore;
+            newResults = parsed.results;
+            iterCost = parsed.totalCostUsd;
           } catch {
             console.log(`[optimizer] Failed to parse worktree result: ${worktreeResult.output.slice(0, 100)}`);
             newScore = 0;
@@ -197,9 +209,6 @@ export async function runOptimizerImpl(
             totalCostUsd += iterCost;
             continue;
           }
-          newScore = parsed.totalScore;
-          newResults = parsed.results;
-          iterCost = parsed.totalCostUsd;
         } else {
           console.log(
             `[optimizer] Worktree sandbox failed: ${worktreeResult.error}`
@@ -210,7 +219,7 @@ export async function runOptimizerImpl(
         }
       } else {
         const benchResult = await runAllBenchmarks(benchmarks, {
-          parallel: options.parallel,
+          ...(options.parallel !== undefined ? { parallel: options.parallel } : {}),
           stateDir: config.stateDir,
         });
         newScore = benchResult.totalScore;

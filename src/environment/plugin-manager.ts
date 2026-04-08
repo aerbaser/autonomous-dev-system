@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import type { PluginDiscovery } from "../state/project-state.js";
 import { validatePlugin } from "./validator.js";
 
@@ -210,10 +210,10 @@ export function installPlugins(plugins: PluginDiscovery[]): PluginDiscovery[] {
       const pluginRef = plugin.source
         ? `${plugin.name}@${plugin.source}`
         : plugin.name;
-      const cmd = `claude plugin install ${pluginRef} --scope ${plugin.scope}`;
+      const cmdArgs = ["plugin", "install", pluginRef, "--scope", plugin.scope];
 
       console.log(`[plugin] Installing: ${plugin.name} (${plugin.reason})`);
-      execSync(cmd, { stdio: "pipe", timeout: 60_000 });
+      execFileSync("claude", cmdArgs, { stdio: "pipe", timeout: 60_000 });
       console.log(`[plugin] Installed: ${plugin.name}`);
       return { ...plugin, installed: true };
     } catch (err) {

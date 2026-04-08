@@ -17,7 +17,7 @@ export default [
     rules: {
       ...tseslint.configs.recommended.rules,
       // Disable rules that would require massive refactoring
-      "@typescript-eslint/no-explicit-any": "warn",
+      "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/no-unused-vars": [
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },

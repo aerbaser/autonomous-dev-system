@@ -96,7 +96,7 @@ export async function runInSandbox(
       settle({
         success: code === 0,
         output: stdout,
-        error: stderr || undefined,
+        ...(stderr ? { error: stderr } : {}),
         exitCode: code,
         durationMs: Date.now() - startTime,
       });
@@ -172,7 +172,7 @@ export async function runCommandInSandbox(
           res({
             success: true,
             output: stdout,
-            error: stderr || undefined,
+            ...(stderr ? { error: stderr } : {}),
             exitCode: 0,
             durationMs,
           });

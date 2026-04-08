@@ -73,7 +73,7 @@ program
       }
 
       await runOptimizer(state, config, {
-        benchmarkId: opts.benchmark,
+        ...(opts.benchmark !== undefined ? { benchmarkId: opts.benchmark } : {}),
         maxIterations: parseInt(opts.maxIterations, 10),
       });
     }

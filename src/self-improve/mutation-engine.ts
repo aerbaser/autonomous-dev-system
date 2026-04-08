@@ -3,6 +3,7 @@ import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentBlueprint, EvolutionEntry } from "../state/project-state.js";
 import type { BenchmarkResult } from "./benchmarks.js";
 import { randomUUID } from "node:crypto";
+import { ToolConfigResponseSchema, PhaseLogicResponseSchema } from "../types/llm-schemas.js";
 
 export type MutationType =
   | "agent_prompt"
@@ -259,10 +260,9 @@ Suggest an updated tool list for this agent.`,
   try {
     const jsonMatch = resultText.match(/\[[\s\S]*?\]/);
     if (!jsonMatch) return [];
-    newTools = JSON.parse(jsonMatch[0]) as string[];
-    if (!Array.isArray(newTools) || newTools.length === 0) return [];
-    // Validate all entries are strings
-    newTools = newTools.filter((t): t is string => typeof t === "string");
+    const toolsResult = ToolConfigResponseSchema.safeParse(JSON.parse(jsonMatch[0]));
+    if (!toolsResult.success || toolsResult.data.length === 0) return [];
+    newTools = toolsResult.data;
   } catch {
     console.log("[mutation] Failed to parse tool config response");
     return [];
@@ -334,11 +334,16 @@ Suggest updated execution parameters.`,
   }
 
   // Parse the JSON response
+  const jsonStr = extractFirstJson(resultText);
+  if (!jsonStr) return [];
   let params: { maxTurns?: number; model?: "opus" | "sonnet" | "haiku" };
   try {
-    const jsonStr = extractFirstJson(resultText);
-    if (!jsonStr) return [];
-    params = JSON.parse(jsonStr) as typeof params;
+    const paramsResult = PhaseLogicResponseSchema.safeParse(JSON.parse(jsonStr));
+    if (!paramsResult.success) return [];
+    params = {
+      ...(paramsResult.data.maxTurns !== undefined ? { maxTurns: paramsResult.data.maxTurns } : {}),
+      ...(paramsResult.data.model !== undefined ? { model: paramsResult.data.model } : {}),
+    };
   } catch {
     console.log("[mutation] Failed to parse phase logic response");
     return [];
@@ -358,12 +363,12 @@ Suggest updated execution parameters.`,
       description: `Updated ${blueprint.name} model: ${originalModel ?? "default"} → ${newModel ?? "default"}`,
       apply: () => ({
         ...blueprint,
-        model: newModel,
+        ...(newModel !== undefined ? { model: newModel } : {}),
         version: blueprint.version + 1,
       }),
       rollback: () => ({
         ...blueprint,
-        model: originalModel,
+        ...(originalModel !== undefined ? { model: originalModel } : {}),
       }),
     },
   ];

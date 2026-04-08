@@ -17,6 +17,7 @@ import type {
   BenchmarkResult,
 } from "./benchmark-types.js";
 import { getDefaultBenchmarks } from "./benchmark-defaults.js";
+import { ExternalBenchmarkFileSchema } from "../types/llm-schemas.js";
 
 // Re-exports for backwards compatibility
 export {
@@ -63,11 +64,16 @@ export function loadBenchmarkTasks(benchmarkId: string): Benchmark | null {
 
   try {
     const raw = readFileSync(tasksPath, "utf-8");
-    const data = JSON.parse(raw) as ExternalBenchmarkFile;
+    const parseResult = ExternalBenchmarkFileSchema.safeParse(JSON.parse(raw));
+    if (!parseResult.success) {
+      const defaults = getDefaultBenchmarks();
+      return defaults.find((b) => b.id === benchmarkId) ?? null;
+    }
+    const data = parseResult.data;
     return {
       id: data.id,
       name: data.name,
-      tasks: data.tasks,
+      tasks: data.tasks as BenchmarkTask[],
       verifier: data.verifier,
       weight: data.weight,
     };

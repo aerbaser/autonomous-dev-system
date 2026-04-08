@@ -84,11 +84,15 @@ export async function consumeQuery(
 export type PermissionLevel = "bypass" | "auto" | "interactive";
 
 export function getPermissionMode(level?: PermissionLevel): "bypassPermissions" | "auto" | "default" {
+  if (level === undefined) return "default";
   switch (level) {
     case "bypass": return "bypassPermissions";
     case "auto": return "auto";
     case "interactive": return "default";
-    default: return "default"; // safe default
+    default: {
+      const _exhaustive: never = level;
+      throw new Error(`Unknown permission level: ${_exhaustive}`);
+    }
   }
 }
 

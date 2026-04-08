@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 // Mock child_process before importing the hook
 vi.mock("node:child_process", () => ({
-  execSync: vi.fn(),
+  execFileSync: vi.fn(),
 }));
 
-const mockedExecSync = vi.mocked(execSync);
+const mockedExecFileSync = vi.mocked(execFileSync);
 
 // Dynamic import after mock setup
 const { qualityGateHook } = await import("../../src/hooks/quality-gate.js");
@@ -24,22 +24,22 @@ function makeTaskCompletedInput() {
 
 describe("Quality Gate Hook", () => {
   beforeEach(() => {
-    mockedExecSync.mockReset();
+    mockedExecFileSync.mockReset();
   });
 
   it("returns empty when all checks pass", async () => {
-    mockedExecSync.mockReturnValue(Buffer.from("ok"));
+    mockedExecFileSync.mockReturnValue(Buffer.from("ok"));
 
     const result = await qualityGateHook(makeTaskCompletedInput(), undefined, { signal });
     expect(result).toEqual({});
-    expect(mockedExecSync).toHaveBeenCalledTimes(3); // tsc + tests + lint
+    expect(mockedExecFileSync).toHaveBeenCalledTimes(3); // tsc + tests + lint
   });
 
   it("returns failure message when TypeScript check fails", async () => {
     const error = new Error("tsc failed") as Error & { stdout: Buffer };
     error.stdout = Buffer.from("error TS2345: Argument of type 'string' is not assignable");
-    mockedExecSync.mockImplementation((cmd: string) => {
-      if (typeof cmd === "string" && cmd.includes("tsc")) throw error;
+    mockedExecFileSync.mockImplementation((executable: string, args?: readonly string[]) => {
+      if (executable === "npx" && args?.includes("tsc")) throw error;
       return Buffer.from("ok");
     });
 
@@ -52,8 +52,8 @@ describe("Quality Gate Hook", () => {
   it("returns failure message when tests fail", async () => {
     const error = new Error("tests failed") as Error & { stdout: Buffer };
     error.stdout = Buffer.from("FAIL tests/my.test.ts");
-    mockedExecSync.mockImplementation((cmd: string) => {
-      if (typeof cmd === "string" && cmd.includes("npm test")) throw error;
+    mockedExecFileSync.mockImplementation((executable: string, args?: readonly string[]) => {
+      if (executable === "npm" && args?.includes("test")) throw error;
       return Buffer.from("ok");
     });
 
@@ -63,8 +63,8 @@ describe("Quality Gate Hook", () => {
   });
 
   it("treats lint failure as non-blocking warning", async () => {
-    // All checks pass (lint uses || true, so it returns success even on lint errors)
-    mockedExecSync.mockReturnValue(Buffer.from("ok"));
+    // All checks pass
+    mockedExecFileSync.mockReturnValue(Buffer.from("ok"));
 
     const result = await qualityGateHook(makeTaskCompletedInput(), undefined, { signal });
     expect(result).toEqual({});
@@ -85,7 +85,7 @@ describe("Quality Gate Hook", () => {
       { signal }
     );
     expect(result).toEqual({});
-    expect(mockedExecSync).not.toHaveBeenCalled();
+    expect(mockedExecFileSync).not.toHaveBeenCalled();
   });
 
   it("includes both fatal failures and non-fatal warnings", async () => {
@@ -94,9 +94,9 @@ describe("Quality Gate Hook", () => {
     const lintError = new Error("lint failed") as Error & { stdout: Buffer };
     lintError.stdout = Buffer.from("lint warning");
 
-    mockedExecSync.mockImplementation((cmd: string) => {
-      if (typeof cmd === "string" && cmd.includes("tsc")) throw tscError;
-      if (typeof cmd === "string" && cmd.includes("lint")) throw lintError;
+    mockedExecFileSync.mockImplementation((executable: string, args?: readonly string[]) => {
+      if (executable === "npx" && args?.includes("tsc")) throw tscError;
+      if (executable === "npm" && args?.includes("lint")) throw lintError;
       return Buffer.from("ok");
     });
 

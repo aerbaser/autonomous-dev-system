@@ -1,4 +1,4 @@
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import type { LspConfig } from "../state/project-state.js";
 import { validateLsp } from "./validator.js";
 
@@ -99,7 +99,8 @@ export function installLspServers(servers: LspConfig[]): LspConfig[] {
 
     try {
       console.log(`[lsp] Installing ${lsp.server} for ${lsp.language}...`);
-      execSync(lsp.installCommand, { stdio: "pipe", timeout: 120_000 });
+      const parts = lsp.installCommand.split(/\s+/);
+      execFileSync(parts[0]!, parts.slice(1), { stdio: "pipe", timeout: 120_000 });
 
       // Verify the binary is actually available after install
       if (smokeTestLsp(lsp.server, lsp.language)) {

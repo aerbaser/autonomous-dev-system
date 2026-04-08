@@ -1,6 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { DomainAnalysis, AgentBlueprint } from "../state/project-state.js";
 import { consumeQuery } from "../utils/sdk-helpers.js";
+import { DomainAnalysisSchema, DomainAgentArraySchema } from "../types/llm-schemas.js";
 
 const DOMAIN_ANALYSIS_PROMPT = `You are a Domain Analyzer. Given a project idea, analyze what domain expertise
 and specialized roles are needed beyond the standard development team (PM, Dev, QA, DevOps, Reviewer).
@@ -69,7 +70,8 @@ export async function analyzeDomain(idea: string): Promise<DomainAnalysis> {
   }
 
   try {
-    return JSON.parse(jsonStr) as DomainAnalysis;
+    const parseResult = DomainAnalysisSchema.safeParse(JSON.parse(jsonStr));
+    return parseResult.success ? parseResult.data : getDefaultDomain();
   } catch {
     return getDefaultDomain();
   }
@@ -154,13 +156,9 @@ Generate blueprints for these roles: ${domain.requiredRoles.join(", ")}`,
   if (!jsonMatch) return [];
 
   try {
-    const raw = JSON.parse(jsonMatch[0]) as Array<{
-      name: string;
-      role: string;
-      systemPrompt: string;
-      tools: string[];
-      evaluationCriteria: string[];
-    }>;
+    const parseResult = DomainAgentArraySchema.safeParse(JSON.parse(jsonMatch[0]));
+    if (!parseResult.success) return [];
+    const raw = parseResult.data;
 
     return raw.map((r) => ({
       ...r,

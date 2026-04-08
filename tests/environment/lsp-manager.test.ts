@@ -1,14 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 // Mock child_process
 vi.mock("node:child_process", () => ({
   execFileSync: vi.fn(),
-  execSync: vi.fn(),
 }));
 
 const mockedExecFileSync = vi.mocked(execFileSync);
-const mockedExecSync = vi.mocked(execSync);
 
 const { installLspServers, smokeTestLsp } = await import("../../src/environment/lsp-manager.js");
 
@@ -17,7 +15,6 @@ import type { LspConfig } from "../../src/state/project-state.js";
 describe("LSP Manager", () => {
   beforeEach(() => {
     mockedExecFileSync.mockReset();
-    mockedExecSync.mockReset();
   });
 
   describe("smokeTestLsp", () => {
@@ -36,9 +33,8 @@ describe("LSP Manager", () => {
 
   describe("installLspServers", () => {
     it("installs and verifies LSP server successfully", () => {
-      // execSync for install command, execFileSync for smoke test (which)
-      mockedExecSync.mockReturnValue(Buffer.from("ok"));
-      mockedExecFileSync.mockReturnValue(Buffer.from("/usr/local/bin/vtsls"));
+      // All execFileSync calls succeed (both install and smoke test use execFileSync now)
+      mockedExecFileSync.mockReturnValue(Buffer.from("ok"));
 
       const servers: LspConfig[] = [
         {
@@ -51,14 +47,20 @@ describe("LSP Manager", () => {
 
       const results = installLspServers(servers);
       expect(results[0].installed).toBe(true);
-      expect(mockedExecSync).toHaveBeenCalledTimes(1);
-      expect(mockedExecFileSync).toHaveBeenCalledTimes(1);
+      // 1 call for install (execFileSync("npm", ["i", "-g", "@vtsls/language-server"]))
+      // + 1 call for smoke test (execFileSync("which", ["vtsls"]))
+      expect(mockedExecFileSync).toHaveBeenCalledTimes(2);
     });
 
     it("marks as not installed when smoke test fails", () => {
-      mockedExecSync.mockReturnValue(Buffer.from("installed")); // install succeeds
-      mockedExecFileSync.mockImplementation(() => {
-        throw new Error("not found"); // smoke test fails
+      let callCount = 0;
+      mockedExecFileSync.mockImplementation((executable: string) => {
+        callCount++;
+        // First call is install (succeeds), second is smoke test (fails)
+        if (executable === "which") {
+          throw new Error("not found");
+        }
+        return Buffer.from("ok");
       });
 
       const servers: LspConfig[] = [
@@ -75,8 +77,12 @@ describe("LSP Manager", () => {
     });
 
     it("marks as not installed when install command fails", () => {
-      mockedExecSync.mockImplementation(() => {
-        throw new Error("install failed");
+      mockedExecFileSync.mockImplementation((executable: string) => {
+        // Install command fails (not "which")
+        if (executable !== "which") {
+          throw new Error("install failed");
+        }
+        return Buffer.from("ok");
       });
 
       const servers: LspConfig[] = [
@@ -104,7 +110,7 @@ describe("LSP Manager", () => {
 
       const results = installLspServers(servers);
       expect(results[0].installed).toBe(false);
-      expect(mockedExecSync).not.toHaveBeenCalled();
+      expect(mockedExecFileSync).not.toHaveBeenCalled();
     });
 
     it("skips servers with dangerous install commands", () => {
@@ -119,17 +125,20 @@ describe("LSP Manager", () => {
 
       const results = installLspServers(servers);
       expect(results[0].installed).toBe(false);
-      expect(mockedExecSync).not.toHaveBeenCalled();
+      expect(mockedExecFileSync).not.toHaveBeenCalled();
     });
 
     it("handles multiple servers independently", () => {
       let installCount = 0;
-      mockedExecSync.mockImplementation(() => {
+      mockedExecFileSync.mockImplementation((executable: string) => {
+        if (executable === "which") {
+          return Buffer.from("ok"); // smoke test passes
+        }
+        // Install calls
         installCount++;
-        if (installCount === 1) return Buffer.from("ok"); // first server install
+        if (installCount === 1) return Buffer.from("ok"); // first server install succeeds
         throw new Error("fail"); // second server install fails
       });
-      mockedExecFileSync.mockReturnValue(Buffer.from("ok")); // smoke test passes
 
       const servers: LspConfig[] = [
         {

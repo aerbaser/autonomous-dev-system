@@ -36,11 +36,11 @@ export const improvementTrackerHook: HookCallback = async (input, toolUseID, _ct
   const record: ToolUsageRecord = {
     timestamp: new Date().toISOString(),
     toolName: input.tool_name,
-    agentId: input.agent_id,
-    agentType: input.agent_type,
     success: event === "PostToolUse",
-    durationMs,
-    error: event === "PostToolUseFailure" ? input.error : undefined,
+    ...(input.agent_id !== undefined ? { agentId: input.agent_id } : {}),
+    ...(input.agent_type !== undefined ? { agentType: input.agent_type } : {}),
+    ...(durationMs !== undefined ? { durationMs } : {}),
+    ...(event === "PostToolUseFailure" && input.error ? { error: input.error } : {}),
   };
 
   const dir = dirname(TRACKER_LOG_PATH);

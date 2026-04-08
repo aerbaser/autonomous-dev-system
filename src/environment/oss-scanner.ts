@@ -1,5 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { OssTool, DomainAnalysis, ArchDesign } from "../state/project-state.js";
+import { OssToolArraySchema } from "../types/llm-schemas.js";
 
 const VALID_OSS_TYPES = ["agent", "skill", "hook", "mcp-server", "pattern"] as const;
 type OssType = (typeof VALID_OSS_TYPES)[number];
@@ -64,14 +65,10 @@ Specializations: ${domain.specializations.join(", ")}`,
   if (!jsonMatch) return [];
 
   try {
-    const raw = JSON.parse(jsonMatch[0]) as Array<{
-      name: string;
-      repo: string;
-      type: string;
-      integrationPlan: string;
-    }>;
+    const parseResult = OssToolArraySchema.safeParse(JSON.parse(jsonMatch[0]));
+    if (!parseResult.success) return [];
 
-    return raw.map((o) => ({
+    return parseResult.data.map((o) => ({
       name: o.name,
       repo: o.repo,
       type: isValidOssType(o.type) ? o.type : "pattern",

@@ -1,5 +1,5 @@
 import type { HookCallback } from "@anthropic-ai/claude-agent-sdk";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 
 interface ExecError extends Error {
   stdout: Buffer;
@@ -16,10 +16,10 @@ function isExecError(err: unknown): err is ExecError {
 export const qualityGateHook: HookCallback = async (input, _toolUseID, _ctx) => {
   if (input.hook_event_name !== "TaskCompleted") return {};
 
-  const checks: Array<{ name: string; command: string; fatal: boolean }> = [
-    { name: "TypeScript type-check", command: "npx tsc --noEmit 2>&1", fatal: true },
-    { name: "Tests", command: "npm test 2>&1", fatal: true },
-    { name: "Lint", command: "npm run lint 2>&1", fatal: false },
+  const checks: Array<{ name: string; executable: string; args: string[]; fatal: boolean }> = [
+    { name: "TypeScript type-check", executable: "npx", args: ["tsc", "--noEmit"], fatal: true },
+    { name: "Tests", executable: "npm", args: ["test"], fatal: true },
+    { name: "Lint", executable: "npm", args: ["run", "lint"], fatal: false },
   ];
 
   const failures: string[] = [];
@@ -27,7 +27,7 @@ export const qualityGateHook: HookCallback = async (input, _toolUseID, _ctx) => 
 
   for (const check of checks) {
     try {
-      execSync(check.command, { timeout: 120_000, stdio: "pipe" });
+      execFileSync(check.executable, check.args, { timeout: 120_000, stdio: "pipe" });
     } catch (err) {
       const output = isExecError(err) ? String(err.stdout) : String(err);
       if (check.fatal) {

@@ -25,7 +25,8 @@ import {
   saveCheckpoint as saveCheckpointState,
   saveState,
 } from "../state/project-state.js";
-import { execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
+import { TaskResultsSchema } from "../types/llm-schemas.js";
 
 function extractFirstJson(text: string): string | null {
   let depth = 0;
@@ -149,9 +150,9 @@ export async function runDevelopment(
     for (const taskResult of batchResult.taskResults) {
       updatedState = updateTask(updatedState, taskResult.taskId, {
         status: taskResult.success ? "completed" : "failed",
-        result: taskResult.result,
-        error: taskResult.error,
-        completedAt: taskResult.success ? new Date().toISOString() : undefined,
+        ...(taskResult.result !== undefined ? { result: taskResult.result } : {}),
+        ...(taskResult.error !== undefined ? { error: taskResult.error } : {}),
+        ...(taskResult.success ? { completedAt: new Date().toISOString() } : {}),
       });
     }
 
@@ -212,11 +213,11 @@ export async function runDevelopment(
 
   return {
     success,
-    nextPhase: success ? "testing" : undefined,
+    ...(success ? { nextPhase: "testing" as const } : {}),
     state: updatedState,
-    sessionId: lastSessionId,
+    ...(lastSessionId !== undefined ? { sessionId: lastSessionId } : {}),
     costUsd: totalCost,
-    error: success ? undefined : `${failedTasks.length} task(s) failed`,
+    ...(!success ? { error: `${failedTasks.length} task(s) failed` } : {}),
   };
 }
 
@@ -316,9 +317,9 @@ Output a JSON object with a "tasks" array.`;
   }
 
   if (structuredOutput && typeof structuredOutput === "object") {
-    const decomposition = structuredOutput as TaskDecomposition;
-    if (Array.isArray(decomposition.tasks) && decomposition.tasks.length > 0) {
-      return decomposition.tasks;
+    const obj = structuredOutput as Record<string, unknown>;
+    if (Array.isArray(obj.tasks) && obj.tasks.length > 0) {
+      return obj.tasks as DevTask[];
     }
   }
 
@@ -497,23 +498,20 @@ function parseTaskResults(output: string, tasks: Task[]): TaskResult[] {
   const jsonStr = extractFirstJson(output);
   if (jsonStr) {
     try {
-      const parsed = JSON.parse(jsonStr) as {
-        tasks: Array<{ title: string; status: string }>;
-      };
-      if (Array.isArray(parsed.tasks)) {
+      const parseResult = TaskResultsSchema.safeParse(JSON.parse(jsonStr));
+      if (parseResult.success) {
+        const parsed = parseResult.data;
         return tasks.map((task) => {
-          const result = parsed.tasks.find((t) =>
+          const match = parsed.tasks.find((t) =>
             t.title.toLowerCase().includes(task.title.toLowerCase())
           );
+          const hasFail = match?.status === "failed";
           return {
             taskId: task.id,
-            success: result ? result.status !== "failed" : true,
+            success: match ? !hasFail : true,
             output,
-            result: output.length > 0 ? "Implemented as part of batch" : undefined,
-            error:
-              result?.status === "failed"
-                ? `Task "${task.title}" reported as failed`
-                : undefined,
+            ...(output.length > 0 ? { result: "Implemented as part of batch" } : {}),
+            ...(hasFail ? { error: `Task "${task.title}" reported as failed` } : {}),
           };
         });
       }
@@ -536,8 +534,8 @@ function parseTaskResults(output: string, tasks: Task[]): TaskResult[] {
       taskId: task.id,
       success: !hasFail && output.length > 0,
       output,
-      result: output.length > 0 ? "Implemented as part of batch" : undefined,
-      error: hasFail ? `Task "${task.title}" reported as failed` : undefined,
+      ...(output.length > 0 ? { result: "Implemented as part of batch" } : {}),
+      ...(hasFail ? { error: `Task "${task.title}" reported as failed` } : {}),
     };
   });
 }
@@ -628,31 +626,37 @@ Also include a brief text summary for each task.`;
   // Parse results using structured output when available, falling back to heuristic
   const taskResults = parseTaskResults(resultText, batch);
 
-  return { taskResults, costUsd, sessionId };
+  return { taskResults, costUsd, ...(sessionId !== undefined ? { sessionId } : {}) };
+}
+
+// --- Helpers ---
+
+function getExecStdout(err: unknown): string | null {
+  if (err instanceof Error && "stdout" in err) {
+    const stdout = (err as Error & { stdout: unknown }).stdout;
+    return Buffer.isBuffer(stdout) ? stdout.toString() : typeof stdout === "string" ? stdout : null;
+  }
+  return null;
 }
 
 // --- Quality Gates ---
 
 function runQualityChecks(): boolean {
   const checks = [
-    { name: "TypeScript type-check", command: "npx tsc --noEmit 2>&1" },
-    { name: "Tests", command: "npm test 2>&1" },
+    { name: "TypeScript type-check", executable: "npx", args: ["tsc", "--noEmit"] },
+    { name: "Tests", executable: "npm", args: ["test"] },
   ];
 
   let allPassed = true;
 
   for (const check of checks) {
     try {
-      execSync(check.command, { timeout: 120_000, stdio: "pipe" });
+      execFileSync(check.executable, check.args, { timeout: 120_000, stdio: "pipe" });
       console.log(`[development] Quality check passed: ${check.name}`);
     } catch (err) {
       allPassed = false;
       const output =
-        err instanceof Error && "stdout" in err
-          ? String(
-              (err as NodeJS.ErrnoException & { stdout: Buffer }).stdout
-            ).slice(0, 300)
-          : "unknown error";
+        getExecStdout(err)?.slice(0, 300) ?? "unknown error";
       console.warn(`[development] Quality check FAILED: ${check.name}\n${output}`);
     }
   }
@@ -671,21 +675,17 @@ async function autoFixQualityIssues(
   let testErrors = "";
 
   try {
-    execSync("npx tsc --noEmit 2>&1", { timeout: 120_000, stdio: "pipe" });
+    execFileSync("npx", ["tsc", "--noEmit"], { timeout: 120_000, stdio: "pipe" });
   } catch (err) {
     typeErrors =
-      err instanceof Error && "stdout" in err
-        ? String((err as NodeJS.ErrnoException & { stdout: Buffer }).stdout).slice(0, 2000)
-        : "type-check failed";
+      getExecStdout(err)?.slice(0, 2000) ?? "type-check failed";
   }
 
   try {
-    execSync("npm test 2>&1", { timeout: 120_000, stdio: "pipe" });
+    execFileSync("npm", ["test"], { timeout: 120_000, stdio: "pipe" });
   } catch (err) {
     testErrors =
-      err instanceof Error && "stdout" in err
-        ? String((err as NodeJS.ErrnoException & { stdout: Buffer }).stdout).slice(0, 2000)
-        : "tests failed";
+      getExecStdout(err)?.slice(0, 2000) ?? "tests failed";
   }
 
   if (!typeErrors && !testErrors) {

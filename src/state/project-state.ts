@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { randomUUID } from "node:crypto";
+import { ProjectStateSchema } from "../types/llm-schemas.js";
 
 // --- Core types ---
 
@@ -229,7 +230,8 @@ export function createInitialState(idea: string): ProjectState {
 export function loadState(stateDir: string): ProjectState | null {
   const statePath = resolve(stateDir, "state.json");
   if (!existsSync(statePath)) return null;
-  return JSON.parse(readFileSync(statePath, "utf-8")) as ProjectState;
+  const parsed = ProjectStateSchema.safeParse(JSON.parse(readFileSync(statePath, "utf-8")));
+  return parsed.success ? (parsed.data as ProjectState) : null;
 }
 
 export function saveState(stateDir: string, state: ProjectState): void {

@@ -34,7 +34,7 @@ const PHASE_HANDLERS: Record<Phase, PhaseHandler> = {
   ideation: runIdeation,
   specification: async (state, _config) => ({
     success: true,
-    nextPhase: "architecture" as Phase,
+    nextPhase: "architecture",
     state,
   }),
   architecture: runArchitecture,
@@ -46,7 +46,7 @@ const PHASE_HANDLERS: Record<Phase, PhaseHandler> = {
   "ab-testing": runABTesting,
   analysis: async (state, _config) => ({
     success: true,
-    nextPhase: "production" as Phase,
+    nextPhase: "production",
     state,
   }),
   production: runDeployment,

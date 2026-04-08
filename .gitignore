@@ -20,6 +20,9 @@ Thumbs.db
 # Build output
 dist/
 
+# Test coverage
+coverage/
+
 # Autonomous dev system state (project-specific, not tracked)
 .autonomous-dev/
 

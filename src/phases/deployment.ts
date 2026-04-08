@@ -69,7 +69,7 @@ End with: "DEPLOYED: <url>" or "FAILED: <reason>"`;
     environment,
     timestamp: new Date().toISOString(),
     status: deployed ? "deployed" : "failed",
-    url: deployed ? deployLine!.replace("DEPLOYED:", "").trim() : undefined,
+    ...(deployed ? { url: deployLine!.replace("DEPLOYED:", "").trim() } : {}),
   };
 
   const newState: ProjectState = {
