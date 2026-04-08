@@ -1,0 +1,19 @@
+{
+  "id": "test-generation",
+  "name": "Test Generation Quality",
+  "verifier": "llm",
+  "weight": 0.25,
+  "tasks": [
+    {
+      "instruction": "Read src/cart.ts and write comprehensive tests in src/cart.test.ts using Node.js built-in test runner (node:test). Cover: adding items, removing items, applying discounts, checkout flow, error cases (empty cart checkout, invalid discount), edge cases (negative quantities, zero prices, duplicate item IDs).",
+      "evaluationPrompt": "Rate test quality 0-1: coverage of happy paths (add/remove/discount/checkout all tested), edge cases (empty cart, negative quantities, overflow, duplicate IDs), error paths (invalid discount, empty checkout), test independence (each test is self-contained), clear naming (test names describe behavior). Average the five sub-scores.",
+      "timeout": 120000,
+      "fixture": {
+        "files": {
+          "package.json": "{\"name\":\"test-gen-benchmark\",\"version\":\"1.0.0\",\"type\":\"module\",\"scripts\":{\"test\":\"node --test src/**/*.test.ts\"}}",
+          "src/cart.ts": "export interface CartItem {\n  id: string;\n  name: string;\n  price: number;\n  quantity: number;\n}\n\nexport class ShoppingCart {\n  private items: CartItem[] = [];\n\n  add(item: CartItem): void {\n    const existing = this.items.find((i) => i.id === item.id);\n    if (existing) {\n      existing.quantity += item.quantity;\n    } else {\n      this.items.push({ ...item });\n    }\n  }\n\n  remove(id: string): boolean {\n    const idx = this.items.findIndex((i) => i.id === id);\n    if (idx === -1) return false;\n    this.items.splice(idx, 1);\n    return true;\n  }\n\n  applyDiscount(percentage: number): void {\n    if (percentage < 0 || percentage > 100) {\n      throw new Error(\"Discount must be between 0 and 100\");\n    }\n    const multiplier = 1 - percentage / 100;\n    for (const item of this.items) {\n      item.price = Math.round(item.price * multiplier * 100) / 100;\n    }\n  }\n\n  getTotal(): number {\n    return this.items.reduce((sum, i) => sum + i.price * i.quantity, 0);\n  }\n\n  getItems(): ReadonlyArray<Readonly<CartItem>> {\n    return this.items;\n  }\n\n  clear(): void {\n    this.items = [];\n  }\n\n  checkout(): { items: CartItem[]; total: number } {\n    if (this.items.length === 0) {\n      throw new Error(\"Cannot checkout empty cart\");\n    }\n    const result = { items: [...this.items], total: this.getTotal() };\n    this.clear();\n    return result;\n  }\n}"
+        }
+      }
+    }
+  ]
+}

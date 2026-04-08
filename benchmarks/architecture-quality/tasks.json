@@ -1,0 +1,13 @@
+{
+  "id": "architecture-quality",
+  "name": "Architecture Decisions",
+  "verifier": "llm",
+  "weight": 0.15,
+  "tasks": [
+    {
+      "instruction": "Design the architecture for a real-time chat application supporting 10k concurrent users",
+      "evaluationPrompt": "Rate architecture 0-1: appropriate tech choices, scalability plan, component separation, API design, data model, trade-off analysis. Average the scores.",
+      "timeout": 120000
+    }
+  ]
+}
