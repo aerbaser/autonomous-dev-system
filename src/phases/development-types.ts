@@ -22,6 +22,7 @@ export interface BatchResult {
 export interface TaskResult {
   taskId: string;
   success: boolean;
+  output?: string;
   result?: string;
   error?: string;
 }
