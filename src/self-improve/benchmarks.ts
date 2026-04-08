@@ -9,8 +9,8 @@ import { fileURLToPath } from "node:url";
 import {
   createDeterministicVerifier,
   createLlmVerifier,
-  type Verifier,
 } from "./verifiers.js";
+import type { Verifier } from "./verifiers.js";
 import type {
   BenchmarkTask,
   BenchmarkFixture,
@@ -18,14 +18,15 @@ import type {
   BenchmarkResult,
 } from "./benchmark-types.js";
 
-// Re-export verifier types for backward compatibility
 export {
   createDeterministicVerifier,
   createLlmVerifier,
-  type Verifier,
-  type VerifierResult,
-  type VerifierTask,
-  type LlmVerifierOptions,
+} from "./verifiers.js";
+export type {
+  Verifier,
+  VerifierResult,
+  VerifierTask,
+  LlmVerifierOptions,
 } from "./verifiers.js";
 
 // Re-export types for backwards compatibility
@@ -33,7 +34,7 @@ export type { BenchmarkTask, BenchmarkFixture, Benchmark, BenchmarkResult } from
 
 // ── Fixtures ──
 
-const CODE_QUALITY_FIXTURE: BenchmarkFixture = {
+const CODE_QUALITY_FIXTURE = {
   files: {
     "package.json": JSON.stringify(
       {
@@ -78,9 +79,9 @@ const CODE_QUALITY_FIXTURE: BenchmarkFixture = {
       '}',
     ].join("\n"),
   },
-};
+} satisfies BenchmarkFixture;
 
-const TEST_GENERATION_FIXTURE: BenchmarkFixture = {
+const TEST_GENERATION_FIXTURE = {
   files: {
     "package.json": JSON.stringify(
       {
@@ -152,7 +153,7 @@ const TEST_GENERATION_FIXTURE: BenchmarkFixture = {
       "}",
     ].join("\n"),
   },
-};
+} satisfies BenchmarkFixture;
 
 // ── External benchmark loader ──
 

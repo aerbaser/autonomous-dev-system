@@ -9,12 +9,12 @@ export interface ConvergenceConfig {
   minIterations: number;
 }
 
-export const DEFAULT_CONVERGENCE: ConvergenceConfig = {
+export const DEFAULT_CONVERGENCE = {
   windowSize: 5,
-  minImprovement: 0.005, // 0.5% improvement threshold
+  minImprovement: 0.005,
   maxStagnantIterations: 10,
   minIterations: 3,
-};
+} as const satisfies ConvergenceConfig;
 
 export interface ConvergenceState {
   scores: number[];

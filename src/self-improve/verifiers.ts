@@ -1,4 +1,5 @@
-import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import {
   mkdirSync,
   existsSync,
@@ -122,17 +123,9 @@ export function createLlmVerifier(
               );
               costUsd += message.total_cost_usd;
             }
-          } else if (
-            message.type === "system" &&
-            "subtype" in message &&
-            message.subtype === "api_retry"
-          ) {
-            const retryMsg = message as Extract<
-              SDKMessage,
-              { subtype: "api_retry" }
-            >;
+          } else if (isApiRetry(message)) {
             console.log(
-              `[verifier] API retry ${retryMsg.attempt}/${retryMsg.max_retries}`
+              `[verifier] API retry ${message.attempt}/${message.max_retries}`
             );
           }
         }
@@ -186,6 +179,12 @@ Respond with ONLY a single number between 0.0 and 1.0`,
 }
 
 // ── Helpers ──
+
+function isApiRetry(
+  message: SDKMessage
+): message is Extract<SDKMessage, { subtype: "api_retry" }> {
+  return message.type === "system" && "subtype" in message && message.subtype === "api_retry";
+}
 
 function cleanupFixture(fixtureCwd: string | undefined): void {
   if (fixtureCwd && existsSync(fixtureCwd)) {

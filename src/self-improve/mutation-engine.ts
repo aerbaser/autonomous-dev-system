@@ -1,4 +1,5 @@
-import { query, type SDKMessage } from "@anthropic-ai/claude-agent-sdk";
+import { query } from "@anthropic-ai/claude-agent-sdk";
+import type { SDKMessage } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentBlueprint, EvolutionEntry } from "../state/project-state.js";
 import type { BenchmarkResult } from "./benchmarks.js";
 import { randomUUID } from "node:crypto";
@@ -70,12 +71,12 @@ Output JSON: { "maxTurns": number, "model": "opus" | "sonnet" | "haiku" }. Nothi
 // ── Mutation type selection ──
 
 function selectMutationType(history: EvolutionEntry[]): MutationType {
-  const types: MutationType[] = [
+  const types = [
     "agent_prompt",
     "tool_config",
     "phase_logic",
     "quality_threshold",
-  ];
+  ] as const satisfies readonly MutationType[];
 
   // Count recent usage of each type (last 20 entries)
   const recent = history.slice(-20);
@@ -128,6 +129,10 @@ export async function generateMutations(
         benchmarkResults,
         history
       );
+    default: {
+      const _exhaustive: never = mutationType;
+      throw new Error(`Unknown mutation type: ${_exhaustive}`);
+    }
   }
 }
 
@@ -174,9 +179,8 @@ Generate an improved version of this agent's system prompt.`,
           );
         }
       } else if (isApiRetry(message)) {
-        const retryMsg = message as Extract<SDKMessage, { subtype: "api_retry" }>;
         console.log(
-          `[mutation] API retry ${retryMsg.attempt}/${retryMsg.max_retries}`
+          `[mutation] API retry ${message.attempt}/${message.max_retries}`
         );
       }
     }
@@ -439,5 +443,5 @@ function formatBenchmarks(results: BenchmarkResult[]): string {
 function isApiRetry(
   message: SDKMessage
 ): message is Extract<SDKMessage, { subtype: "api_retry" }> {
-  return message.type === "system" && "subtype" in message && (message as Record<string, unknown>).subtype === "api_retry";
+  return message.type === "system" && "subtype" in message && message.subtype === "api_retry";
 }
