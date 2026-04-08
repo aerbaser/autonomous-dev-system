@@ -58,6 +58,23 @@ const PHASE_HANDLERS = {
   monitoring: runMonitoring,
 } satisfies Record<Phase, PhaseHandler>;
 
+const ALL_PHASES: Phase[] = Object.keys(PHASE_HANDLERS) as Phase[];
+
+const OPTIONAL_PHASES: Phase[] = [
+  "environment-setup",
+  "review",
+  "ab-testing",
+  "monitoring",
+];
+
+function buildProgressBar(current: number, total: number): string {
+  const pct = Math.round((current / total) * 100);
+  const filled = Math.round((current / total) * 10);
+  const empty = 10 - filled;
+  const bar = "\u2588".repeat(filled) + "\u2591".repeat(empty);
+  return `${bar} ${pct}%`;
+}
+
 export async function runOrchestrator(
   initialState: ProjectState,
   config: Config,
@@ -65,6 +82,16 @@ export async function runOrchestrator(
   singlePhase?: Phase
 ): Promise<void> {
   let state = { ...initialState };
+
+  // Safe access to new config fields that may not exist in the schema yet
+  const cfgAny = config as Record<string, unknown>;
+  const budgetUsd = cfgAny.budgetUsd as number | undefined;
+  const dryRun = cfgAny.dryRun as boolean | undefined;
+  const quickMode = cfgAny.quickMode as boolean | undefined;
+  const confirmSpec = cfgAny.confirmSpec as boolean | undefined;
+
+  // Budget tracking — TODO: wire up real costs from query() when available
+  let totalCostUsd = 0;
 
   // Clean up stale sessions on startup
   let sessionStore = loadSessions(config.stateDir);
@@ -84,7 +111,34 @@ export async function runOrchestrator(
   while (iterations < MAX_ITERATIONS) {
     iterations++;
     const phase = state.currentPhase;
-    console.log(`\n[orchestrator] Phase ${iterations}: ${phase}`);
+    const phaseIndex = ALL_PHASES.indexOf(phase);
+    const totalPhases = ALL_PHASES.length;
+
+    // Progress indicator
+    console.log(
+      `\n[progress] Phase ${phaseIndex + 1}/${totalPhases}: ${phase} ${buildProgressBar(phaseIndex + 1, totalPhases)}`
+    );
+
+    console.log(`[orchestrator] Phase ${iterations}: ${phase}`);
+
+    // Quick mode: skip optional phases
+    if (quickMode && OPTIONAL_PHASES.includes(phase)) {
+      console.log(`[quick] Skipping optional phase: ${phase}`);
+      // Attempt to find a valid next phase by looking at the phase after this one
+      const nextIndex = phaseIndex + 1;
+      const nextPhase = ALL_PHASES[nextIndex];
+      if (nextPhase !== undefined) {
+        if (canTransition(phase, nextPhase)) {
+          state = transitionPhase(state, nextPhase);
+          saveState(config.stateDir, state);
+          console.log(`[orchestrator] Transition: ${phase} -> ${nextPhase}`);
+          continue;
+        }
+      }
+      // If no valid transition found, just break
+      console.log(`[orchestrator] No valid transition from skipped phase: ${phase}. Stopping.`);
+      break;
+    }
 
     const handler = PHASE_HANDLERS[phase];
     if (!handler) {
@@ -93,9 +147,41 @@ export async function runOrchestrator(
       break;
     }
 
-    const result = await executePhaseSafe(phase, state, config);
+    // Dry-run mode: log what would happen without executing
+    if (dryRun) {
+      console.log(`[dry-run] Would run phase: ${phase}`);
+    }
+
+    const phaseStart = Date.now();
+
+    let result: PhaseResult | null;
+    if (dryRun) {
+      // In dry-run mode, simulate a successful result without calling handlers
+      result = {
+        success: true,
+        state,
+      };
+    } else {
+      result = await executePhaseSafe(phase, state, config);
+    }
+
+    const elapsed = ((Date.now() - phaseStart) / 1000).toFixed(1);
+    console.log(`[progress] ${phase} completed in ${elapsed}s`);
+
     if (!result) {
       // Fatal error already logged and state saved inside executePhaseSafe
+      break;
+    }
+
+    // Budget tracking — accumulate cost if reported
+    // TODO: wire up real costs from query() return values
+    if (result.costUsd) {
+      totalCostUsd += result.costUsd;
+      console.log(`[budget] Phase cost: $${result.costUsd.toFixed(2)}, total: $${totalCostUsd.toFixed(2)}`);
+    }
+
+    if (budgetUsd !== undefined && totalCostUsd > budgetUsd) {
+      console.log(`[budget] Budget exceeded ($${totalCostUsd.toFixed(2)}/$${budgetUsd.toFixed(2)}). Stopping.`);
       break;
     }
 
@@ -105,6 +191,21 @@ export async function runOrchestrator(
     if (!result.success) {
       console.error(`[error] Phase ${phase} failed after retries: ${result.error}`);
       break;
+    }
+
+    // Confirm-spec pause: wait for user confirmation after specification phase
+    if (phase === "specification" && confirmSpec) {
+      if (state.spec) {
+        console.log(`[confirm] Spec summary: ${state.spec.summary}`);
+        console.log(
+          `[confirm] User stories: ${state.spec.userStories.length}, ` +
+          `NFRs: ${state.spec.nonFunctionalRequirements.length}`
+        );
+      }
+      console.log(
+        "[confirm] Spec generated. Review above and press Enter to continue, or Ctrl+C to abort."
+      );
+      await new Promise((resolve) => process.stdin.once("data", resolve));
     }
 
     if (result.nextPhase && canTransition(phase, result.nextPhase)) {
@@ -124,7 +225,7 @@ export async function runOrchestrator(
     console.warn(`[orchestrator] Reached max iterations (${MAX_ITERATIONS}). Stopping.`);
   }
 
-  console.log(`\n[orchestrator] Finished. Final phase: ${state.currentPhase}`);
+  console.log(`\n[orchestrator] Finished. Final phase: ${state.currentPhase}, total cost: $${totalCostUsd.toFixed(2)}`);
 }
 
 /**
