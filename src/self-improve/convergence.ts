@@ -34,12 +34,13 @@ export function createConvergenceState(): ConvergenceState {
 
 export function updateConvergence(
   state: ConvergenceState,
-  newScore: number
+  newScore: number,
+  config: ConvergenceConfig = DEFAULT_CONVERGENCE
 ): ConvergenceState {
   const updatedScores = [...state.scores, newScore];
   const iteration = updatedScores.length;
 
-  const improved = newScore > state.bestScore + DEFAULT_CONVERGENCE.minImprovement;
+  const improved = newScore > state.bestScore + config.minImprovement;
 
   return {
     scores: updatedScores,

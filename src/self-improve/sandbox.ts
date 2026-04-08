@@ -10,6 +10,21 @@ export interface SandboxOptions {
   env?: Record<string, string>;
 }
 
+const SAFE_ENV_KEYS = [
+  'PATH', 'HOME', 'USER', 'SHELL', 'TERM', 'LANG', 'LC_ALL',
+  'NODE_ENV', 'NODE_PATH', 'NPM_CONFIG_PREFIX',
+  'TMPDIR', 'TMP', 'TEMP',
+] as const;
+
+function getSafeEnv(): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const key of SAFE_ENV_KEYS) {
+    const val = process.env[key];
+    if (val !== undefined) env[key] = val;
+  }
+  return env;
+}
+
 export interface SandboxResult {
   success: boolean;
   output: string;
@@ -35,7 +50,7 @@ export async function runInSandbox(
     const child: ChildProcess = fork(resolve(scriptPath), args, {
       cwd: options.cwd ?? process.cwd(),
       env: {
-        ...process.env,
+        ...getSafeEnv(),
         ...options.env,
         NODE_OPTIONS: `--max-old-space-size=${memoryMb}`,
       },
@@ -138,7 +153,7 @@ export async function runCommandInSandbox(
         timeout: options.timeoutMs,
         maxBuffer: 10 * 1024 * 1024, // 10MB
         env: {
-          ...process.env,
+          ...getSafeEnv(),
           ...options.env,
           NODE_OPTIONS: `--max-old-space-size=${memoryMb}`,
         },
@@ -165,16 +180,6 @@ export async function runCommandInSandbox(
       }
     );
 
-    // Guard against the child process handle not being created
-    if (!child) {
-      res({
-        success: false,
-        output: "",
-        error: "Failed to spawn process",
-        exitCode: null,
-        durationMs: Date.now() - startTime,
-      });
-    }
   });
 }
 
@@ -215,7 +220,8 @@ export async function runInWorktreeSandbox(
   try {
     // Run task with timeout
     const result = await withTimeout(
-      taskFn(worktreeDir),
+      taskFn,
+      worktreeDir,
       options.timeoutMs,
       startTime
     );
@@ -264,33 +270,41 @@ async function removeWorktree(
 }
 
 /**
- * Wrap a promise with a timeout. Rejects with a timeout error if
- * the promise does not settle within the given duration.
+ * Run a task function with a timeout. Uses Promise.race so the timeout
+ * resolves immediately; a `timedOut` flag signals the task to stop.
  */
-function withTimeout(
-  promise: Promise<SandboxResult>,
+async function withTimeout(
+  taskFn: (dir: string) => Promise<SandboxResult>,
+  dir: string,
   timeoutMs: number,
   startTime: number
 ): Promise<SandboxResult> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      resolve({
+  let timedOut = false;
+  const timer = setTimeout(() => { timedOut = true; }, timeoutMs);
+
+  try {
+    const result = await Promise.race([
+      taskFn(dir).then((r) => {
+        if (timedOut) return null;
+        return r;
+      }),
+      new Promise<null>((resolve) =>
+        setTimeout(() => resolve(null), timeoutMs)
+      ),
+    ]);
+
+    if (result === null) {
+      return {
         success: false,
         output: "",
         error: `Timeout after ${timeoutMs}ms`,
         exitCode: null,
         durationMs: Date.now() - startTime,
-      });
-    }, timeoutMs);
+      };
+    }
 
-    promise
-      .then((result) => {
-        clearTimeout(timer);
-        resolve(result);
-      })
-      .catch((err) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-  });
+    return result;
+  } finally {
+    clearTimeout(timer);
+  }
 }

@@ -336,9 +336,9 @@ Suggest updated execution parameters.`,
   // Parse the JSON response
   let params: { maxTurns?: number; model?: "opus" | "sonnet" | "haiku" };
   try {
-    const jsonMatch = resultText.match(/\{[\s\S]*?\}/);
-    if (!jsonMatch) return [];
-    params = JSON.parse(jsonMatch[0]) as typeof params;
+    const jsonStr = extractFirstJson(resultText);
+    if (!jsonStr) return [];
+    params = JSON.parse(jsonStr) as typeof params;
   } catch {
     console.log("[mutation] Failed to parse phase logic response");
     return [];
@@ -419,6 +419,53 @@ async function generateQualityThresholdMutation(
       }),
     },
   ];
+}
+
+// ── JSON extraction ──
+
+/**
+ * Extract the first balanced JSON object from a string.
+ * Walks character-by-character tracking brace depth to avoid
+ * greedy/lazy regex mismatches with nested objects.
+ */
+function extractFirstJson(text: string): string | null {
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+
+    if (escape) {
+      escape = false;
+      continue;
+    }
+
+    if (ch === '\\' && inString) {
+      escape = true;
+      continue;
+    }
+
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (ch === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === '}') {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        return text.slice(start, i + 1);
+      }
+    }
+  }
+
+  return null;
 }
 
 // ── Helpers ──
