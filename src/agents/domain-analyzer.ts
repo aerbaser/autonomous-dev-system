@@ -23,6 +23,24 @@ Output a JSON object with this structure:
 IMPORTANT: Only output the JSON, nothing else. Be conservative -- only suggest roles that are
 genuinely needed for THIS specific project, not generic nice-to-haves.`;
 
+function extractFirstJson(text: string): string | null {
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] === '{') {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (text[i] === '}') {
+      depth--;
+      if (depth === 0 && start >= 0) {
+        const candidate = text.slice(start, i + 1);
+        try { JSON.parse(candidate); return candidate; } catch { start = -1; }
+      }
+    }
+  }
+  return null;
+}
+
 export async function analyzeDomain(idea: string): Promise<DomainAnalysis> {
   let resultText: string;
 
@@ -45,13 +63,13 @@ export async function analyzeDomain(idea: string): Promise<DomainAnalysis> {
   }
 
   // Extract JSON from the response
-  const jsonMatch = resultText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
+  const jsonStr = extractFirstJson(resultText);
+  if (!jsonStr) {
     return getDefaultDomain();
   }
 
   try {
-    return JSON.parse(jsonMatch[0]) as DomainAnalysis;
+    return JSON.parse(jsonStr) as DomainAnalysis;
   } catch {
     return getDefaultDomain();
   }

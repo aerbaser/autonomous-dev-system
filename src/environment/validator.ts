@@ -23,14 +23,18 @@ const SUSPICIOUS_PATTERNS = [
 /** Validate URL format for MCP server sources */
 export function isValidSource(source: string): boolean {
   if (!source) return false;
+  // Allow npm: prefixed sources (e.g. "npm:@playwright/mcp@latest")
+  if (source.startsWith("npm:")) return true;
+  // Allow pypi: prefixed sources
+  if (source.startsWith("pypi:")) return true;
   // Allow well-known package managers
   if (["npm", "pypi", "github", "local"].includes(source.toLowerCase())) {
     return true;
   }
-  // Validate URL format
+  // Validate URL format — HTTPS only
   try {
     const url = new URL(source);
-    return url.protocol === "https:" || url.protocol === "http:";
+    return url.protocol === "https:";
   } catch {
     // Allow simple non-URL identifiers (marketplace names, etc.)
     return /^[a-zA-Z0-9_-]+$/.test(source);
