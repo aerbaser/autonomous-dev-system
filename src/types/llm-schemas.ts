@@ -16,10 +16,14 @@ export const UserStorySchema = z.object({
   priority: z.enum(["must", "should", "could", "wont"]),
 });
 
-export const ProductSpecSchema = z.object({
+/** Spec without domain — used during ideation where domain is added separately. */
+export const ProductSpecWithoutDomainSchema = z.object({
   summary: z.string(),
   userStories: z.array(UserStorySchema),
   nonFunctionalRequirements: z.array(z.string()),
+});
+
+export const ProductSpecSchema = ProductSpecWithoutDomainSchema.extend({
   domain: DomainAnalysisSchema,
 });
 
@@ -185,6 +189,121 @@ export const StackResearchResultSchema = z.object({
   claudeMdSuggestions: z.array(z.string()).optional(),
 });
 
+// --- ProjectState sub-schemas (mirrors interfaces in project-state.ts) ---
+
+export const McpServerConfigSchema = z.object({
+  command: z.string(),
+  args: z.array(z.string()).optional(),
+  env: z.record(z.string(), z.string()).optional(),
+});
+
+export const LspConfigSchema = z.object({
+  language: z.string(),
+  server: z.string(),
+  installCommand: z.string(),
+  installed: z.boolean(),
+});
+
+export const McpDiscoverySchema = z.object({
+  name: z.string(),
+  source: z.string(),
+  config: McpServerConfigSchema,
+  installed: z.boolean(),
+  reason: z.string(),
+});
+
+export const PluginDiscoverySchema = z.object({
+  name: z.string(),
+  source: z.string(),
+  scope: z.enum(["project", "user"]),
+  installed: z.boolean(),
+  reason: z.string(),
+});
+
+export const OssToolStateSchema = z.object({
+  name: z.string(),
+  repo: z.string(),
+  type: z.enum(["agent", "skill", "hook", "mcp-server", "pattern"]),
+  integrationPlan: z.string(),
+  integrated: z.boolean(),
+});
+
+export const StackEnvironmentSchema = z.object({
+  lspServers: z.array(LspConfigSchema),
+  mcpServers: z.array(McpDiscoverySchema),
+  plugins: z.array(PluginDiscoverySchema),
+  openSourceTools: z.array(OssToolStateSchema),
+  claudeMd: z.string(),
+});
+
+export const AgentBlueprintSchema = z.object({
+  name: z.string(),
+  role: z.string(),
+  systemPrompt: z.string(),
+  tools: z.array(z.string()),
+  mcpServers: z.record(z.string(), McpServerConfigSchema).optional(),
+  model: z.enum(["opus", "sonnet", "haiku"]).optional(),
+  evaluationCriteria: z.array(z.string()),
+  version: z.number(),
+  score: z.number().optional(),
+});
+
+export const TaskStateSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string(),
+  status: z.enum(["pending", "in_progress", "completed", "failed"]),
+  assignedAgent: z.string().optional(),
+  parentTaskId: z.string().optional(),
+  createdAt: z.string(),
+  completedAt: z.string().optional(),
+  result: z.string().optional(),
+  error: z.string().optional(),
+});
+
+export const DeploymentStateSchema = z.object({
+  id: z.string(),
+  environment: z.enum(["staging", "production"]),
+  url: z.string().optional(),
+  timestamp: z.string(),
+  status: z.enum(["deploying", "deployed", "failed", "rolled-back"]),
+});
+
+const ABTestResultInnerSchema = z.object({
+  winner: z.string(),
+  pValue: z.number(),
+  metrics: z.record(z.string(), z.number()),
+});
+
+export const ABTestStateSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  hypothesis: z.string(),
+  variants: z.array(z.string()),
+  featureFlagKey: z.string(),
+  status: z.enum(["setup", "running", "analyzing", "completed"]),
+  result: ABTestResultInnerSchema.optional(),
+});
+
+export const EvolutionEntrySchema = z.object({
+  id: z.string(),
+  target: z.string(),
+  type: z.enum(["agent_prompt", "tool_config", "phase_logic", "quality_threshold", "environment_setup"]),
+  diff: z.string(),
+  scoreBefore: z.number(),
+  scoreAfter: z.number(),
+  accepted: z.boolean(),
+  timestamp: z.string(),
+});
+
+export const PhaseCheckpointSchema = z.object({
+  phase: z.string(),
+  completedTasks: z.array(z.string()),
+  pendingTasks: z.array(z.string()),
+  timestamp: z.string(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
 // Re-export ProjectState schema for loadState validation
 export const ProjectStateSchema = z.object({
   id: z.string(),
@@ -192,13 +311,13 @@ export const ProjectStateSchema = z.object({
   currentPhase: z.string(),
   spec: ProductSpecSchema.nullable().catch(null),
   architecture: ArchDesignSchema.nullable().catch(null),
-  environment: z.unknown().nullable(),
-  agents: z.array(z.unknown()),
-  tasks: z.array(z.unknown()),
-  deployments: z.array(z.unknown()),
-  abTests: z.array(z.unknown()),
-  evolution: z.array(z.unknown()),
-  checkpoints: z.array(z.unknown()),
+  environment: StackEnvironmentSchema.nullable().catch(null),
+  agents: z.array(AgentBlueprintSchema).catch([]),
+  tasks: z.array(TaskStateSchema).catch([]),
+  deployments: z.array(DeploymentStateSchema).catch([]),
+  abTests: z.array(ABTestStateSchema).catch([]),
+  evolution: z.array(EvolutionEntrySchema).catch([]),
+  checkpoints: z.array(PhaseCheckpointSchema).catch([]),
   baselineScore: z.number(),
   createdAt: z.string(),
   updatedAt: z.string(),

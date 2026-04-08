@@ -31,7 +31,8 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 import { TaskResultsSchema } from "../types/llm-schemas.js";
 import { getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
-import { isApiRetry } from "../utils/shared.js";
+import { isApiRetry, wrapUserInput } from "../utils/shared.js";
+import { TaskDecompositionSchema } from "../types/llm-schemas.js";
 import { getBaseAgentNames } from "../agents/base-blueprints.js";
 import { progress } from "../utils/progress.js";
 
@@ -240,8 +241,7 @@ async function decomposeUserStories(
 ): Promise<DevTask[]> {
   const prompt = `You are a technical lead decomposing user stories into implementation tasks.
 
-Architecture:
-${JSON.stringify(state.architecture, null, 2)}
+${wrapUserInput("architecture", JSON.stringify(state.architecture, null, 2))}
 
 User Stories to decompose:
 ${stories
@@ -325,10 +325,10 @@ Output a JSON object with a "tasks" array.`;
     }
   }
 
-  if (structuredOutput && typeof structuredOutput === "object") {
-    const obj = structuredOutput as Record<string, unknown>;
-    if (Array.isArray(obj.tasks) && obj.tasks.length > 0) {
-      return obj.tasks as DevTask[];
+  if (structuredOutput) {
+    const parsed = TaskDecompositionSchema.safeParse(structuredOutput);
+    if (parsed.success && parsed.data.tasks.length > 0) {
+      return parsed.data.tasks;
     }
   }
 
@@ -443,7 +443,7 @@ function buildBatchAgents(
       console.log(`[dev] Using domain agent: ${agentName}`);
       agents[agentName] = {
         description: def.description,
-        prompt: def.prompt + `\n\n## Current Task\n**${task.title}**\n${task.description}`,
+        prompt: def.prompt + `\n\n${wrapUserInput("current-task", `**${task.title}**\n${task.description}`)}`,
         tools: def.tools,
         model: config.subagentModel,
         maxTurns: getMaxTurns(config, "default"),
@@ -467,12 +467,9 @@ function buildBatchAgents(
 function buildTaskPrompt(task: Task, state: ProjectState): string {
   return `You are an expert developer. Implement the following task.
 
-## Task
-**${task.title}**
-${task.description}
+${wrapUserInput("task", `**${task.title}**\n${task.description}`)}
 
-## Architecture
-${JSON.stringify(state.architecture, null, 2)}
+${wrapUserInput("architecture", JSON.stringify(state.architecture, null, 2))}
 
 ## File Structure
 ${state.architecture?.fileStructure ?? "Not specified"}

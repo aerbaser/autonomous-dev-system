@@ -62,3 +62,8 @@ export function extractFirstJson(text: string): string | null {
 export function errMsg(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
+
+/** Wrap user-derived content in XML delimiters to prevent prompt injection. */
+export function wrapUserInput(tag: string, content: string): string {
+  return `<${tag}>\n${content}\n</${tag}>`;
+}

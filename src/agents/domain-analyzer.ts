@@ -3,7 +3,7 @@ import type { DomainAnalysis, AgentBlueprint } from "../state/project-state.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 import type { Config } from "../utils/config.js";
 import { DomainAnalysisSchema, DomainAgentArraySchema } from "../types/llm-schemas.js";
-import { extractFirstJson } from "../utils/shared.js";
+import { extractFirstJson, wrapUserInput } from "../utils/shared.js";
 
 const DOMAIN_ANALYSIS_PROMPT = `You are a Domain Analyzer. Given a project idea, analyze what domain expertise
 and specialized roles are needed beyond the standard development team (PM, Dev, QA, DevOps, Reviewer).
@@ -32,7 +32,7 @@ export async function analyzeDomain(idea: string, config?: Config): Promise<Doma
   try {
     const { result } = await consumeQuery(
       query({
-        prompt: `${DOMAIN_ANALYSIS_PROMPT}\n\nProject idea: ${idea}`,
+        prompt: `${DOMAIN_ANALYSIS_PROMPT}\n\n${wrapUserInput("project-idea", idea)}`,
         options: {
           tools: ["WebSearch", "WebFetch"],
           ...getQueryPermissions(config),
@@ -119,8 +119,9 @@ export async function generateDomainAgents(
       query({
         prompt: `${AGENT_GENERATION_PROMPT}
 
-Project idea: ${idea}
-Domain: ${JSON.stringify(domain, null, 2)}
+${wrapUserInput("project-idea", idea)}
+
+${wrapUserInput("domain-analysis", JSON.stringify(domain, null, 2))}
 
 Generate blueprints for these roles: ${domain.requiredRoles.join(", ")}`,
         options: {

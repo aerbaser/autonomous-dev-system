@@ -6,7 +6,7 @@ import { getMcpServerConfigs } from "../environment/mcp-manager.js";
 import { randomUUID } from "node:crypto";
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 import { ABTestDesignResponseSchema, ABTestAnalysisSchema } from "../types/llm-schemas.js";
-import { extractFirstJson, errMsg } from "../utils/shared.js";
+import { extractFirstJson, errMsg, wrapUserInput } from "../utils/shared.js";
 
 export async function runABTesting(
   state: ProjectState,
@@ -27,8 +27,7 @@ export async function runABTesting(
 
   const prompt = `You are an Analytics Engineer. Design an A/B test for this product.
 
-Product spec:
-${JSON.stringify(state.spec?.summary ?? state.idea)}
+${wrapUserInput("product-context", state.spec?.summary ?? state.idea)}
 
 Active deployments:
 ${state.deployments.filter((d) => d.status === "deployed").map((d) => `${d.environment}: ${d.url}`).join("\n")}
@@ -50,8 +49,9 @@ Output JSON:
 }`;
 
   let resultText: string;
+  let costUsd: number | undefined;
   try {
-    const { result } = await consumeQuery(
+    const { result, cost } = await consumeQuery(
       query({
         prompt,
         options: {
@@ -64,6 +64,7 @@ Output JSON:
       "ab-test-design"
     );
     resultText = result;
+    costUsd = cost;
   } catch (err) {
     return {
       success: false,
@@ -99,7 +100,7 @@ Output JSON:
     };
 
     console.log(`[ab-test] Created: ${test.name} (${test.hypothesis})`);
-    return { success: true, nextPhase: "analysis", state: newState };
+    return { success: true, nextPhase: "analysis", state: newState, ...(costUsd != null ? { costUsd } : {}) };
   } catch {
     return { success: false, state, error: "Failed to parse A/B test design" };
   }
@@ -135,8 +136,9 @@ For each test, output:
 Output a JSON array.`;
 
   let analysisText = "";
+  let costUsd: number | undefined;
   try {
-    const { result } = await consumeQuery(
+    const { result, cost } = await consumeQuery(
       query({
         prompt,
         options: {
@@ -149,6 +151,7 @@ Output a JSON array.`;
       "ab-test-analysis"
     );
     analysisText = result;
+    costUsd = cost;
   } catch (err) {
     console.warn(`[ab-test] Analysis query failed: ${errMsg(err)}`);
   }
@@ -193,5 +196,5 @@ Output a JSON array.`;
   };
 
   console.log("[ab-test] Analysis complete");
-  return { success: true, nextPhase: "production", state: newState };
+  return { success: true, nextPhase: "production", state: newState, ...(costUsd != null ? { costUsd } : {}) };
 }

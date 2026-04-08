@@ -36,6 +36,7 @@ or
 
   let resultText: string;
   let structuredOutput: unknown;
+  let costUsd: number | undefined;
   try {
     const queryResult = await consumeQuery(
       query({
@@ -50,6 +51,7 @@ or
     );
     resultText = queryResult.result;
     structuredOutput = queryResult.structuredOutput;
+    costUsd = queryResult.cost;
   } catch (err) {
     console.error(`[deploy] Query failed: ${errMsg(err)}`);
     const deployment: Deployment = {
@@ -100,9 +102,9 @@ or
   if (deployment.status === "deployed") {
     console.log(`[deploy] Successfully deployed to ${environment}: ${deployment.url ?? "no URL"}`);
     const nextPhase = environment === "staging" ? "ab-testing" : "monitoring";
-    return { success: true, nextPhase, state: newState };
+    return { success: true, nextPhase, state: newState, ...(costUsd != null ? { costUsd } : {}) };
   } else {
     console.log(`[deploy] Deployment failed`);
-    return { success: false, state: newState, error: "Deployment failed" };
+    return { success: false, state: newState, error: "Deployment failed", ...(costUsd != null ? { costUsd } : {}) };
   }
 }

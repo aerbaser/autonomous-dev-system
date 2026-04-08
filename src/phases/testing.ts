@@ -46,6 +46,7 @@ Also output "PASS" or "FAIL: <reasons>" on the final line as a fallback.`;
 
   let resultText: string;
   let structuredOutput: unknown;
+  let costUsd: number | undefined;
   try {
     const queryResult = await consumeQuery(
       query({
@@ -61,6 +62,7 @@ Also output "PASS" or "FAIL: <reasons>" on the final line as a fallback.`;
     );
     resultText = queryResult.result;
     structuredOutput = queryResult.structuredOutput;
+    costUsd = queryResult.cost;
   } catch (err) {
     console.error(`[testing] Query failed: ${errMsg(err)}`);
     return { success: false, state, error: errMsg(err) };
@@ -80,9 +82,9 @@ Also output "PASS" or "FAIL: <reasons>" on the final line as a fallback.`;
 
   if (passed) {
     console.log("[testing] All tests PASSED");
-    return { success: true, nextPhase: "review", state };
+    return { success: true, nextPhase: "review", state, ...(costUsd != null ? { costUsd } : {}) };
   } else {
     console.log("[testing] Tests FAILED");
-    return { success: true, nextPhase: "development", state };
+    return { success: true, nextPhase: "development", state, ...(costUsd != null ? { costUsd } : {}) };
   }
 }

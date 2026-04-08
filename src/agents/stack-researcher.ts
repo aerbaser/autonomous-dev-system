@@ -3,7 +3,7 @@ import type { ArchDesign, DomainAnalysis, StackEnvironment, LspConfig, McpDiscov
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 import type { Config } from "../utils/config.js";
 import { StackResearchResultSchema } from "../types/llm-schemas.js";
-import { extractFirstJson } from "../utils/shared.js";
+import { extractFirstJson, wrapUserInput } from "../utils/shared.js";
 
 const VALID_SCOPES = ["project", "user"] as const;
 type Scope = (typeof VALID_SCOPES)[number];
@@ -71,12 +71,7 @@ export async function researchStack(
       query({
         prompt: `${RESEARCH_PROMPT}
 
-Tech Stack:
-${techList}
-
-Domain: ${domain.classification}
-Specializations: ${domain.specializations.join(", ")}
-Recommended MCP servers from domain analysis: ${domain.requiredMcpServers.join(", ")}`,
+${wrapUserInput("tech-context", `Tech Stack:\n${techList}\n\nDomain: ${domain.classification}\nSpecializations: ${domain.specializations.join(", ")}\nRecommended MCP servers: ${domain.requiredMcpServers.join(", ")}`)}`,
         options: {
           tools: ["WebSearch", "WebFetch"],
           ...getQueryPermissions(config),

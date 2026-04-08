@@ -4,7 +4,8 @@ import type { ProjectState, ArchDesign } from "../state/project-state.js";
 import type { PhaseResult } from "./types.js";
 import { buildAgentTeam } from "../agents/factory.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
-import { extractFirstJson, errMsg } from "../utils/shared.js";
+import { extractFirstJson, errMsg, wrapUserInput } from "../utils/shared.js";
+import { ArchDesignSchema } from "../types/llm-schemas.js";
 
 const ARCH_PROMPT = `You are a Software Architect. Given a product specification, design the complete
 technical architecture.
@@ -48,13 +49,13 @@ export async function runArchitecture(
   const { registry } = await buildAgentTeam(state, config);
 
   let archText: string;
+  let costUsd: number | undefined;
   try {
-    const { result } = await consumeQuery(
+    const queryResult = await consumeQuery(
       query({
         prompt: `${ARCH_PROMPT}
 
-Product Specification:
-${JSON.stringify(state.spec, null, 2)}
+${wrapUserInput("product-spec", JSON.stringify(state.spec, null, 2))}
 
 Domain: ${state.spec.domain.classification}
 Specializations: ${state.spec.domain.specializations.join(", ")}
@@ -67,7 +68,8 @@ Recommended tech: ${state.spec.domain.techStack.join(", ")}`,
       }),
       "architecture"
     );
-    archText = result;
+    archText = queryResult.result;
+    costUsd = queryResult.cost;
   } catch (err) {
     return {
       success: false,
@@ -81,12 +83,11 @@ Recommended tech: ${state.spec.domain.techStack.join(", ")}`,
     return { success: false, state, error: "Failed to generate architecture: no valid JSON" };
   }
 
-  let architecture: ArchDesign;
-  try {
-    architecture = JSON.parse(jsonStr);
-  } catch (e) {
-    return { success: false, state, error: `Failed to parse architecture JSON: ${e}` };
+  const archParseResult = ArchDesignSchema.safeParse(JSON.parse(jsonStr));
+  if (!archParseResult.success) {
+    return { success: false, state, error: `Invalid architecture JSON: ${archParseResult.error.message}` };
   }
+  const architecture = archParseResult.data;
 
   console.log(`[architecture] Tech stack: ${Object.entries(architecture.techStack).map(([k, v]) => `${k}=${v}`).join(", ")}`);
   console.log(`[architecture] Components: ${architecture.components.length}`);
@@ -102,5 +103,6 @@ Recommended tech: ${state.spec.domain.techStack.join(", ")}`,
     success: true,
     nextPhase: "environment-setup",
     state: newState,
+    ...(costUsd != null ? { costUsd } : {}),
   };
 }

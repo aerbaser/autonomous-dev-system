@@ -32,6 +32,7 @@ Also end with "APPROVE" or "REQUEST_CHANGES: <summary>" as a fallback.`;
 
   let resultText: string;
   let structuredOutput: unknown;
+  let costUsd: number | undefined;
   try {
     const queryResult = await consumeQuery(
       query({
@@ -46,6 +47,7 @@ Also end with "APPROVE" or "REQUEST_CHANGES: <summary>" as a fallback.`;
     );
     resultText = queryResult.result;
     structuredOutput = queryResult.structuredOutput;
+    costUsd = queryResult.cost;
   } catch (err) {
     console.error(`[review] Query failed: ${errMsg(err)}`);
     return { success: false, state, error: errMsg(err) };
@@ -64,9 +66,9 @@ Also end with "APPROVE" or "REQUEST_CHANGES: <summary>" as a fallback.`;
 
   if (approved) {
     console.log("[review] Code review: APPROVED");
-    return { success: true, nextPhase: "staging", state };
+    return { success: true, nextPhase: "staging", state, ...(costUsd != null ? { costUsd } : {}) };
   } else {
     console.log("[review] Code review: CHANGES REQUESTED");
-    return { success: true, nextPhase: "development", state };
+    return { success: true, nextPhase: "development", state, ...(costUsd != null ? { costUsd } : {}) };
   }
 }

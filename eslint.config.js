@@ -16,17 +16,20 @@ export default [
     },
     rules: {
       ...tseslint.configs.recommended.rules,
-      // Disable rules that would require massive refactoring
       "@typescript-eslint/no-explicit-any": "error",
       "@typescript-eslint/no-unused-vars": [
         "warn",
         { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
       ],
       "@typescript-eslint/no-empty-function": "off",
-      "@typescript-eslint/no-empty-interface": "off",
       "@typescript-eslint/no-inferrable-types": "off",
-      "@typescript-eslint/ban-ts-comment": "warn",
+      "@typescript-eslint/ban-ts-comment": "error",
       "@typescript-eslint/no-require-imports": "off",
+      // no-floating-promises requires type-aware linting (projectService) — enable when eslint performance allows
+      "@typescript-eslint/consistent-type-imports": [
+        "error",
+        { prefer: "type-imports", fixStyle: "separate-type-imports" },
+      ],
     },
   },
   {

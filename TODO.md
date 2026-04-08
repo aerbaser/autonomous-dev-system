@@ -47,29 +47,23 @@ All Wave 1, 2, and 3 tasks are done except where noted:
 
 ---
 
+## Completed in production-readiness pass (Apr 8, 2026)
+
+- [x] Input sanitization: XML delimiters (`wrapUserInput`) for all user-derived content in prompts
+- [x] Cost tracking: all phase handlers now capture and return `costUsd` from `consumeQuery()`
+- [x] Zod-validated JSON.parse in ideation.ts, architecture.ts, development-runner.ts (was unsafe casts)
+- [x] ProjectStateSchema: all 7 `z.unknown()` fields replaced with typed Zod schemas with `.catch()` for backward compat
+- [x] ESLint: `ban-ts-comment` upgraded to error, `consistent-type-imports` added, CI `continue-on-error` removed
+
 ## Remaining
-
-### High priority
-
-#### ESLint configuration
-`npm run lint` is called in quality-gate hook but ESLint is not configured. Lint always fails silently.
-
-**What to do:**
-1. `npm install -D eslint @typescript-eslint/eslint-plugin @typescript-eslint/parser`
-2. Create `eslint.config.js` (ESLint 9 flat config)
-3. Fix lint errors
-4. Verify quality-gate hook works with real lint
-
-#### ProjectStateSchema — remaining z.unknown() fields
-`environment`, `agents`, `tasks`, `deployments`, `abTests`, `evolution`, `checkpoints` still use `z.unknown()`. Need to create Zod schemas for: StackEnvironment, AgentBlueprint, Task, Deployment, ABTest, EvolutionEntry, PhaseCheckpoint.
 
 ### Medium priority
 
-#### Cost tracking
-Budget tracking in orchestrator has TODO comments — `query()` returns `total_cost_usd` via `consumeQuery()` but orchestrator doesn't aggregate it. Wire up `result.costUsd` from phase handlers.
-
 #### ExternalBenchmarkFileSchema unused
 `ExternalBenchmarkFileSchema` in llm-schemas.ts was used by the removed `loadBenchmarkTasks`. Either delete the schema or re-implement external benchmark loading.
+
+#### Type-aware ESLint rules
+`no-floating-promises` requires `projectService: true` which causes ESLint to take 15+ seconds. Enable when tooling performance improves.
 
 ### Low priority
 

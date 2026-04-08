@@ -12,7 +12,7 @@ Self-improving multi-agent development system built on Claude Agent SDK.
 - Graceful shutdown with SIGINT handler and checkpoint recovery
 
 ## Key modules
-- `src/utils/shared.ts` — shared helpers: `extractFirstJson`, `isApiRetry`, `isRecord`, `errMsg`
+- `src/utils/shared.ts` — shared helpers: `extractFirstJson`, `isApiRetry`, `isRecord`, `errMsg`, `wrapUserInput`
 - `src/utils/sdk-helpers.ts` — `consumeQuery`, `getQueryPermissions`, `getMaxTurns`
 - `src/state/project-state.ts` — `ProjectState` type, `ALL_PHASES`, persistence, transitions
 - `src/agents/base-blueprints.ts` — `getBaseBlueprints()`, `getBaseAgentNames()`
@@ -30,7 +30,11 @@ Self-improving multi-agent development system built on Claude Agent SDK.
 - JSON extraction: use `extractFirstJson` from `shared.ts` (handles strings with braces)
 - Error messages: use `errMsg(err)` from `shared.ts`
 - Structured output: phases use Zod schemas (e.g. `TestingResultSchema`) with text fallback
+- Input sanitization: wrap user-derived content with `wrapUserInput(tag, content)` from `shared.ts`
+- JSON.parse: always validate with Zod `.safeParse()`, never cast directly
+- Cost tracking: all phase handlers must return `costUsd` from `consumeQuery().cost`
+- ProjectStateSchema in `llm-schemas.ts` — fully typed, no `z.unknown()`
 
 ## Testing
-- Run `npm test` (vitest) — 182 tests
+- Run `npm test` (vitest) — 193 tests
 - Run `npm run typecheck` for type checking

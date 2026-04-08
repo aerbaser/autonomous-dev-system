@@ -92,7 +92,6 @@ export async function runOrchestrator(
 
   const { budgetUsd, dryRun, quickMode, confirmSpec } = config;
 
-  // Budget tracking — TODO: wire up real costs from query() when available
   let totalCostUsd = 0;
 
   // Clean up stale sessions on startup
@@ -195,8 +194,6 @@ export async function runOrchestrator(
       break;
     }
 
-    // Budget tracking — accumulate cost if reported
-    // TODO: wire up real costs from query() return values
     if (result.costUsd) {
       totalCostUsd += result.costUsd;
       console.log(`[budget] Phase cost: $${result.costUsd.toFixed(2)}, total: $${totalCostUsd.toFixed(2)}`);

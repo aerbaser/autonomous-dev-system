@@ -4,7 +4,8 @@ import type { ProjectState, ProductSpec } from "../state/project-state.js";
 import type { PhaseResult } from "./types.js";
 import { analyzeDomain } from "../agents/domain-analyzer.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
-import { extractFirstJson, errMsg } from "../utils/shared.js";
+import { extractFirstJson, errMsg, wrapUserInput } from "../utils/shared.js";
+import { ProductSpecWithoutDomainSchema } from "../types/llm-schemas.js";
 
 const SPEC_PROMPT = `You are a Product Manager creating a complete product specification.
 
@@ -48,10 +49,11 @@ export async function runIdeation(
 
   // Step 2: Generate spec
   let specText: string;
+  let costUsd: number | undefined;
   try {
-    const { result } = await consumeQuery(
+    const queryResult = await consumeQuery(
       query({
-        prompt: `${SPEC_PROMPT}\n\nProject idea: ${state.idea}`,
+        prompt: `${SPEC_PROMPT}\n\n${wrapUserInput("project-idea", state.idea)}`,
         options: {
           tools: ["WebSearch", "WebFetch"],
           ...getQueryPermissions(config),
@@ -60,7 +62,8 @@ export async function runIdeation(
       }),
       "ideation"
     );
-    specText = result;
+    specText = queryResult.result;
+    costUsd = queryResult.cost;
   } catch (err) {
     return {
       success: false,
@@ -79,16 +82,15 @@ export async function runIdeation(
     };
   }
 
-  let specData: Omit<ProductSpec, "domain">;
-  try {
-    specData = JSON.parse(jsonStr);
-  } catch (e) {
+  const parseResult = ProductSpecWithoutDomainSchema.safeParse(JSON.parse(jsonStr));
+  if (!parseResult.success) {
     return {
       success: false,
       state,
-      error: `Failed to parse spec JSON: ${e}`,
+      error: `Invalid spec JSON: ${parseResult.error.message}`,
     };
   }
+  const specData = parseResult.data;
 
   // Step 3: Combine with domain analysis
   const domain = await domainPromise;
@@ -111,5 +113,6 @@ export async function runIdeation(
     success: true,
     nextPhase: "architecture",
     state: newState,
+    ...(costUsd != null ? { costUsd } : {}),
   };
 }

@@ -42,6 +42,7 @@ or
 
   let resultText: string;
   let structuredOutput: unknown;
+  let costUsd: number | undefined;
   try {
     const queryResult = await consumeQuery(
       query({
@@ -57,6 +58,7 @@ or
     );
     resultText = queryResult.result;
     structuredOutput = queryResult.structuredOutput;
+    costUsd = queryResult.cost;
   } catch (err) {
     console.error(`[monitoring] Query failed: ${errMsg(err)}`);
     return { success: false, state, error: errMsg(err) };
@@ -82,9 +84,9 @@ or
   }
 
   if (status === "regression" || status === "improvement") {
-    return { success: true, nextPhase: "development", state };
+    return { success: true, nextPhase: "development", state, ...(costUsd != null ? { costUsd } : {}) };
   }
 
   console.log("[monitoring] System healthy");
-  return { success: true, state };
+  return { success: true, state, ...(costUsd != null ? { costUsd } : {}) };
 }

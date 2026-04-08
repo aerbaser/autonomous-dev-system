@@ -155,7 +155,7 @@ src/
 ├── types/
 │   └── llm-schemas.ts        # Zod schemas for all JSON parsing + structured output
 └── utils/                    # Shared utilities
-    ├── shared.ts             # extractFirstJson, isApiRetry, isRecord, errMsg
+    ├── shared.ts             # extractFirstJson, isApiRetry, isRecord, errMsg, wrapUserInput
     ├── config.ts             # Zod-validated config loading
     ├── retry.ts              # Exponential backoff retry
     ├── sdk-helpers.ts        # consumeQuery, getQueryPermissions, getMaxTurns
@@ -169,7 +169,7 @@ benchmarks/                   # External benchmark definitions
 ├── architecture-quality/tasks.json
 └── domain-specific/README.md
 
-tests/                        # 182 tests across 28 files
+tests/                        # 193 tests across 29 files
 ```
 
 ## Commands
@@ -186,7 +186,7 @@ tests/                        # 182 tests across 28 files
 ```bash
 npm run build       # Compile TypeScript
 npm run dev         # Run with tsx (no build)
-npm run test        # Run all 182 tests
+npm run test        # Run all tests
 npm run test:watch  # Watch mode
 npm run typecheck   # Type checking
 npm run lint        # ESLint
@@ -206,7 +206,7 @@ Custom benchmarks can be added to `benchmarks/<category>/tasks.json`.
 
 ## Status
 
-The system is ~85% → **100% feature-complete** per the original PLAN.md. All 15 implementation tasks are done. See `PRODUCT-REVIEW.md` and `VIBE-REVIEW.md` for expert analysis of next priorities.
+The system is **production-ready**. All phases implemented, 193 tests passing, input sanitization via XML delimiters, full Zod schema validation, cost tracking across all phases, and ESLint enforced in CI. See `TODO.md` for remaining low-priority items.
 
 ## License
 

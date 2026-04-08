@@ -2,6 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { OssTool, DomainAnalysis, ArchDesign } from "../state/project-state.js";
 import { OssToolArraySchema } from "../types/llm-schemas.js";
 import { getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { wrapUserInput } from "../utils/shared.js";
 import type { Config } from "../utils/config.js";
 
 const VALID_OSS_TYPES = ["agent", "skill", "hook", "mcp-server", "pattern"] as const;
@@ -49,9 +50,7 @@ export async function scanOpenSource(
   for await (const message of query({
     prompt: `${SCAN_PROMPT}
 
-Tech Stack: ${techList}
-Domain: ${domain.classification}
-Specializations: ${domain.specializations.join(", ")}`,
+${wrapUserInput("tech-context", `Tech Stack: ${techList}\nDomain: ${domain.classification}\nSpecializations: ${domain.specializations.join(", ")}`)}`,
     options: {
       allowedTools: ["WebSearch", "WebFetch"],
       ...getQueryPermissions(config),
