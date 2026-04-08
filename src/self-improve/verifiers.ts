@@ -101,7 +101,7 @@ export function createLlmVerifier(
       // Step 1: Generate output
       let generatedOutput = "";
       const prompt = fixtureCwd
-        ? `Working directory: ${fixtureCwd}\n\n${task.instruction}`
+        ? `You MUST work exclusively in this directory: ${fixtureCwd}\nAll file paths should be relative to or inside this directory.\n\n${task.instruction}`
         : task.instruction;
 
       try {
@@ -110,7 +110,6 @@ export function createLlmVerifier(
           options: {
             allowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
             maxTurns,
-            ...(fixtureCwd ? { cwd: fixtureCwd } : {}),
           },
         })) {
           if (message.type === "result") {

@@ -104,16 +104,8 @@ export async function runOptimizerImpl(
   totalCostUsd += baselineCost;
   console.log(`[optimizer] Baseline score: ${baselineScore.toFixed(3)}`);
 
-  // Record baseline performance for each agent
-  for (const agent of registry.getAll()) {
-    for (const result of baselineResults) {
-      registry.recordPerformance(agent.name, {
-        benchmarkId: result.benchmarkId,
-        score: result.score,
-        timestamp: result.timestamp,
-      });
-    }
-  }
+  // Baseline represents overall system performance, not individual agents.
+  // Individual performance is recorded only after per-agent mutation testing.
 
   // Save initial prompt versions
   for (const agent of registry.getAll()) {
@@ -121,7 +113,7 @@ export async function runOptimizerImpl(
   }
 
   // Update convergence with baseline
-  convergenceState = updateConvergence(convergenceState, baselineScore);
+  convergenceState = updateConvergence(convergenceState, baselineScore, convergenceConfig);
 
   // Step 2: Optimization loop
   for (let iteration = 0; iteration < options.maxIterations; iteration++) {
@@ -155,7 +147,8 @@ export async function runOptimizerImpl(
       console.log("[optimizer] No mutations generated, skipping...");
       convergenceState = updateConvergence(
         convergenceState,
-        currentState.baselineScore
+        currentState.baselineScore,
+        convergenceConfig
       );
       continue;
     }
@@ -266,14 +259,15 @@ export async function runOptimizerImpl(
         );
       }
 
-      currentState.evolution.push(entry);
+      currentState = { ...currentState, evolution: [...currentState.evolution, entry] };
       registry.save();
       saveState(config.stateDir, currentState);
 
       // Update convergence
       convergenceState = updateConvergence(
         convergenceState,
-        currentState.baselineScore
+        currentState.baselineScore,
+        convergenceConfig
       );
     }
   }
