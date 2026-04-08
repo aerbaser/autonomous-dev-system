@@ -111,7 +111,8 @@ export async function runDevelopment(
       batch,
       updatedState,
       baseAgentDefs,
-      config
+      config,
+      registry
     );
 
     const batchResult = await executeBatch(
@@ -376,11 +377,22 @@ function groupIntoBatches(projectTasks: Task[], devTasks: DevTask[]): Task[][] {
 
 // --- Batch Execution ---
 
+const BASE_AGENT_NAMES = new Set([
+  "product-manager",
+  "architect",
+  "developer",
+  "qa-engineer",
+  "reviewer",
+  "devops",
+  "analytics",
+]);
+
 function buildBatchAgents(
   batch: Task[],
   state: ProjectState,
   baseAgentDefs: Record<string, { description: string; prompt: string; tools: string[] }>,
-  config: Config
+  config: Config,
+  registry: AgentRegistry
 ): Record<string, AgentDefinition> {
   const agents: Record<string, AgentDefinition> = {};
 
@@ -395,16 +407,43 @@ function buildBatchAgents(
     };
   }
 
+  // Collect domain-specific agents from registry (everything that isn't a base agent)
+  const domainAgents = registry
+    .getAll()
+    .filter((bp) => !BASE_AGENT_NAMES.has(bp.name));
+
   // Create a dedicated agent per task in this batch
   for (const task of batch) {
-    const agentName = `dev-${task.id.slice(0, 8)}`;
-    agents[agentName] = {
-      description: `Implement: ${task.title}`,
-      prompt: buildTaskPrompt(task, state),
-      tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
-      model: config.subagentModel,
-      maxTurns: 50,
-    };
+    // Check if a domain agent matches this task
+    const titleLower = task.title.toLowerCase();
+    const matchingDomain = domainAgents.find(
+      (bp) =>
+        titleLower.includes(bp.name.toLowerCase()) ||
+        titleLower.includes(bp.role.toLowerCase())
+    );
+
+    if (matchingDomain) {
+      const agentName = matchingDomain.name;
+      const def = registry.toAgentDefinition(agentName);
+      console.log(`[dev] Using domain agent: ${agentName}`);
+      agents[agentName] = {
+        description: def.description,
+        prompt: def.prompt + `\n\n## Current Task\n**${task.title}**\n${task.description}`,
+        tools: def.tools,
+        model: config.subagentModel,
+        maxTurns: 50,
+      };
+    } else {
+      const agentName = `dev-${task.id.slice(0, 8)}`;
+      console.log(`[dev] Using generic agent for: ${task.title}`);
+      agents[agentName] = {
+        description: `Implement: ${task.title}`,
+        prompt: buildTaskPrompt(task, state),
+        tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
+        model: config.subagentModel,
+        maxTurns: 50,
+      };
+    }
   }
 
   return agents;
@@ -436,6 +475,60 @@ ${state.architecture?.fileStructure ?? "Not specified"}
 Report what you implemented and any decisions you made.`;
 }
 
+/**
+ * Parse task results from agent output. Prefers structured JSON blocks,
+ * falls back to text heuristic for backward compatibility.
+ */
+function parseTaskResults(output: string, tasks: Task[]): TaskResult[] {
+  // Try to find a JSON block with a "tasks" array in the output
+  const jsonMatch = output.match(/\{[\s\S]*"tasks"[\s\S]*\}/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[0]) as {
+        tasks: Array<{ title: string; status: string }>;
+      };
+      if (Array.isArray(parsed.tasks)) {
+        return tasks.map((task) => {
+          const result = parsed.tasks.find((t) =>
+            t.title.toLowerCase().includes(task.title.toLowerCase())
+          );
+          return {
+            taskId: task.id,
+            success: result ? result.status !== "failed" : true,
+            output,
+            result: output.length > 0 ? "Implemented as part of batch" : undefined,
+            error:
+              result?.status === "failed"
+                ? `Task "${task.title}" reported as failed`
+                : undefined,
+          };
+        });
+      }
+    } catch {
+      /* fall through to heuristic */
+    }
+  }
+
+  // Fallback: heuristic (existing behavior)
+  console.log(
+    "[dev] Warning: no structured output found, using text heuristic"
+  );
+  return tasks.map((task) => {
+    const titleLower = task.title.toLowerCase();
+    const outputLower = output.toLowerCase();
+    const hasFail =
+      outputLower.includes(titleLower) &&
+      (outputLower.includes("failure") || outputLower.includes("failed"));
+    return {
+      taskId: task.id,
+      success: !hasFail && output.length > 0,
+      output,
+      result: output.length > 0 ? "Implemented as part of batch" : undefined,
+      error: hasFail ? `Task "${task.title}" reported as failed` : undefined,
+    };
+  });
+}
+
 async function executeBatch(
   batch: Task[],
   agentDefs: Record<string, AgentDefinition>,
@@ -447,7 +540,10 @@ async function executeBatch(
     .map((t, i) => `${i + 1}. **${t.title}**: ${t.description}`)
     .join("\n\n");
 
-  const taskAgentNames = batch.map((t) => `dev-${t.id.slice(0, 8)}`);
+  // Derive task agent names from the agentDefs (excludes base agents like developer, qa-engineer)
+  const taskAgentNames = Object.keys(agentDefs).filter(
+    (name) => !BASE_AGENT_NAMES.has(name)
+  );
 
   const prompt = `You are the lead developer orchestrating implementation of ${batch.length} task(s).
 
@@ -458,7 +554,7 @@ ${taskList}
 ${taskAgentNames.map((name) => `- Use the "${name}" agent for its corresponding task`).join("\n")}
 
 ## Instructions
-1. For each task, delegate to the corresponding dev-* subagent
+1. For each task, delegate to the corresponding subagent
 2. ${batch.length > 1 ? "Tasks in this batch are independent — you can delegate them in parallel" : "Focus on this single task"}
 3. After each task completes, verify the implementation:
    - Run \`npx tsc --noEmit\` to check types
@@ -467,7 +563,11 @@ ${taskAgentNames.map((name) => `- Use the "${name}" agent for its corresponding 
 5. Create a git branch \`feature/<task-title-slug>\` for each task's work
 6. Report the final status of each task
 
-For each task, report: SUCCESS or FAILURE, and a brief summary.`;
+For each task, report as structured JSON:
+\`\`\`json
+{ "tasks": [{ "title": "<task title>", "status": "success" | "failed" }] }
+\`\`\`
+Also include a brief text summary for each task.`;
 
   let resultText = "";
   let sessionId: string | undefined;
@@ -512,21 +612,8 @@ For each task, report: SUCCESS or FAILURE, and a brief summary.`;
     }
   }
 
-  // Parse results — try to determine per-task success from the result text
-  const taskResults: TaskResult[] = batch.map((task) => {
-    const taskMention = resultText.toLowerCase();
-    const titleLower = task.title.toLowerCase();
-    const hasFail =
-      taskMention.includes(`${titleLower}`) &&
-      (taskMention.includes("failure") || taskMention.includes("failed"));
-
-    return {
-      taskId: task.id,
-      success: !hasFail && resultText.length > 0,
-      result: resultText.length > 0 ? `Implemented as part of batch` : undefined,
-      error: hasFail ? `Task "${task.title}" reported as failed` : undefined,
-    };
-  });
+  // Parse results using structured output when available, falling back to heuristic
+  const taskResults = parseTaskResults(resultText, batch);
 
   return { taskResults, costUsd, sessionId };
 }
