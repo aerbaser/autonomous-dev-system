@@ -1,5 +1,13 @@
 import type { AgentBlueprint } from "../state/project-state.js";
 
+let _baseNames: Set<string> | null = null;
+export function getBaseAgentNames(): Set<string> {
+  if (!_baseNames) {
+    _baseNames = new Set(getBaseBlueprints().map((bp) => bp.name));
+  }
+  return _baseNames;
+}
+
 export function getBaseBlueprints(): AgentBlueprint[] {
   return [
     {

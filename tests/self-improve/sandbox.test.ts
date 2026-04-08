@@ -2,14 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { SandboxResult } from "../../src/self-improve/sandbox.js";
 
 // Mock child_process before importing the module
-vi.mock("node:child_process", () => {
-  const actualFork = vi.fn();
-  const actualExecFile = vi.fn();
-  return {
-    fork: actualFork,
-    execFile: actualExecFile,
-  };
-});
+vi.mock("node:child_process", () => ({
+  execFile: vi.fn(),
+}));
 
 // Mock node:fs so worktree tests don't touch disk
 vi.mock("node:fs", () => ({
@@ -19,7 +14,6 @@ vi.mock("node:fs", () => ({
 
 import { execFile } from "node:child_process";
 import {
-  runInSandbox,
   runCommandInSandbox,
   runInWorktreeSandbox,
 } from "../../src/self-improve/sandbox.js";
@@ -34,14 +28,6 @@ describe("sandbox", () => {
 
   afterEach(() => {
     vi.useRealTimers();
-  });
-
-  // ── Existing runInSandbox ──
-
-  describe("runInSandbox", () => {
-    it("still exports and is callable", () => {
-      expect(typeof runInSandbox).toBe("function");
-    });
   });
 
   describe("runCommandInSandbox", () => {

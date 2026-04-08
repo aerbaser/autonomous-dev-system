@@ -19,6 +19,12 @@ export type Phase =
   | "production"
   | "monitoring";
 
+export const ALL_PHASES: Phase[] = [
+  "ideation", "specification", "architecture", "environment-setup",
+  "development", "testing", "review", "staging",
+  "ab-testing", "analysis", "production", "monitoring",
+];
+
 export type TaskStatus = "pending" | "in_progress" | "completed" | "failed";
 
 export interface Task {

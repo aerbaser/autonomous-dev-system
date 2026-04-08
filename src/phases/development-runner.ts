@@ -29,6 +29,7 @@ import { execFileSync } from "node:child_process";
 import { TaskResultsSchema } from "../types/llm-schemas.js";
 import { getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 import { isApiRetry } from "../utils/shared.js";
+import { getBaseAgentNames } from "../agents/base-blueprints.js";
 import { progress } from "../utils/progress.js";
 
 function extractFirstJson(text: string): string | null {
@@ -396,15 +397,7 @@ function groupIntoBatches(projectTasks: Task[], devTasks: DevTask[]): Task[][] {
 
 // --- Batch Execution ---
 
-const BASE_AGENT_NAMES = new Set([
-  "product-manager",
-  "architect",
-  "developer",
-  "qa-engineer",
-  "reviewer",
-  "devops",
-  "analytics",
-]);
+const BASE_AGENT_NAMES = getBaseAgentNames();
 
 function buildBatchAgents(
   batch: Task[],

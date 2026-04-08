@@ -2,6 +2,7 @@ import type { Config } from "../utils/config.js";
 import type { ProjectState, AgentBlueprint } from "../state/project-state.js";
 import { AgentRegistry } from "./registry.js";
 import { analyzeDomain, generateDomainAgents } from "./domain-analyzer.js";
+import { getBaseAgentNames } from "./base-blueprints.js";
 
 /**
  * Agent Factory: analyzes the project domain and dynamically creates
@@ -14,14 +15,10 @@ export async function buildAgentTeam(
   const registry = new AgentRegistry(config.stateDir);
 
   // If we already have domain-specific agents, just return the registry
+  const baseNames = getBaseAgentNames();
   const existingDomainAgents = registry
     .getAll()
-    .filter(
-      (a) =>
-        !["product-manager", "architect", "developer", "qa-engineer", "reviewer", "devops", "analytics"].includes(
-          a.name
-        )
-    );
+    .filter((a) => !baseNames.has(a.name));
 
   if (existingDomainAgents.length > 0) {
     console.log(
@@ -30,9 +27,8 @@ export async function buildAgentTeam(
     return { registry, domain: state.spec };
   }
 
-  // Step 1: Analyze domain
-  console.log("[factory] Analyzing project domain...");
-  const domain = await analyzeDomain(state.idea, config);
+  // Step 1: Reuse domain from spec if available, otherwise analyze
+  const domain = state.spec?.domain ?? await analyzeDomain(state.idea, config);
   console.log(`[factory] Domain: ${domain.classification}`);
   console.log(`[factory] Specializations: ${domain.specializations.join(", ") || "none"}`);
   console.log(`[factory] Required roles: ${domain.requiredRoles.join(", ") || "none (standard only)"}`);

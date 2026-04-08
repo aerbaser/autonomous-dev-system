@@ -8,27 +8,13 @@ vi.mock("node:child_process", () => ({
 
 const mockedExecFileSync = vi.mocked(execFileSync);
 
-const { installLspServers, smokeTestLsp } = await import("../../src/environment/lsp-manager.js");
+const { installLspServers } = await import("../../src/environment/lsp-manager.js");
 
 import type { LspConfig } from "../../src/state/project-state.js";
 
 describe("LSP Manager", () => {
   beforeEach(() => {
     mockedExecFileSync.mockReset();
-  });
-
-  describe("smokeTestLsp", () => {
-    it("returns true when binary is found in PATH", () => {
-      mockedExecFileSync.mockReturnValue(Buffer.from("/usr/local/bin/vtsls"));
-      expect(smokeTestLsp("vtsls", "typescript")).toBe(true);
-    });
-
-    it("returns false when binary is not found", () => {
-      mockedExecFileSync.mockImplementation(() => {
-        throw new Error("not found");
-      });
-      expect(smokeTestLsp("nonexistent-lsp", "unknown")).toBe(false);
-    });
   });
 
   describe("installLspServers", () => {

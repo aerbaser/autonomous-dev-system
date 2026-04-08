@@ -69,10 +69,3 @@ export function cleanStaleSessions(
   return { sessions: cleaned };
 }
 
-/**
- * Remove a specific session by agent role.
- */
-export function removeSession(store: SessionStore, agentRole: string): SessionStore {
-  const { [agentRole]: _removed, ...remaining } = store.sessions;
-  return { sessions: remaining };
-}

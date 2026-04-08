@@ -2,85 +2,7 @@ import { execFileSync } from "node:child_process";
 import type { LspConfig } from "../state/project-state.js";
 import { validateLsp } from "./validator.js";
 
-const LSP_SERVER_REGISTRY = {
-  typescript: [
-    { server: "vtsls", installCommand: "npm i -g @vtsls/language-server" },
-    { server: "typescript-language-server", installCommand: "npm i -g typescript-language-server" },
-  ],
-  javascript: [
-    { server: "vtsls", installCommand: "npm i -g @vtsls/language-server" },
-    { server: "typescript-language-server", installCommand: "npm i -g typescript-language-server" },
-  ],
-  python: [
-    { server: "pyright", installCommand: "npm i -g pyright" },
-    { server: "pylsp", installCommand: "pip install python-lsp-server" },
-    { server: "ruff-lsp", installCommand: "pip install ruff-lsp" },
-  ],
-  rust: [
-    { server: "rust-analyzer", installCommand: "rustup component add rust-analyzer" },
-  ],
-  go: [
-    { server: "gopls", installCommand: "go install golang.org/x/tools/gopls@latest" },
-  ],
-  css: [
-    { server: "css-language-server", installCommand: "npm i -g vscode-langservers-extracted" },
-  ],
-  html: [
-    { server: "html-language-server", installCommand: "npm i -g vscode-langservers-extracted" },
-  ],
-} as const satisfies Record<string, ReadonlyArray<{ server: string; installCommand: string }>>;
-
-type LspLanguage = keyof typeof LSP_SERVER_REGISTRY;
-
-function isLspLanguage(lang: string): lang is LspLanguage {
-  return lang in LSP_SERVER_REGISTRY;
-}
-
-export function discoverLspServers(languages: string[]): LspConfig[] {
-  const results: LspConfig[] = [];
-
-  for (const lang of languages) {
-    const key = lang.toLowerCase();
-    if (!isLspLanguage(key)) continue;
-    const entries = LSP_SERVER_REGISTRY[key];
-
-    for (const entry of entries) {
-      results.push({
-        language: key,
-        server: entry.server,
-        installCommand: entry.installCommand,
-        installed: false,
-      });
-    }
-  }
-
-  return results;
-}
-
-export function checkExistingLsp(language: string): LspConfig | null {
-  const key = language.toLowerCase();
-  if (!isLspLanguage(key)) return null;
-  const entries = LSP_SERVER_REGISTRY[key];
-
-  for (const entry of entries) {
-    if (smokeTestLsp(entry.server, language)) {
-      return {
-        language: language.toLowerCase(),
-        server: entry.server,
-        installCommand: entry.installCommand,
-        installed: true,
-      };
-    }
-  }
-
-  return null;
-}
-
-/**
- * Smoke test: verify the LSP server binary exists and is executable.
- * Returns true if the binary is found in PATH.
- */
-export function smokeTestLsp(server: string, _language: string): boolean {
+function smokeTestLsp(server: string): boolean {
   try {
     execFileSync("which", [server], { stdio: "pipe", timeout: 5000 });
     return true;
@@ -103,7 +25,7 @@ export function installLspServers(servers: LspConfig[]): LspConfig[] {
       execFileSync(parts[0]!, parts.slice(1), { stdio: "pipe", timeout: 120_000 });
 
       // Verify the binary is actually available after install
-      if (smokeTestLsp(lsp.server, lsp.language)) {
+      if (smokeTestLsp(lsp.server)) {
         console.log(`[lsp] Installed and verified: ${lsp.server}`);
         return { ...lsp, installed: true };
       } else {

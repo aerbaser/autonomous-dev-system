@@ -4,6 +4,7 @@ import {
   type ProjectState,
   type Phase,
   type PhaseCheckpoint,
+  ALL_PHASES,
   saveState,
   saveCheckpoint,
   getLatestCheckpoint,
@@ -38,10 +39,6 @@ export function requestShutdown(): void {
   shuttingDown = true;
 }
 
-export function isShuttingDown(): boolean {
-  return shuttingDown;
-}
-
 export function resetShutdown(): void {
   shuttingDown = false;
 }
@@ -68,12 +65,6 @@ const PHASE_HANDLERS: Record<Phase, PhaseHandler> = {
   production: runDeployment,
   monitoring: runMonitoring,
 };
-
-const ALL_PHASES: Phase[] = [
-  "ideation", "specification", "architecture", "environment-setup",
-  "development", "testing", "review", "staging",
-  "ab-testing", "analysis", "production", "monitoring",
-];
 
 const OPTIONAL_PHASES: Phase[] = [
   "environment-setup",

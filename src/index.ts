@@ -2,18 +2,12 @@
 
 import { Command } from "commander";
 import { loadConfig } from "./utils/config.js";
-import { loadState, createInitialState, saveState, type Phase, type ProjectState } from "./state/project-state.js";
+import { loadState, createInitialState, saveState, ALL_PHASES, type Phase, type ProjectState } from "./state/project-state.js";
 import { runOrchestrator, requestShutdown } from "./orchestrator.js";
 import { runOptimizer } from "./self-improve/optimizer.js";
 
-const PHASES = [
-  "ideation", "specification", "architecture", "environment-setup",
-  "development", "testing", "review", "staging",
-  "ab-testing", "analysis", "production", "monitoring",
-] as const satisfies readonly Phase[];
-
 function isPhase(value: string): value is Phase {
-  return (PHASES as readonly string[]).includes(value);
+  return (ALL_PHASES as readonly string[]).includes(value);
 }
 
 const program = new Command();
@@ -145,7 +139,7 @@ program
       }
 
       if (!isPhase(opts.name)) {
-        console.error(`[error] Unknown phase: ${opts.name}. Valid: ${PHASES.join(", ")}`);
+        console.error(`[error] Unknown phase: ${opts.name}. Valid: ${ALL_PHASES.join(", ")}`);
         process.exit(1);
       }
       await runOrchestrator(state, config, undefined, opts.name);

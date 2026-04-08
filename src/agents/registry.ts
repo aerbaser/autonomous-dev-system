@@ -89,12 +89,6 @@ export class AgentRegistry {
     return Object.values(this.data.blueprints);
   }
 
-  getByRole(role: string): AgentBlueprint | undefined {
-    return Object.values(this.data.blueprints).find(
-      (bp) => bp.role.toLowerCase() === role.toLowerCase()
-    );
-  }
-
   recordPerformance(agentName: string, perf: AgentPerformance): void {
     if (!this.data.performanceHistory[agentName]) {
       this.data.performanceHistory[agentName] = [];

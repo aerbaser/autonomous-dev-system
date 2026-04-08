@@ -1,5 +1,5 @@
-import { fork, execFile, type ChildProcess } from "node:child_process";
-import { resolve, join } from "node:path";
+import { execFile } from "node:child_process";
+import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 
@@ -31,88 +31,6 @@ export interface SandboxResult {
   error?: string;
   exitCode: number | null;
   durationMs: number;
-}
-
-/**
- * Run a benchmark task in an isolated subprocess.
- * Uses Node.js fork() with resource limits.
- */
-export async function runInSandbox(
-  scriptPath: string,
-  args: string[],
-  options: SandboxOptions
-): Promise<SandboxResult> {
-  const startTime = Date.now();
-  const memoryMb = options.memoryLimitMb ?? 512;
-  const MAX_OUTPUT_BYTES = 10 * 1024 * 1024; // 10MB, same as runCommandInSandbox maxBuffer
-
-  return new Promise<SandboxResult>((res) => {
-    const child: ChildProcess = fork(resolve(scriptPath), args, {
-      cwd: options.cwd ?? process.cwd(),
-      env: {
-        ...getSafeEnv(),
-        ...options.env,
-        NODE_OPTIONS: `--max-old-space-size=${memoryMb}`,
-      },
-      stdio: ["ignore", "pipe", "pipe", "ipc"],
-      silent: true,
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-
-    const settle = (result: SandboxResult) => {
-      if (settled) return;
-      settled = true;
-      res(result);
-    };
-
-    child.stdout?.on("data", (chunk: Buffer) => {
-      if (stdout.length < MAX_OUTPUT_BYTES) {
-        stdout += chunk.toString();
-      }
-    });
-
-    child.stderr?.on("data", (chunk: Buffer) => {
-      if (stderr.length < MAX_OUTPUT_BYTES) {
-        stderr += chunk.toString();
-      }
-    });
-
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      settle({
-        success: false,
-        output: stdout,
-        error: `Timeout after ${options.timeoutMs}ms`,
-        exitCode: null,
-        durationMs: Date.now() - startTime,
-      });
-    }, options.timeoutMs);
-
-    child.on("exit", (code) => {
-      clearTimeout(timer);
-      settle({
-        success: code === 0,
-        output: stdout,
-        ...(stderr ? { error: stderr } : {}),
-        exitCode: code,
-        durationMs: Date.now() - startTime,
-      });
-    });
-
-    child.on("error", (err) => {
-      clearTimeout(timer);
-      settle({
-        success: false,
-        output: stdout,
-        error: err.message,
-        exitCode: null,
-        durationMs: Date.now() - startTime,
-      });
-    });
-  });
 }
 
 /**

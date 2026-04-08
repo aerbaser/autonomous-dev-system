@@ -1,11 +1,9 @@
 import {
   existsSync,
-  readFileSync,
   appendFileSync,
   mkdirSync,
 } from "node:fs";
-import { resolve, join, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { resolve, join } from "node:path";
 import {
   createDeterministicVerifier,
   createLlmVerifier,
@@ -17,7 +15,6 @@ import type {
   BenchmarkResult,
 } from "./benchmark-types.js";
 import { getDefaultBenchmarks } from "./benchmark-defaults.js";
-import { ExternalBenchmarkFileSchema } from "../types/llm-schemas.js";
 
 // Re-exports for backwards compatibility
 export {
@@ -32,59 +29,6 @@ export type {
 } from "./verifiers.js";
 export type { BenchmarkTask, BenchmarkFixture, Benchmark, BenchmarkResult } from "./benchmark-types.js";
 export { getDefaultBenchmarks } from "./benchmark-defaults.js";
-
-// ── External benchmark loader ──
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-function getBenchmarksDir(): string {
-  return resolve(__dirname, "..", "..", "benchmarks");
-}
-
-interface ExternalBenchmarkFile {
-  id: string;
-  name: string;
-  verifier: "deterministic" | "llm";
-  weight: number;
-  tasks: BenchmarkTask[];
-}
-
-/**
- * Load benchmark tasks from benchmarks/<benchmarkId>/tasks.json.
- * Falls back to inline defaults if the external file doesn't exist.
- */
-export function loadBenchmarkTasks(benchmarkId: string): Benchmark | null {
-  const tasksPath = join(getBenchmarksDir(), benchmarkId, "tasks.json");
-
-  if (!existsSync(tasksPath)) {
-    const defaults = getDefaultBenchmarks();
-    return defaults.find((b) => b.id === benchmarkId) ?? null;
-  }
-
-  try {
-    const raw = readFileSync(tasksPath, "utf-8");
-    const parseResult = ExternalBenchmarkFileSchema.safeParse(JSON.parse(raw));
-    if (!parseResult.success) {
-      const defaults = getDefaultBenchmarks();
-      return defaults.find((b) => b.id === benchmarkId) ?? null;
-    }
-    const data = parseResult.data;
-    return {
-      id: data.id,
-      name: data.name,
-      tasks: data.tasks as BenchmarkTask[],
-      verifier: data.verifier,
-      weight: data.weight,
-    };
-  } catch (err) {
-    console.log(
-      `[benchmark] Failed to load ${tasksPath}: ${err instanceof Error ? err.message : String(err)}`
-    );
-    const defaults = getDefaultBenchmarks();
-    return defaults.find((b) => b.id === benchmarkId) ?? null;
-  }
-}
 
 // ── Benchmark execution ──
 

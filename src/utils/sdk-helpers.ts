@@ -28,19 +28,6 @@ export class QueryExecutionError extends Error {
   }
 }
 
-// --- Streaming output ---
-
-export function streamToConsole(message: SDKMessage): void {
-  if (message.type === "assistant" && "content" in message) {
-    const msg = message as { content?: Array<{ type: string; text?: string }> };
-    for (const block of msg.content ?? []) {
-      if (block.type === "text" && block.text) {
-        process.stdout.write(block.text);
-      }
-    }
-  }
-}
-
 export async function consumeQuery(
   queryStream: Query,
   label?: string,
@@ -103,23 +90,3 @@ export function getMaxTurns(config: Config | undefined, key: MaxTurnsKey): numbe
   return config?.maxTurns?.[key] ?? MAX_TURNS_DEFAULTS[key];
 }
 
-// --- Cost estimation ---
-
-export interface CostEstimate {
-  inputTokens: number;
-  outputTokens: number;
-  estimatedUsd: number;
-}
-
-export function estimateCost(inputTokens: number, outputTokens: number, model: string): CostEstimate {
-  // Approximate pricing per 1M tokens
-  const pricing: Record<string, { input: number; output: number }> = {
-    "claude-opus-4-6": { input: 15, output: 75 },
-    "claude-sonnet-4-6": { input: 3, output: 15 },
-    "claude-haiku-4-5-20251001": { input: 0.8, output: 4 },
-  };
-  const defaultPricing = { input: 3, output: 15 };
-  const p = pricing[model] ?? defaultPricing;
-  const estimatedUsd = (inputTokens * p.input + outputTokens * p.output) / 1_000_000;
-  return { inputTokens, outputTokens, estimatedUsd };
-}
