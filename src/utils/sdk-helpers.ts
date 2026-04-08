@@ -27,10 +27,30 @@ export class QueryExecutionError extends Error {
   }
 }
 
-export async function consumeQuery(queryStream: Query, label?: string): Promise<QueryResult> {
+// --- Streaming output ---
+
+export function streamToConsole(message: SDKMessage): void {
+  if (message.type === "assistant" && "content" in message) {
+    for (const block of (message as any).content ?? []) {
+      if (block.type === "text") {
+        process.stdout.write(block.text);
+      }
+    }
+  }
+}
+
+export async function consumeQuery(
+  queryStream: Query,
+  label?: string,
+  onMessage?: (message: SDKMessage) => void,
+): Promise<QueryResult> {
   const tag = label ? `[${label}]` : "[query]";
 
   for await (const message of queryStream) {
+    if (onMessage) {
+      onMessage(message);
+    }
+
     if (message.type === "result") {
       if (message.subtype === "success") {
         return {
@@ -55,6 +75,40 @@ export async function consumeQuery(queryStream: Query, label?: string): Promise<
   }
 
   throw new Error(`${tag} Query stream ended without a result message`);
+}
+
+// --- Permission model ---
+
+export type PermissionLevel = "bypass" | "auto" | "interactive";
+
+export function getPermissionMode(level?: PermissionLevel): "bypassPermissions" | "auto" | "default" {
+  switch (level) {
+    case "bypass": return "bypassPermissions";
+    case "auto": return "auto";
+    case "interactive": return "default";
+    default: return "bypassPermissions"; // backward compat
+  }
+}
+
+// --- Cost estimation ---
+
+export interface CostEstimate {
+  inputTokens: number;
+  outputTokens: number;
+  estimatedUsd: number;
+}
+
+export function estimateCost(inputTokens: number, outputTokens: number, model: string): CostEstimate {
+  // Approximate pricing per 1M tokens
+  const pricing: Record<string, { input: number; output: number }> = {
+    "claude-opus-4-6": { input: 15, output: 75 },
+    "claude-sonnet-4-6": { input: 3, output: 15 },
+    "claude-haiku-4-5-20251001": { input: 0.8, output: 4 },
+  };
+  const defaultPricing = { input: 3, output: 15 };
+  const p = pricing[model] ?? defaultPricing;
+  const estimatedUsd = (inputTokens * p.input + outputTokens * p.output) / 1_000_000;
+  return { inputTokens, outputTokens, estimatedUsd };
 }
 
 function isApiRetry(
