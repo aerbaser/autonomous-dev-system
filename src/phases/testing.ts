@@ -5,6 +5,7 @@ import type { PhaseResult } from "./types.js";
 import { getMcpServerConfigs } from "../environment/mcp-manager.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 import { errMsg } from "../utils/shared.js";
+import { TestingResultSchema } from "../types/llm-schemas.js";
 
 export async function runTesting(
   state: ProjectState,
@@ -38,11 +39,15 @@ Report:
 - Any failing tests with details
 - Recommendation: PASS (proceed to review) or FAIL (back to development with specific issues)
 
-Output ONLY "PASS" or "FAIL: <reasons>" on the final line.`;
+After completing all steps, output your final assessment as JSON:
+{"status": "passed"} or {"status": "failed", "details": "<failure reasons>"}
+
+Also output "PASS" or "FAIL: <reasons>" on the final line as a fallback.`;
 
   let resultText: string;
+  let structuredOutput: unknown;
   try {
-    const { result } = await consumeQuery(
+    const queryResult = await consumeQuery(
       query({
         prompt,
         options: {
@@ -54,20 +59,30 @@ Output ONLY "PASS" or "FAIL: <reasons>" on the final line.`;
       }),
       "testing"
     );
-    resultText = result;
+    resultText = queryResult.result;
+    structuredOutput = queryResult.structuredOutput;
   } catch (err) {
     console.error(`[testing] Query failed: ${errMsg(err)}`);
     return { success: false, state, error: errMsg(err) };
   }
 
-  const lastLine = resultText.trim().split("\n").pop()?.trim() ?? "";
-  const passed = lastLine.startsWith("PASS");
+  let passed: boolean;
+  const parsed = structuredOutput != null ? TestingResultSchema.safeParse(structuredOutput) : null;
+  if (parsed?.success) {
+    passed = parsed.data.status === "passed";
+    if (!passed && parsed.data.details) {
+      console.log(`[testing] Details: ${parsed.data.details}`);
+    }
+  } else {
+    const lastLine = resultText.trim().split("\n").pop()?.trim() ?? "";
+    passed = lastLine.startsWith("PASS");
+  }
 
   if (passed) {
     console.log("[testing] All tests PASSED");
     return { success: true, nextPhase: "review", state };
   } else {
-    console.log(`[testing] Tests FAILED: ${lastLine}`);
+    console.log("[testing] Tests FAILED");
     return { success: true, nextPhase: "development", state };
   }
 }

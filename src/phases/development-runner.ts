@@ -25,7 +25,10 @@ import {
   saveCheckpoint as saveCheckpointState,
   saveState,
 } from "../state/project-state.js";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 import { TaskResultsSchema } from "../types/llm-schemas.js";
 import { getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 import { isApiRetry } from "../utils/shared.js";
@@ -184,7 +187,7 @@ export async function runDevelopment(
     );
 
     // Step 5: Quality gate after each batch
-    const qualityOk = runQualityChecks();
+    const qualityOk = await runQualityChecks();
     if (!qualityOk) {
       console.warn("[development] Quality checks failed after batch. Attempting auto-fix...");
       const fixResult = await autoFixQualityIssues(
@@ -201,7 +204,7 @@ export async function runDevelopment(
   }
 
   // Step 6: Final quality check
-  const finalQuality = runQualityChecks();
+  const finalQuality = await runQualityChecks();
 
   const failedTasks = updatedState.tasks.filter((t) => t.status === "failed");
   const success = failedTasks.length === 0 && finalQuality;
@@ -638,7 +641,7 @@ function getExecStdout(err: unknown): string | null {
 
 // --- Quality Gates ---
 
-function runQualityChecks(): boolean {
+async function runQualityChecks(): Promise<boolean> {
   const checks = [
     { name: "TypeScript type-check", executable: "npx", args: ["tsc", "--noEmit"] },
     { name: "Tests", executable: "npm", args: ["test"] },
@@ -648,7 +651,7 @@ function runQualityChecks(): boolean {
 
   for (const check of checks) {
     try {
-      execFileSync(check.executable, check.args, { timeout: 120_000, stdio: "pipe" });
+      await execFileAsync(check.executable, check.args, { timeout: 120_000 });
       console.log(`[development] Quality check passed: ${check.name}`);
     } catch (err) {
       allPassed = false;
@@ -672,14 +675,14 @@ async function autoFixQualityIssues(
   let testErrors = "";
 
   try {
-    execFileSync("npx", ["tsc", "--noEmit"], { timeout: 120_000, stdio: "pipe" });
+    await execFileAsync("npx", ["tsc", "--noEmit"], { timeout: 120_000 });
   } catch (err) {
     typeErrors =
       getExecStdout(err)?.slice(0, 2000) ?? "type-check failed";
   }
 
   try {
-    execFileSync("npm", ["test"], { timeout: 120_000, stdio: "pipe" });
+    await execFileAsync("npm", ["test"], { timeout: 120_000 });
   } catch (err) {
     testErrors =
       getExecStdout(err)?.slice(0, 2000) ?? "tests failed";
@@ -732,7 +735,7 @@ After fixing, run \`npx tsc --noEmit\` and \`npm test\` to verify.`;
 
   // Verify fix
   if (fixed) {
-    fixed = runQualityChecks();
+    fixed = await runQualityChecks();
   }
 
   return { fixed, costUsd };

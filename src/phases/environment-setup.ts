@@ -57,59 +57,57 @@ export async function runEnvironmentSetup(
     };
   }
 
-  // Step 2: Install LSP servers (non-critical)
+  // Steps 2-5: Run in parallel (all non-critical, independent after stack research)
+  console.log("[env-setup] Running LSP, MCP, plugins, and OSS scan in parallel...");
+
+  const [lspResult, mcpResult, pluginsResult, ossResult] = await Promise.allSettled([
+    installLspServers(discovered.lspServers),
+    (async () => configureMcpServers(config.projectDir, discovered.mcpServers))(),
+    installPlugins(discovered.plugins),
+    scanOpenSource(state.architecture, state.spec.domain, config),
+  ]);
+
   let lspServers = discovered.lspServers.map((l) => ({ ...l, installed: false }));
-  try {
-    console.log("[env-setup] Installing LSP servers...");
-    lspServers = installLspServers(discovered.lspServers);
-    const lspInstalled = lspServers.filter((l) => l.installed).length;
-    console.log(`[env-setup] LSP: ${lspInstalled}/${lspServers.length} installed`);
+  if (lspResult.status === "fulfilled") {
+    lspServers = lspResult.value;
+    const count = lspServers.filter((l) => l.installed).length;
+    console.log(`[env-setup] LSP: ${count}/${lspServers.length} installed`);
     stepResults.push({ name: "LSP Servers", success: true, critical: false });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[env-setup] LSP installation failed (non-critical): ${message}`);
-    stepResults.push({ name: "LSP Servers", success: false, error: message, critical: false });
+  } else {
+    console.warn(`[env-setup] LSP installation failed (non-critical): ${lspResult.reason}`);
+    stepResults.push({ name: "LSP Servers", success: false, error: String(lspResult.reason), critical: false });
   }
 
-  // Step 3: Configure MCP servers (non-critical)
   let mcpServers = discovered.mcpServers.map((m) => ({ ...m, installed: false }));
-  try {
-    console.log("[env-setup] Configuring MCP servers...");
-    mcpServers = configureMcpServers(config.projectDir, discovered.mcpServers);
-    const mcpConfigured = mcpServers.filter((m) => m.installed).length;
-    console.log(`[env-setup] MCP: ${mcpConfigured}/${mcpServers.length} configured`);
+  if (mcpResult.status === "fulfilled") {
+    mcpServers = mcpResult.value;
+    const count = mcpServers.filter((m) => m.installed).length;
+    console.log(`[env-setup] MCP: ${count}/${mcpServers.length} configured`);
     stepResults.push({ name: "MCP Servers", success: true, critical: false });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[env-setup] MCP configuration failed (non-critical): ${message}`);
-    stepResults.push({ name: "MCP Servers", success: false, error: message, critical: false });
+  } else {
+    console.warn(`[env-setup] MCP configuration failed (non-critical): ${mcpResult.reason}`);
+    stepResults.push({ name: "MCP Servers", success: false, error: String(mcpResult.reason), critical: false });
   }
 
-  // Step 4: Install plugins (non-critical)
   let plugins = discovered.plugins.map((p) => ({ ...p, installed: false }));
-  try {
-    console.log("[env-setup] Installing plugins...");
-    plugins = installPlugins(discovered.plugins);
-    const pluginsInstalled = plugins.filter((p) => p.installed).length;
-    console.log(`[env-setup] Plugins: ${pluginsInstalled}/${plugins.length} installed`);
+  if (pluginsResult.status === "fulfilled") {
+    plugins = pluginsResult.value;
+    const count = plugins.filter((p) => p.installed).length;
+    console.log(`[env-setup] Plugins: ${count}/${plugins.length} installed`);
     stepResults.push({ name: "Plugins", success: true, critical: false });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[env-setup] Plugin installation failed (non-critical): ${message}`);
-    stepResults.push({ name: "Plugins", success: false, error: message, critical: false });
+  } else {
+    console.warn(`[env-setup] Plugin installation failed (non-critical): ${pluginsResult.reason}`);
+    stepResults.push({ name: "Plugins", success: false, error: String(pluginsResult.reason), critical: false });
   }
 
-  // Step 5: Scan open-source tools (non-critical)
   let ossTools = discovered.openSourceTools.map((o) => ({ ...o, integrated: false }));
-  try {
-    console.log("[env-setup] Scanning open-source tools...");
-    ossTools = await scanOpenSource(state.architecture, state.spec.domain, config);
+  if (ossResult.status === "fulfilled") {
+    ossTools = ossResult.value;
     console.log(`[env-setup] Found ${ossTools.length} potentially useful OSS tools`);
     stepResults.push({ name: "OSS Scan", success: true, critical: false });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.warn(`[env-setup] OSS scan failed (non-critical): ${message}`);
-    stepResults.push({ name: "OSS Scan", success: false, error: message, critical: false });
+  } else {
+    console.warn(`[env-setup] OSS scan failed (non-critical): ${ossResult.reason}`);
+    stepResults.push({ name: "OSS Scan", success: false, error: String(ossResult.reason), critical: false });
   }
 
   // Step 6: Generate CLAUDE.md (non-critical)

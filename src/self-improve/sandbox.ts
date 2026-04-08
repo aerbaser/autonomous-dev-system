@@ -187,28 +187,21 @@ async function removeWorktree(
   }
 }
 
-/**
- * Run a task function with a timeout. Uses Promise.race so the timeout
- * resolves immediately; a `timedOut` flag signals the task to stop.
- */
 async function withTimeout(
   taskFn: (dir: string) => Promise<SandboxResult>,
   dir: string,
   timeoutMs: number,
   startTime: number
 ): Promise<SandboxResult> {
-  let timedOut = false;
-  const timer = setTimeout(() => { timedOut = true; }, timeoutMs);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const result = await Promise.race([
-      taskFn(dir).then((r) => {
-        if (timedOut) return null;
-        return r;
+      taskFn(dir),
+      new Promise<null>((resolve) => {
+        controller.signal.addEventListener("abort", () => resolve(null), { once: true });
       }),
-      new Promise<null>((resolve) =>
-        setTimeout(() => resolve(null), timeoutMs)
-      ),
     ]);
 
     if (result === null) {

@@ -186,15 +186,11 @@ describe("Environment Setup Phase", () => {
   });
 
   it("succeeds even when non-critical steps fail", async () => {
-    mockedInstallLspServers.mockImplementation(() => {
-      throw new Error("LSP install failed");
-    });
+    mockedInstallLspServers.mockRejectedValue(new Error("LSP install failed"));
     mockedConfigureMcpServers.mockImplementation(() => {
       throw new Error("MCP config failed");
     });
-    mockedInstallPlugins.mockImplementation(() => {
-      throw new Error("Plugin install failed");
-    });
+    mockedInstallPlugins.mockRejectedValue(new Error("Plugin install failed"));
 
     const state = makeStateWithArchitecture();
     const result = await runEnvironmentSetup(state, makeConfig());

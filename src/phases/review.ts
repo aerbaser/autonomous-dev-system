@@ -4,6 +4,7 @@ import type { ProjectState } from "../state/project-state.js";
 import type { PhaseResult } from "./types.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 import { errMsg } from "../utils/shared.js";
+import { ReviewResultSchema } from "../types/llm-schemas.js";
 
 export async function runReview(
   state: ProjectState,
@@ -24,11 +25,15 @@ Output a structured review:
 - SUGGESTIONS (nice to have)
 - POSITIVE callouts
 
-End with: "APPROVE" or "REQUEST_CHANGES: <summary of critical issues>"`;
+After completing the review, output your final decision as JSON:
+{"status": "approved"} or {"status": "requested_changes", "summary": "<critical issues>"}
+
+Also end with "APPROVE" or "REQUEST_CHANGES: <summary>" as a fallback.`;
 
   let resultText: string;
+  let structuredOutput: unknown;
   try {
-    const { result } = await consumeQuery(
+    const queryResult = await consumeQuery(
       query({
         prompt,
         options: {
@@ -39,13 +44,23 @@ End with: "APPROVE" or "REQUEST_CHANGES: <summary of critical issues>"`;
       }),
       "review"
     );
-    resultText = result;
+    resultText = queryResult.result;
+    structuredOutput = queryResult.structuredOutput;
   } catch (err) {
     console.error(`[review] Query failed: ${errMsg(err)}`);
     return { success: false, state, error: errMsg(err) };
   }
 
-  const approved = resultText.includes("APPROVE") && !resultText.includes("REQUEST_CHANGES");
+  let approved: boolean;
+  const parsed = structuredOutput != null ? ReviewResultSchema.safeParse(structuredOutput) : null;
+  if (parsed?.success) {
+    approved = parsed.data.status === "approved";
+    if (!approved && parsed.data.summary) {
+      console.log(`[review] Issues: ${parsed.data.summary}`);
+    }
+  } else {
+    approved = resultText.includes("APPROVE") && !resultText.includes("REQUEST_CHANGES");
+  }
 
   if (approved) {
     console.log("[review] Code review: APPROVED");

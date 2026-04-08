@@ -190,8 +190,8 @@ export const ProjectStateSchema = z.object({
   id: z.string(),
   idea: z.string(),
   currentPhase: z.string(),
-  spec: z.unknown().nullable(),
-  architecture: z.unknown().nullable(),
+  spec: ProductSpecSchema.nullable().catch(null),
+  architecture: ArchDesignSchema.nullable().catch(null),
   environment: z.unknown().nullable(),
   agents: z.array(z.unknown()),
   tasks: z.array(z.unknown()),
@@ -215,4 +215,16 @@ export const DeploymentResultSchema = z.object({
 export const MonitoringResultSchema = z.object({
   status: z.enum(["healthy", "regression", "improvement"]),
   description: z.string(),
+});
+
+// --- Testing and Review structured output ---
+
+export const TestingResultSchema = z.object({
+  status: z.enum(["passed", "failed"]),
+  details: z.string().optional(),
+});
+
+export const ReviewResultSchema = z.object({
+  status: z.enum(["approved", "requested_changes"]),
+  summary: z.string().optional(),
 });
