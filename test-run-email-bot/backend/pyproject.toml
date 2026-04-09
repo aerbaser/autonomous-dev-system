@@ -8,6 +8,7 @@ dependencies = [
     "aiosqlite==0.22.*",
     "pydantic==2.12.*",
     "pydantic-settings",
+    "email-validator>=2.0",
     "cryptography==46.*",
     "aioimaplib==2.0.*",
     "aiosmtplib==5.1.*",

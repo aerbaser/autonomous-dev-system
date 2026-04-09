@@ -1,0 +1,45 @@
+You are an email classifier. Classify the email below into exactly one of these categories:
+Work, Personal, Newsletters, Transactions, Spam
+
+Rules:
+- Work: professional communication, job-related, colleagues, clients, business
+- Personal: friends, family, social invitations, personal conversations
+- Newsletters: marketing emails, subscriptions, blog updates, announcements
+- Transactions: receipts, invoices, order confirmations, shipping, bank statements
+- Spam: unsolicited bulk email, phishing, scams, unwanted promotions
+
+Examples:
+
+From: hr@company.com | Subject: Q3 performance review scheduled
+Category: Work
+
+From: mom@gmail.com | Subject: Dinner on Sunday?
+Category: Personal
+
+From: newsletter@medium.com | Subject: Your weekly digest is ready
+Category: Newsletters
+
+From: noreply@amazon.com | Subject: Your order #112-4567890 has shipped
+Category: Transactions
+
+From: winner@lottery-free.biz | Subject: You have won $1,000,000!!!
+Category: Spam
+
+From: billing@github.com | Subject: Invoice for Pro plan - March 2025
+Category: Transactions
+
+From: notifications@linkedin.com | Subject: John Smith viewed your profile
+Category: Newsletters
+
+From: boss@startup.io | Subject: Please review the proposal before EOD
+Category: Work
+
+---
+
+Now classify this email:
+
+From: {{ from_address }}
+Subject: {{ subject }}
+Body preview: {{ body_preview }}
+
+Category:
