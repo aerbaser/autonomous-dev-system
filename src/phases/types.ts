@@ -16,6 +16,8 @@ export interface PhaseResult {
   sessionId?: string;
   costUsd?: number;
   rubricResult?: RubricResult;
+  /** Populated when config.dryRun=true — describes what this phase would do. */
+  dryRunPlan?: string;
 }
 
 export type PhaseHandler = (

@@ -73,11 +73,45 @@ export interface McpServerConfig {
   env?: Record<string, string>;
 }
 
+export interface TargetAudience {
+  primaryPersona: string;
+  secondaryPersonas: string[];
+  marketSize?: string;
+}
+
+export interface Competitor {
+  name: string;
+  strengths: string[];
+  weaknesses: string[];
+  differentiator: string;
+}
+
+export interface CompetitiveAnalysis {
+  directCompetitors: Competitor[];
+  ourEdge: string;
+}
+
+export interface MvpScope {
+  included: string[];
+  excluded: string[];
+  successMetrics: string[];
+}
+
+export interface TechStackRecommendation {
+  rationale: string;
+  recommended: string[];
+  alternatives: string[];
+}
+
 export interface ProductSpec {
   summary: string;
   userStories: UserStory[];
   nonFunctionalRequirements: string[];
   domain: DomainAnalysis;
+  targetAudience?: TargetAudience;
+  competitiveAnalysis?: CompetitiveAnalysis;
+  mvpScope?: MvpScope;
+  techStackRecommendation?: TechStackRecommendation;
 }
 
 export interface UserStory {
@@ -96,12 +130,22 @@ export interface DomainAnalysis {
   techStack: string[];
 }
 
+export interface ArchTask {
+  id: string;
+  title: string;
+  description: string;
+  estimatedComplexity: "low" | "medium" | "high";
+  dependencies: string[];
+  acceptanceCriteria: string[];
+}
+
 export interface ArchDesign {
   techStack: Record<string, string>;
   components: string[];
   apiContracts: string;
   databaseSchema: string;
   fileStructure: string;
+  taskDecomposition?: { tasks: ArchTask[] };
 }
 
 export interface StackEnvironment {
@@ -198,6 +242,7 @@ export interface ProjectState {
   evolution: EvolutionEntry[];
   checkpoints: PhaseCheckpoint[];
   baselineScore: number;
+  totalCostUsd: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -241,6 +286,7 @@ export function createInitialState(idea: string): ProjectState {
     evolution: [],
     checkpoints: [],
     baselineScore: 0,
+    totalCostUsd: 0,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
   };

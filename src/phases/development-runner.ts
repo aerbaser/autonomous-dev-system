@@ -491,7 +491,7 @@ function parseTaskResults(output: string, tasks: Task[]): TaskResult[] {
           const hasFail = match?.status === "failed";
           return {
             taskId: task.id,
-            success: match ? !hasFail : true,
+            success: match ? !hasFail : false,
             output,
             ...(output.length > 0 ? { result: "Implemented as part of batch" } : {}),
             ...(hasFail ? { error: `Task "${task.title}" reported as failed` } : {}),

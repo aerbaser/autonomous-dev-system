@@ -124,7 +124,7 @@ describe("Ideation Phase", () => {
     const result = await runIdeation(state, makeConfig());
 
     expect(result.success).toBe(true);
-    expect(result.nextPhase).toBe("architecture");
+    expect(result.nextPhase).toBe("specification");
     expect(result.state.spec).toBeDefined();
     expect(result.state.spec!.userStories.length).toBeGreaterThanOrEqual(5);
     expect(result.state.spec!.nonFunctionalRequirements.length).toBeGreaterThanOrEqual(3);

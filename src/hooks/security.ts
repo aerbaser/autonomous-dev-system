@@ -36,8 +36,8 @@ const ALLOWED_WEBFETCH_DOMAINS = new Set([
 ]);
 
 const DENIED_PATHS = [
-  /\.ssh\//,
-  /\.aws\//,
+  /\.ssh(\/|$)/,
+  /\.aws(\/|$)/,
   /\.netrc$/,
   /\.env($|\.)/,           // matches .env, .env.local, .env.production, etc.
   /credentials\.json$/,
@@ -91,17 +91,25 @@ export const securityHook: HookCallback = async (input, _toolUseID, _ctx) => {
 
   if (toolName === "Glob") {
     const pattern = typeof toolInput.pattern === "string" ? toolInput.pattern : undefined;
-    if (pattern) {
-      for (const denied of DENIED_PATHS) {
-        if (denied.test(pattern)) {
-          return {
-            hookSpecificOutput: {
-              hookEventName: "PreToolUse" as const,
-              permissionDecision: "deny" as const,
-              permissionDecisionReason: `Glob access denied to sensitive path pattern: ${pattern}`,
-            },
-          };
-        }
+    const globPath = typeof toolInput.path === "string" ? toolInput.path : undefined;
+    for (const denied of DENIED_PATHS) {
+      if (pattern && denied.test(pattern)) {
+        return {
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse" as const,
+            permissionDecision: "deny" as const,
+            permissionDecisionReason: `Glob access denied to sensitive path pattern: ${pattern}`,
+          },
+        };
+      }
+      if (globPath && denied.test(globPath)) {
+        return {
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse" as const,
+            permissionDecision: "deny" as const,
+            permissionDecisionReason: `Glob access denied to sensitive directory: ${globPath}`,
+          },
+        };
       }
     }
   }

@@ -206,4 +206,96 @@ describe("Development Runner", () => {
     // Result can be success or partial success depending on task ID matching
     expect(result.state).toBeDefined();
   });
+
+  it("treats completely empty LLM response as all-tasks-failed", async () => {
+    const state = makeStateWithSpecAndArch();
+
+    // Decomposition returns one task
+    const decompositionOutput = {
+      tasks: [
+        {
+          id: "task-001",
+          title: "Create task",
+          description: "Implement task creation endpoint",
+          estimatedComplexity: "medium",
+          dependencies: [],
+          acceptanceCriteria: [],
+        },
+      ],
+    };
+
+    mockedQuery
+      .mockReturnValueOnce(makeQueryStream("", decompositionOutput))
+      // Batch execution returns empty string — simulates LLM timeout/empty reply
+      .mockReturnValue(makeQueryStream("", undefined));
+
+    const result = await runDevelopment(state, makeConfig());
+
+    expect(result.success).toBe(false);
+    const failed = result.state.tasks.filter((t) => t.status === "failed");
+    expect(failed.length).toBeGreaterThan(0);
+  });
+
+  it("treats task not mentioned in JSON response as failed (bug fix)", async () => {
+    const state = makeStateWithSpecAndArch();
+    // Add a second user story so we get two tasks
+    const twoStoryState: typeof state = {
+      ...state,
+      spec: {
+        ...state.spec!,
+        userStories: [
+          ...state.spec!.userStories,
+          {
+            id: "US-002",
+            title: "Delete task",
+            description: "As a user, I want to delete tasks",
+            acceptanceCriteria: ["Task is removed"],
+            priority: "must" as const,
+          },
+        ],
+      },
+    };
+
+    const decompositionOutput = {
+      tasks: [
+        { id: "t1", title: "Create task", description: "Impl", estimatedComplexity: "medium", dependencies: [], acceptanceCriteria: [] },
+        { id: "t2", title: "Delete task", description: "Impl", estimatedComplexity: "medium", dependencies: [], acceptanceCriteria: [] },
+      ],
+    };
+
+    // JSON only reports first task as success; second task is omitted
+    const batchOutput = JSON.stringify({
+      tasks: [{ title: "Create task", status: "success" }],
+    });
+
+    mockedQuery
+      .mockReturnValueOnce(makeQueryStream("", decompositionOutput))
+      .mockReturnValue(makeQueryStream(batchOutput, undefined));
+
+    const result = await runDevelopment(twoStoryState, makeConfig());
+
+    // The second task (Delete task) was not in the JSON → should be marked failed
+    expect(result.success).toBe(false);
+  });
+
+  it("handles malformed JSON response gracefully via heuristic fallback", async () => {
+    const state = makeStateWithSpecAndArch();
+
+    const decompositionOutput = {
+      tasks: [
+        { id: "task-001", title: "Create task", description: "Impl", estimatedComplexity: "medium", dependencies: [], acceptanceCriteria: [] },
+      ],
+    };
+
+    // Invalid JSON that fails parse — falls back to heuristic
+    mockedQuery
+      .mockReturnValueOnce(makeQueryStream("", decompositionOutput))
+      .mockReturnValue(makeQueryStream("Task successfully completed without JSON", undefined));
+
+    const result = await runDevelopment(state, makeConfig());
+
+    // Heuristic: non-empty output without failure keywords → success
+    expect(result.success).toBe(true);
+    expect(result.nextPhase).toBe("testing");
+  });
 });

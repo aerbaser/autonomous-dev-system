@@ -83,6 +83,82 @@ const OPTIONAL_PHASES: Phase[] = [
   "monitoring",
 ];
 
+/** Static execution plan shown when --dry-run is active. */
+const PHASE_DRY_RUN_PLANS: Record<Phase, { description: string; agents: number; turns: number; tools: string[] }> = {
+  ideation: {
+    description: "Analyze the idea, run domain classification, generate product spec with user stories, acceptance criteria, competitive analysis, target audience, MVP scope and tech stack recommendation.",
+    agents: 2,
+    turns: 8,
+    tools: ["WebSearch", "WebFetch"],
+  },
+  specification: {
+    description: "Pass-through: specification is merged into ideation phase.",
+    agents: 0,
+    turns: 0,
+    tools: [],
+  },
+  architecture: {
+    description: "Design full system architecture: tech stack selection, component breakdown, API contracts, database schema, file structure, task decomposition with acceptance criteria and dependency graph.",
+    agents: 3,
+    turns: 10,
+    tools: ["WebSearch", "WebFetch"],
+  },
+  "environment-setup": {
+    description: "Detect and configure LSP, MCP servers, plugins, and development environment for the chosen tech stack.",
+    agents: 2,
+    turns: 6,
+    tools: ["Bash", "Read", "Write"],
+  },
+  development: {
+    description: "Implement all tasks in dependency order using parallel agent batches. Each task gets its own agent with domain-specific context.",
+    agents: 8,
+    turns: 30,
+    tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebSearch"],
+  },
+  testing: {
+    description: "Run unit, integration, and e2e test suites; analyze coverage; detect regressions; produce a test report.",
+    agents: 3,
+    turns: 12,
+    tools: ["Bash", "Read", "Glob", "Grep"],
+  },
+  review: {
+    description: "Code review for quality, security (OWASP), performance, and adherence to architecture spec.",
+    agents: 2,
+    turns: 8,
+    tools: ["Read", "Glob", "Grep", "WebSearch"],
+  },
+  staging: {
+    description: "Build, containerize, and deploy to staging environment; run smoke tests against staging URL.",
+    agents: 2,
+    turns: 8,
+    tools: ["Bash", "Read", "Write", "WebFetch"],
+  },
+  "ab-testing": {
+    description: "Design A/B test variants, configure feature flags, deploy both variants, collect metrics.",
+    agents: 2,
+    turns: 6,
+    tools: ["WebSearch", "WebFetch", "Bash"],
+  },
+  analysis: {
+    description: "Analyze A/B test results, determine winner, generate business insights report.",
+    agents: 1,
+    turns: 4,
+    tools: ["WebFetch"],
+  },
+  production: {
+    description: "Deploy winning variant to production with zero-downtime strategy; run health checks.",
+    agents: 2,
+    turns: 8,
+    tools: ["Bash", "WebFetch"],
+  },
+  monitoring: {
+    description: "Monitor production metrics, error rates, latency; trigger development cycle if regressions detected.",
+    agents: 1,
+    turns: 4,
+    tools: ["WebFetch", "Bash"],
+  },
+};
+
 function buildProgressBar(current: number, total: number): string {
   const pct = Math.round((current / total) * 100);
   const filled = Math.round((current / total) * 10);
@@ -205,7 +281,13 @@ export async function runOrchestrator(
 
     // Dry-run mode: log what would happen without executing
     if (dryRun) {
-      console.log(`[dry-run] Would run phase: ${phase}`);
+      const plan = PHASE_DRY_RUN_PLANS[phase];
+      console.log(`\n[dry-run] ── Phase: ${phase} ──────────────────────────────`);
+      console.log(`[dry-run]   What:   ${plan.description}`);
+      if (plan.agents > 0) {
+        console.log(`[dry-run]   Agents: ~${plan.agents}  |  Max turns: ~${plan.turns}`);
+        console.log(`[dry-run]   Tools:  ${plan.tools.join(", ")}`);
+      }
     }
 
     // Inject knowledge from previous sessions
@@ -260,15 +342,16 @@ export async function runOrchestrator(
 
     if (result.costUsd) {
       totalCostUsd += result.costUsd;
-      console.log(`[budget] Phase cost: $${result.costUsd.toFixed(2)}, total: $${totalCostUsd.toFixed(2)}`);
+      console.log(`[budget] Phase cost: $${result.costUsd.toFixed(4)}, total: $${totalCostUsd.toFixed(4)}`);
     }
 
     if (budgetUsd !== undefined && totalCostUsd > budgetUsd) {
-      console.log(`[budget] Budget exceeded ($${totalCostUsd.toFixed(2)}/$${budgetUsd.toFixed(2)}). Stopping.`);
+      console.log(`[budget] Budget exceeded ($${totalCostUsd.toFixed(4)}/$${budgetUsd.toFixed(4)}). Stopping.`);
       break;
     }
 
-    state = result.state;
+    // Persist running cost total into state so it survives checkpoints/resume
+    state = { ...result.state, totalCostUsd };
 
     // Capture learnings from this phase
     if (memoryStore && result.success) {

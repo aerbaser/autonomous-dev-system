@@ -8,23 +8,33 @@ import { extractFirstJson, wrapUserInput } from "../utils/shared.js";
 const DOMAIN_ANALYSIS_PROMPT = `You are a Domain Analyzer. Given a project idea, analyze what domain expertise
 and specialized roles are needed beyond the standard development team (PM, Dev, QA, DevOps, Reviewer).
 
-Think carefully about:
-- What domain knowledge is required?
-- What specialized calculations, algorithms, or data processing is needed?
-- What regulatory or compliance considerations exist?
-- What specialized testing approaches are needed?
+Think carefully and specifically about THIS project:
+- What specialized domain knowledge is essential (e.g., financial math, HIPAA compliance, ML model training)?
+- What algorithms, data structures, or numerical methods are core to the product?
+- What regulatory, compliance, or security requirements apply to this domain?
+- What specialized testing is needed (e.g., load testing for trading systems, clinical validation for health apps)?
+- What domain-specific integrations are likely needed (payment processors, EHR systems, social APIs)?
 
-Output a JSON object with this structure:
+Domain classification examples:
+- "fintech/payments" — money movement, fraud detection, PCI-DSS
+- "healthcare/clinical" — patient data, HIPAA, FDA regulations
+- "data-science/ml" — model training, feature engineering, experiment tracking
+- "devtools/cli" — developer experience, cross-platform, package distribution
+- "realtime/collaborative" — WebSockets, CRDT, conflict resolution
+- "ecommerce/marketplace" — inventory, payments, fulfillment
+- "web-application" — general SaaS with no heavy domain specialization
+
+Output ONLY a JSON object:
 {
-  "classification": "primary domain (e.g., fintech/trading, healthcare, SaaS, data-science, math-heavy)",
-  "specializations": ["list of specialized knowledge areas needed"],
-  "requiredRoles": ["list of specialized agent roles beyond standard"],
-  "requiredMcpServers": ["list of MCP servers that would be useful"],
-  "techStack": ["recommended technologies for this domain"]
+  "classification": "specific domain label from examples above or a new precise one",
+  "specializations": ["specific knowledge areas THIS project needs, not generic ones"],
+  "requiredRoles": ["specialized agent roles beyond standard — only what THIS project genuinely needs"],
+  "requiredMcpServers": ["MCP servers that give direct value for this domain, e.g. playwright for web, github for devtools"],
+  "techStack": ["domain-appropriate technologies with version hints, e.g. 'PostgreSQL 16 with pgvector for ML embeddings'"]
 }
 
-IMPORTANT: Only output the JSON, nothing else. Be conservative -- only suggest roles that are
-genuinely needed for THIS specific project, not generic nice-to-haves.`;
+Be conservative: only add a role if it would change the implementation in a meaningful way.
+Output ONLY the JSON, nothing else.`;
 
 export async function analyzeDomain(idea: string, config?: Config): Promise<DomainAnalysis> {
   let resultText: string;
@@ -61,44 +71,43 @@ export async function analyzeDomain(idea: string, config?: Config): Promise<Doma
   }
 }
 
-const AGENT_GENERATION_PROMPT = `You are an Agent Factory. Given a domain analysis, generate specialized
-agent blueprints for each required role.
+const AGENT_GENERATION_PROMPT = `You are an Agent Factory. Given a domain analysis and project idea, generate specialized
+agent blueprints tailored to THIS specific project.
 
-Think about what domain-specific tasks each role would handle:
-1. What unique expertise does this role bring that standard agents lack?
-2. What specific deliverables will this agent produce?
-3. What tools does this agent need to do its job?
-4. How do we measure if this agent did well? (at least 3 evaluation criteria)
+For each role, think deeply about what makes this role domain-specific vs generic:
+1. What unique domain expertise (algorithms, regulations, standards) does this role apply?
+2. What concrete deliverables does this agent produce that a generic dev agent cannot?
+3. What tools does this agent actually need for ITS tasks?
+4. What specific, testable criteria show this agent did excellent work?
 
-## Example of a well-formed domain agent blueprint
+## Rules for excellent agent blueprints
+
+systemPrompt must:
+- Open with "You are a [specific title] specializing in [specific domain area of THIS project]"
+- Name the concrete technologies, standards, or algorithms relevant to THIS project
+- List 4-6 specific responsibilities (not generic "write code" but "implement JWT rotation with Redis blocklist")
+- State hard constraints unique to this domain (e.g., "never use floating-point for money amounts")
+- Describe the expected output format (JSON schema, file type, etc.)
+
+evaluationCriteria must be:
+- Specific to this agent's domain (not "code is clean" but "all SQL queries use parameterized statements")
+- Objectively verifiable by reading the output
+- At least 3 criteria, ideally 4-5
+
+## Example (fintech project):
 
 {
-  "name": "financial-analyst",
-  "role": "Financial Data Analyst",
-  "systemPrompt": "You are a Financial Data Analyst specializing in market data processing and risk calculations.\\n\\nYour responsibilities:\\n- Design and validate financial calculations (interest rates, amortization, risk scores)\\n- Ensure numerical precision using decimal arithmetic (never floating-point for money)\\n- Validate data pipelines for financial reporting\\n- Implement compliance checks for regulatory requirements (SOX, PCI-DSS)\\n\\nKey constraints:\\n- All monetary values must use integer cents or a Decimal library\\n- Every calculation must have an audit trail\\n- All formulas must be documented with their source (regulatory doc, business rule)\\n\\nOutput format: provide analysis as structured JSON with calculations, assumptions, and validation results.",
-  "tools": ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebSearch"],
+  "name": "payments-specialist",
+  "role": "Payment Integration Specialist",
+  "systemPrompt": "You are a Payment Integration Specialist for a fintech lending platform.\\n\\nYour expertise covers:\\n- Stripe Connect for marketplace payments and escrow\\n- ACH transfer timing, reversal windows, and NACHA compliance\\n- PCI-DSS scope reduction via Stripe.js tokenization (no raw card data server-side)\\n- Idempotent payment operations to prevent double-charges\\n\\nResponsibilities:\\n- Implement payment flows: charge, refund, dispute handling\\n- Build webhook handlers with signature verification and at-least-once delivery\\n- Write reconciliation logic comparing Stripe ledger vs internal DB\\n- Ensure all monetary values use integer cents (never floats)\\n\\nConstraints:\\n- Every payment mutation must be idempotent (idempotency-key header)\\n- No raw card data may touch the server — use Stripe.js or Payment Element\\n- All webhook handlers must verify Stripe-Signature before processing\\n\\nOutput: TypeScript with strict types, Zod validation on webhook payloads, integration tests using Stripe test mode keys.",
+  "tools": ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "WebSearch", "WebFetch"],
   "evaluationCriteria": [
-    "All financial calculations use decimal/integer arithmetic, never floating-point",
-    "Every formula has a documented source reference",
-    "Compliance checks cover all relevant regulations for the jurisdiction",
-    "Edge cases handled: zero amounts, negative values, currency conversion rounding"
+    "All monetary values stored and computed as integer cents, no floating-point arithmetic",
+    "Webhook handlers verify Stripe-Signature before processing any payload",
+    "Payment mutations include idempotency keys to prevent double-charges",
+    "Reconciliation logic handles Stripe clock drift and delayed webhook delivery",
+    "Integration tests cover happy path, payment failure, and refund scenarios using Stripe test mode"
   ]
-}
-
-## Constraints
-
-- Each agent MUST have at least 3 evaluation criteria that are specific and testable
-- The systemPrompt must be detailed (2-4 paragraphs) covering expertise, responsibilities, constraints, and output format
-- Tools must match what the agent actually needs -- don't give Bash to agents that only analyze text
-- The name must be kebab-case and descriptive of the domain role
-
-For EACH role, output a JSON object:
-{
-  "name": "kebab-case-name",
-  "role": "Human-readable role title",
-  "systemPrompt": "Detailed system prompt",
-  "tools": ["list", "of", "tools"],
-  "evaluationCriteria": ["at least 3 specific, testable criteria"]
 }
 
 Available tools: Read, Write, Edit, Bash, Glob, Grep, WebSearch, WebFetch, Agent, AskUserQuestion

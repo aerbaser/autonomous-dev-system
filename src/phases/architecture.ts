@@ -7,31 +7,58 @@ import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-hel
 import { extractFirstJson, errMsg, wrapUserInput } from "../utils/shared.js";
 import { ArchDesignSchema } from "../types/llm-schemas.js";
 
-const ARCH_PROMPT = `You are a Software Architect. Given a product specification, design the complete
-technical architecture.
+const ARCH_PROMPT = `You are a Principal Software Architect. Given a product specification, design the complete
+technical architecture AND decompose work into developer-ready tasks.
+
+Use WebSearch to verify current stable versions of the chosen technologies.
 
 Output a JSON object:
 {
   "techStack": {
-    "language": "TypeScript",
+    "language": "TypeScript 5.x",
     "framework": "Next.js 15",
-    "database": "PostgreSQL",
-    "orm": "Prisma",
-    ... (all technologies with their roles)
+    "database": "PostgreSQL 16",
+    "orm": "Prisma 5",
+    "testing": "Vitest + Playwright",
+    "infra": "Docker + Railway",
+    "... (every technology with its version and role)": "..."
   },
   "components": [
-    "Description of each major component/service"
+    "Frontend: Next.js App Router with React Server Components for all data-fetching pages",
+    "API Layer: Next.js Route Handlers with Zod request validation",
+    "... (one line per component describing what it does and its boundaries)"
   ],
-  "apiContracts": "OpenAPI spec or GraphQL schema as a string",
-  "databaseSchema": "SQL DDL or Prisma schema as a string",
-  "fileStructure": "Project file/folder layout as a string"
+  "apiContracts": "OpenAPI 3.1 YAML or GraphQL SDL — must cover ALL endpoints referenced in user stories",
+  "databaseSchema": "Prisma schema or SQL DDL — tables, indexes, foreign keys, constraints",
+  "fileStructure": "Full project tree showing directory layout and key files",
+  "taskDecomposition": {
+    "tasks": [
+      {
+        "id": "T-001",
+        "title": "Short imperative task title",
+        "description": "What needs to be built, specific file paths, implementation details",
+        "estimatedComplexity": "low|medium|high",
+        "dependencies": ["T-000"],
+        "acceptanceCriteria": [
+          "GIVEN the system is running WHEN a user does X THEN Y happens",
+          "Unit tests cover the happy path and 2 edge cases",
+          "No TypeScript type errors"
+        ]
+      }
+    ]
+  }
 }
 
-Guidelines:
-- Choose battle-tested technologies appropriate for the domain
-- Keep it as simple as possible while meeting requirements
-- Ensure the architecture supports all non-functional requirements
-- The file structure must be specific enough for developers to follow
+Architecture guidelines:
+- Verify technology versions with WebSearch before recommending
+- Prefer battle-tested libraries with active maintenance
+- Keep it as simple as possible while meeting ALL non-functional requirements from the spec
+- Every component must have a clear owner and clear boundaries
+- Task IDs must form a valid DAG (no circular dependencies)
+- Tasks must be ordered so each task only depends on earlier task IDs
+- Each task must have 3+ specific, testable acceptance criteria
+- Decompose into tasks that a single developer can complete in 1-4 hours
+- Include setup/scaffolding tasks first (T-001, T-002), then feature tasks
 
 Output ONLY the JSON.`;
 
@@ -87,11 +114,28 @@ Recommended tech: ${state.spec.domain.techStack.join(", ")}`,
   if (!archParseResult.success) {
     return { success: false, state, error: `Invalid architecture JSON: ${archParseResult.error.message}` };
   }
-  const architecture = archParseResult.data;
+  const parsed = archParseResult.data;
+  // Conditionally spread optional field to satisfy exactOptionalPropertyTypes
+  const architecture: import("../state/project-state.js").ArchDesign = {
+    techStack: parsed.techStack,
+    components: parsed.components,
+    apiContracts: parsed.apiContracts,
+    databaseSchema: parsed.databaseSchema,
+    fileStructure: parsed.fileStructure,
+    ...(parsed.taskDecomposition != null ? { taskDecomposition: parsed.taskDecomposition } : {}),
+  };
 
   console.log(`[architecture] Tech stack: ${Object.entries(architecture.techStack).map(([k, v]) => `${k}=${v}`).join(", ")}`);
   console.log(`[architecture] Components: ${architecture.components.length}`);
   console.log(`[architecture] Agents registered: ${registry.getAll().length}`);
+  if (architecture.taskDecomposition) {
+    const tasks = architecture.taskDecomposition.tasks;
+    const byComplexity = tasks.reduce<Record<string, number>>((acc, t) => {
+      acc[t.estimatedComplexity] = (acc[t.estimatedComplexity] ?? 0) + 1;
+      return acc;
+    }, {});
+    console.log(`[architecture] Tasks decomposed: ${tasks.length} (low=${byComplexity["low"] ?? 0}, medium=${byComplexity["medium"] ?? 0}, high=${byComplexity["high"] ?? 0})`);
+  }
 
   const newState: ProjectState = {
     ...state,

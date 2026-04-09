@@ -16,15 +16,56 @@ export const UserStorySchema = z.object({
   priority: z.enum(["must", "should", "could", "wont"]),
 });
 
+const CompetitorSchema = z.object({
+  name: z.string(),
+  strengths: z.array(z.string()),
+  weaknesses: z.array(z.string()),
+  differentiator: z.string(),
+});
+
+const TargetAudienceSchema = z.object({
+  primaryPersona: z.string(),
+  secondaryPersonas: z.array(z.string()),
+  marketSize: z.string().optional(),
+});
+
+const MvpScopeSchema = z.object({
+  included: z.array(z.string()),
+  excluded: z.array(z.string()),
+  successMetrics: z.array(z.string()),
+});
+
+const TechStackRecommendationSchema = z.object({
+  rationale: z.string(),
+  recommended: z.array(z.string()),
+  alternatives: z.array(z.string()),
+});
+
 /** Spec without domain — used during ideation where domain is added separately. */
 export const ProductSpecWithoutDomainSchema = z.object({
   summary: z.string(),
   userStories: z.array(UserStorySchema),
   nonFunctionalRequirements: z.array(z.string()),
+  targetAudience: TargetAudienceSchema.optional(),
+  competitiveAnalysis: z.object({
+    directCompetitors: z.array(CompetitorSchema),
+    ourEdge: z.string(),
+  }).optional(),
+  mvpScope: MvpScopeSchema.optional(),
+  techStackRecommendation: TechStackRecommendationSchema.optional(),
 });
 
 export const ProductSpecSchema = ProductSpecWithoutDomainSchema.extend({
   domain: DomainAnalysisSchema,
+});
+
+const ArchTaskSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  description: z.string(),
+  estimatedComplexity: z.enum(["low", "medium", "high"]),
+  dependencies: z.array(z.string()),
+  acceptanceCriteria: z.array(z.string()),
 });
 
 export const ArchDesignSchema = z.object({
@@ -33,6 +74,7 @@ export const ArchDesignSchema = z.object({
   apiContracts: z.string(),
   databaseSchema: z.string(),
   fileStructure: z.string(),
+  taskDecomposition: z.object({ tasks: z.array(ArchTaskSchema) }).optional(),
 });
 
 // --- Schemas for JSON.parse validation across the codebase ---
@@ -310,6 +352,7 @@ export const ProjectStateSchema = z.object({
   evolution: z.array(EvolutionEntrySchema).catch([]),
   checkpoints: z.array(PhaseCheckpointSchema).catch([]),
   baselineScore: z.number(),
+  totalCostUsd: z.number().catch(0),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

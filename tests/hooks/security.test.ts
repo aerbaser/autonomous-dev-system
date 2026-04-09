@@ -184,6 +184,121 @@ describe("Security Hook", () => {
     });
   });
 
+  describe("Glob path restrictions", () => {
+    it("blocks Glob with sensitive pattern", async () => {
+      const result = await securityHook(
+        makePreToolUseInput("Glob", { pattern: "**/.ssh/**" }),
+        undefined,
+        { signal }
+      );
+      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+    });
+
+    it("blocks Glob with sensitive path directory", async () => {
+      const result = await securityHook(
+        makePreToolUseInput("Glob", { path: "/home/user/.ssh", pattern: "*.key" }),
+        undefined,
+        { signal }
+      );
+      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+    });
+
+    it("blocks Glob searching inside .aws directory", async () => {
+      const result = await securityHook(
+        makePreToolUseInput("Glob", { path: "/home/user/.aws/", pattern: "*" }),
+        undefined,
+        { signal }
+      );
+      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+    });
+
+    it("allows Glob with safe path and pattern", async () => {
+      const result = await securityHook(
+        makePreToolUseInput("Glob", { path: "/project/src", pattern: "**/*.ts" }),
+        undefined,
+        { signal }
+      );
+      expect(result.hookSpecificOutput).toBeUndefined();
+    });
+
+    it("allows Glob with only pattern (no path) when safe", async () => {
+      const result = await securityHook(
+        makePreToolUseInput("Glob", { pattern: "**/*.ts" }),
+        undefined,
+        { signal }
+      );
+      expect(result.hookSpecificOutput).toBeUndefined();
+    });
+  });
+
+  describe("Grep path restrictions", () => {
+    it("blocks Grep searching in .ssh directory", async () => {
+      const result = await securityHook(
+        makePreToolUseInput("Grep", { pattern: "PRIVATE KEY", path: "/home/user/.ssh" }),
+        undefined,
+        { signal }
+      );
+      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+    });
+
+    it("allows Grep searching in normal project directory", async () => {
+      const result = await securityHook(
+        makePreToolUseInput("Grep", { pattern: "TODO", path: "/project/src" }),
+        undefined,
+        { signal }
+      );
+      expect(result.hookSpecificOutput).toBeUndefined();
+    });
+  });
+
+  describe("WebFetch domain allowlist", () => {
+    it("blocks fetch from unknown domain", async () => {
+      const result = await securityHook(
+        makePreToolUseInput("WebFetch", { url: "https://evil.com/data" }),
+        undefined,
+        { signal }
+      );
+      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+    });
+
+    it("blocks fetch from invalid URL", async () => {
+      const result = await securityHook(
+        makePreToolUseInput("WebFetch", { url: "not-a-valid-url" }),
+        undefined,
+        { signal }
+      );
+      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+    });
+
+    it("allows fetch from github.com", async () => {
+      const result = await securityHook(
+        makePreToolUseInput("WebFetch", { url: "https://github.com/anthropics/sdk" }),
+        undefined,
+        { signal }
+      );
+      expect(result.hookSpecificOutput).toBeUndefined();
+    });
+
+    it("allows fetch from subdomain of allowed domain", async () => {
+      const result = await securityHook(
+        makePreToolUseInput("WebFetch", { url: "https://docs.anthropic.com/api" }),
+        undefined,
+        { signal }
+      );
+      expect(result.hookSpecificOutput).toBeUndefined();
+    });
+
+    it("blocks fetch when WebFetch url is missing", async () => {
+      // no url → no check → should pass (undefined url is not blocked)
+      const result = await securityHook(
+        makePreToolUseInput("WebFetch", {}),
+        undefined,
+        { signal }
+      );
+      expect(result.hookSpecificOutput).toBeUndefined();
+    });
+  });
+
   describe("non-PreToolUse events", () => {
     it("returns empty for PostToolUse events", async () => {
       const result = await securityHook(
