@@ -2,8 +2,10 @@ import { readFileSync, readdirSync, writeFileSync, existsSync } from "fs";
 import path from "path";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import { z } from "zod";
 import { ALL_PHASES } from "../state/project-state.js";
 import { renderDashboard } from "./template.js";
+import { isRecord } from "../utils/shared.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -55,6 +57,13 @@ export interface DashboardData {
   stateExists: boolean;
 }
 
+const PhaseEventSchema = z.object({
+  seq: z.number(),
+  type: z.string(),
+  timestamp: z.string(),
+  data: z.record(z.string(), z.unknown()),
+});
+
 function readEvents(stateDir: string): PhaseEvent[] {
   const eventsDir = path.join(stateDir, "events");
   const events: PhaseEvent[] = [];
@@ -64,7 +73,8 @@ function readEvents(stateDir: string): PhaseEvent[] {
       const raw = readFileSync(path.join(eventsDir, file), "utf8");
       for (const line of raw.split("\n").filter(Boolean)) {
         try {
-          events.push(JSON.parse(line) as PhaseEvent);
+          const parsed = PhaseEventSchema.safeParse(JSON.parse(line));
+          if (parsed.success) events.push(parsed.data);
         } catch {
           // skip malformed lines
         }
@@ -140,7 +150,7 @@ function readEvolution(state: Record<string, unknown>): EvolutionRow[] {
   const raw = state["evolution"];
   if (!Array.isArray(raw)) return [];
   return raw.map((e) => {
-    const entry = (e ?? {}) as Record<string, unknown>;
+    const entry = isRecord(e) ? e : {};
     return {
       id: String(entry["id"] ?? ""),
       target: String(entry["target"] ?? ""),
@@ -177,7 +187,8 @@ export function collectDashboardData(stateDir: string): DashboardData {
 
   let state: Record<string, unknown> = {};
   try {
-    state = JSON.parse(readFileSync(statePath, "utf8")) as Record<string, unknown>;
+    const rawState: unknown = JSON.parse(readFileSync(statePath, "utf8"));
+    state = isRecord(rawState) ? rawState : {};
   } catch {
     // use empty state
   }

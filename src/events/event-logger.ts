@@ -2,6 +2,7 @@ import { createWriteStream, mkdirSync, readFileSync, existsSync } from "node:fs"
 import { resolve } from "node:path";
 import type { WriteStream } from "node:fs";
 import type { EventRecord } from "./event-bus.js";
+import { isRecord } from "../utils/shared.js";
 
 export interface RunSummary {
   runId: string;
@@ -131,6 +132,8 @@ export class EventLogger {
     const content = readFileSync(this.logPath, "utf-8").trim();
     if (!content) return [];
 
-    return content.split("\n").map((line) => JSON.parse(line) as EventRecord);
+    return content.split("\n")
+      .map((line) => { try { return JSON.parse(line) as unknown; } catch { return null; } })
+      .filter((r): r is EventRecord => isRecord(r) && typeof r["seq"] === "number" && typeof r["type"] === "string");
   }
 }

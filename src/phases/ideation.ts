@@ -5,7 +5,7 @@ import type { PhaseResult } from "./types.js";
 import { analyzeDomain } from "../agents/domain-analyzer.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 import { extractFirstJson, errMsg, wrapUserInput } from "../utils/shared.js";
-import { ProductSpecWithoutDomainSchema } from "../types/llm-schemas.js";
+import { ProductSpecWithoutDomainSchema, ProductSpecSchema } from "../types/llm-schemas.js";
 
 const SPEC_PROMPT = `You are a Senior Product Manager creating a complete, investor-ready product specification.
 
@@ -125,10 +125,7 @@ export async function runIdeation(
   // Step 3: Combine with domain analysis
   const domain = await domainPromise;
 
-  // Zod already validated the shape; cast is safe here.
-  // We manually merge domain rather than spreading to avoid type widening.
-  // eslint-disable-next-line @typescript-eslint/consistent-type-assertions
-  const spec = { ...specData, domain } as ProductSpec;
+  const spec = ProductSpecSchema.parse({ ...specData, domain });
 
   console.log(`[ideation] Spec generated: ${spec.userStories.length} user stories`);
   console.log(`[ideation] Domain: ${domain.classification}`);
@@ -145,9 +142,11 @@ export async function runIdeation(
     console.log(`[ideation] MVP: ${spec.mvpScope.included.length} features in, ${spec.mvpScope.excluded.length} deferred`);
   }
 
+  // ProductSpec uses exactOptionalPropertyTypes; Zod infers `T | undefined` for optional
+  // fields which is structurally incompatible. Runtime shape is fully validated above.
   const newState: ProjectState = {
     ...state,
-    spec,
+    spec: spec as ProductSpec,
   };
 
   return {

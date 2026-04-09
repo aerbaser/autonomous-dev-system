@@ -39,6 +39,20 @@ export interface ConsumeQueryOptions {
   model?: string;
 }
 
+interface MessageWithToolUse {
+  tool_use: { name: string; input: unknown };
+}
+
+function hasToolUse(msg: SDKMessage): msg is SDKMessage & MessageWithToolUse {
+  return (
+    typeof msg === "object" &&
+    msg !== null &&
+    "tool_use" in msg &&
+    typeof (msg as Record<string, unknown>)["tool_use"] === "object" &&
+    (msg as Record<string, unknown>)["tool_use"] !== null
+  );
+}
+
 export async function consumeQuery(
   queryStream: Query,
   labelOrOptions?: string | ConsumeQueryOptions,
@@ -85,20 +99,17 @@ export async function consumeQuery(
 
     // Emit tool events
     if (eventBus && phase && agentName) {
-      if (message.type === "assistant" && "tool_use" in message) {
-        const toolMsg = message as unknown as { tool_use?: { name: string; input: unknown } };
-        if (toolMsg.tool_use) {
-          lastToolName = toolMsg.tool_use.name;
-          lastToolStartMs = Date.now();
-          eventBus.emit("agent.tool.use", {
-            phase,
-            agentName,
-            toolName: lastToolName,
-            inputSummary: typeof toolMsg.tool_use.input === "string"
-              ? toolMsg.tool_use.input.slice(0, 200)
-              : JSON.stringify(toolMsg.tool_use.input).slice(0, 200),
-          });
-        }
+      if (message.type === "assistant" && hasToolUse(message)) {
+        lastToolName = message.tool_use.name;
+        lastToolStartMs = Date.now();
+        eventBus.emit("agent.tool.use", {
+          phase,
+          agentName,
+          toolName: lastToolName,
+          inputSummary: typeof message.tool_use.input === "string"
+            ? message.tool_use.input.slice(0, 200)
+            : JSON.stringify(message.tool_use.input).slice(0, 200),
+        });
       }
 
       if (message.type === "tool_use_summary") {

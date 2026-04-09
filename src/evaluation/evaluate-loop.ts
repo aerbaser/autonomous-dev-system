@@ -20,17 +20,19 @@ export async function evaluateWithRubric(
   options?: { eventBus?: EventBus | undefined; phase?: Phase | undefined },
 ): Promise<EvaluatedPhaseResult> {
   const eventBus = options?.eventBus;
-  const phase = options?.phase ?? ("unknown" as Phase);
+  const phase = options?.phase;
   let lastResult: PhaseResult | null = null;
   let lastRubricResult: RubricResult | null = null;
   let totalCost = 0;
 
   for (let iteration = 1; iteration <= maxIterations; iteration++) {
-    eventBus?.emit("evaluation.rubric.start", {
-      phase,
-      rubricName: rubric.name,
-      iteration,
-    });
+    if (phase !== undefined) {
+      eventBus?.emit("evaluation.rubric.start", {
+        phase,
+        rubricName: rubric.name,
+        iteration,
+      });
+    }
 
     // Run the phase handler
     const phaseResult = await handler();
@@ -42,12 +44,14 @@ export async function evaluateWithRubric(
 
     // If the phase itself failed, don't grade — just return
     if (!phaseResult.success) {
-      eventBus?.emit("evaluation.rubric.end", {
-        phase,
-        rubricName: rubric.name,
-        result: "failed",
-        iteration,
-      });
+      if (phase !== undefined) {
+        eventBus?.emit("evaluation.rubric.end", {
+          phase,
+          rubricName: rubric.name,
+          result: "failed",
+          iteration,
+        });
+      }
       return {
         ...phaseResult,
         rubricResult: {
@@ -85,12 +89,14 @@ export async function evaluateWithRubric(
 
     // If satisfied or failed, stop iterating
     if (rubricResult.verdict === "satisfied" || rubricResult.verdict === "failed") {
-      eventBus?.emit("evaluation.rubric.end", {
-        phase,
-        rubricName: rubric.name,
-        result: rubricResult.verdict,
-        iteration,
-      });
+      if (phase !== undefined) {
+        eventBus?.emit("evaluation.rubric.end", {
+          phase,
+          rubricName: rubric.name,
+          result: rubricResult.verdict,
+          iteration,
+        });
+      }
       return {
         ...phaseResult,
         costUsd: totalCost,
@@ -114,16 +120,20 @@ export async function evaluateWithRubric(
   }
 
   // Exhausted iterations — return last result with last rubric result
-  eventBus?.emit("evaluation.rubric.end", {
-    phase,
-    rubricName: rubric.name,
-    result: lastRubricResult?.verdict ?? "needs_revision",
-    iteration: maxIterations,
-  });
+  if (phase !== undefined) {
+    eventBus?.emit("evaluation.rubric.end", {
+      phase,
+      rubricName: rubric.name,
+      result: lastRubricResult?.verdict ?? "needs_revision",
+      iteration: maxIterations,
+    });
+  }
+  if (!lastResult) throw new Error("evaluateWithRubric: no result after iterations");
+  if (!lastRubricResult) throw new Error("evaluateWithRubric: no rubric result after iterations");
   return {
-    ...(lastResult as PhaseResult),
+    ...lastResult,
     costUsd: totalCost,
-    rubricResult: lastRubricResult as RubricResult,
+    rubricResult: lastRubricResult,
     totalIterations: maxIterations,
   };
 }

@@ -606,10 +606,11 @@ async function executePhaseSafe(
         }
 
         // Exhausted iterations without reaching satisfied/failed
+        if (!lastRubricResult) throw new Error("rubric loop: no rubric result after iterations");
         return {
           ...result,
           costUsd: rubricCost,
-          rubricResult: lastRubricResult as RubricResult,
+          rubricResult: lastRubricResult,
         };
       }
     }
