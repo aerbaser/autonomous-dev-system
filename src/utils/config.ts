@@ -12,7 +12,7 @@ const selfImproveSchema = z.object({
 const maxTurnsSchema = z.object({
   default: z.number().default(50),
   decomposition: z.number().default(3),
-  development: z.number().default(200),
+  development: z.number().default(60),
   qualityFix: z.number().default(30),
   testing: z.number().default(30),
   review: z.number().default(20),
@@ -29,7 +29,7 @@ const maxTurnsSchema = z.object({
 export const MAX_TURNS_DEFAULTS = {
   default: 50,
   decomposition: 3,
-  development: 200,
+  development: 60,
   qualityFix: 30,
   testing: 30,
   review: 20,
@@ -44,7 +44,7 @@ export const MAX_TURNS_DEFAULTS = {
 } satisfies z.input<typeof maxTurnsSchema>;
 
 const memorySchema = z.object({
-  enabled: z.boolean().default(false),
+  enabled: z.boolean().default(true),
   maxDocuments: z.number().default(500),
   maxDocumentSizeKb: z.number().default(100),
   captureModel: z.string().optional(),
@@ -80,15 +80,15 @@ export const ConfigSchema = z.object({
   quickMode: z.boolean().default(false),
   confirmSpec: z.boolean().default(false),
   memory: memorySchema.default({
-    enabled: false,
+    enabled: true,
     maxDocuments: 500,
     maxDocumentSizeKb: 100,
   } satisfies z.input<typeof memorySchema>),
   rubrics: z.object({
-    enabled: z.boolean().default(false),
+    enabled: z.boolean().default(true),
     maxIterations: z.number().default(3),
     graderModel: z.string().optional(),
-  }).default({ enabled: false, maxIterations: 3 }),
+  }).default({ enabled: true, maxIterations: 3 }),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

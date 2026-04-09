@@ -77,7 +77,6 @@ const PHASE_HANDLERS: Record<Phase, PhaseHandler> = {
 };
 
 const OPTIONAL_PHASES: Phase[] = [
-  "environment-setup",
   "review",
   "ab-testing",
   "monitoring",
@@ -352,6 +351,21 @@ export async function runOrchestrator(
 
     // Persist running cost total into state so it survives checkpoints/resume
     state = { ...result.state, totalCostUsd };
+
+    // Track completed phases and their results
+    state = {
+      ...state,
+      completedPhases: [...(state.completedPhases ?? []), phase],
+      phaseResults: {
+        ...(state.phaseResults ?? {}),
+        [phase]: {
+          success: result.success,
+          ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+          ...(result.error !== undefined ? { error: result.error } : {}),
+          timestamp: new Date().toISOString(),
+        },
+      },
+    };
 
     // Capture learnings from this phase
     if (memoryStore && result.success) {

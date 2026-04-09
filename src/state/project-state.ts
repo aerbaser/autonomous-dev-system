@@ -53,6 +53,8 @@ export interface Task {
   completedAt?: string;
   result?: string;
   error?: string;
+  domain?: string;
+  tags?: string[];
 }
 
 export interface AgentBlueprint {
@@ -137,11 +139,19 @@ export interface ArchTask {
   estimatedComplexity: "low" | "medium" | "high";
   dependencies: string[];
   acceptanceCriteria: string[];
+  domain?: string;
+  tags?: string[];
+}
+
+export interface ArchComponent {
+  name: string;
+  description: string;
+  dependencies: string[];
 }
 
 export interface ArchDesign {
   techStack: Record<string, string>;
-  components: string[];
+  components: ArchComponent[];
   apiContracts: string;
   databaseSchema: string;
   fileStructure: string;
@@ -217,6 +227,13 @@ export interface PhaseCheckpoint {
   metadata?: Record<string, unknown>;
 }
 
+export interface PhaseResultSummary {
+  success: boolean;
+  costUsd?: number;
+  error?: string;
+  timestamp: string;
+}
+
 export interface EvolutionEntry {
   id: string;
   target: string;
@@ -237,6 +254,8 @@ export interface ProjectState {
   environment: StackEnvironment | null;
   agents: AgentBlueprint[];
   tasks: Task[];
+  completedPhases: Phase[];
+  phaseResults: Record<string, PhaseResultSummary>;
   deployments: Deployment[];
   abTests: ABTest[];
   evolution: EvolutionEntry[];
@@ -281,6 +300,8 @@ export function createInitialState(idea: string): ProjectState {
     environment: null,
     agents: [],
     tasks: [],
+    completedPhases: [],
+    phaseResults: {},
     deployments: [],
     abTests: [],
     evolution: [],

@@ -24,7 +24,7 @@ Domain classification examples:
 - "ecommerce/marketplace" — inventory, payments, fulfillment
 - "web-application" — general SaaS with no heavy domain specialization
 
-Output ONLY a JSON object:
+Think through the domain analysis step by step, then provide your final answer as a JSON object:
 {
   "classification": "specific domain label from examples above or a new precise one",
   "specializations": ["specific knowledge areas THIS project needs, not generic ones"],
@@ -33,8 +33,7 @@ Output ONLY a JSON object:
   "techStack": ["domain-appropriate technologies with version hints, e.g. 'PostgreSQL 16 with pgvector for ML embeddings'"]
 }
 
-Be conservative: only add a role if it would change the implementation in a meaningful way.
-Output ONLY the JSON, nothing else.`;
+Be conservative: only add a role if it would change the implementation in a meaningful way.`;
 
 export async function analyzeDomain(idea: string, config?: Config): Promise<DomainAnalysis> {
   let resultText: string;
@@ -112,7 +111,7 @@ evaluationCriteria must be:
 
 Available tools: Read, Write, Edit, Bash, Glob, Grep, WebSearch, WebFetch, Agent, AskUserQuestion
 
-Output a JSON array of agent blueprints. Only output the JSON array.`;
+Think through what each agent role needs for this specific domain, then provide your final answer as a JSON array of agent blueprints.`;
 
 export async function generateDomainAgents(
   idea: string,

@@ -1,6 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
-import type { ProjectState, ArchDesign } from "../state/project-state.js";
+import type { ProjectState, ArchDesign, ArchTask } from "../state/project-state.js";
 import type { PhaseResult } from "./types.js";
 import { buildAgentTeam } from "../agents/factory.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
@@ -24,9 +24,9 @@ Output a JSON object:
     "... (every technology with its version and role)": "..."
   },
   "components": [
-    "Frontend: Next.js App Router with React Server Components for all data-fetching pages",
-    "API Layer: Next.js Route Handlers with Zod request validation",
-    "... (one line per component describing what it does and its boundaries)"
+    { "name": "Frontend", "description": "Next.js App Router with React Server Components for all data-fetching pages", "dependencies": [] },
+    { "name": "API Layer", "description": "Next.js Route Handlers with Zod request validation", "dependencies": ["Frontend"] },
+    "... (one object per component with name, description, and dependencies)"
   ],
   "apiContracts": "OpenAPI 3.1 YAML or GraphQL SDL — must cover ALL endpoints referenced in user stories",
   "databaseSchema": "Prisma schema or SQL DDL — tables, indexes, foreign keys, constraints",
@@ -43,7 +43,8 @@ Output a JSON object:
           "GIVEN the system is running WHEN a user does X THEN Y happens",
           "Unit tests cover the happy path and 2 edge cases",
           "No TypeScript type errors"
-        ]
+        ],
+        "domain": "payments-specialist (optional — agent name for domain-specific tasks; omit for generic tasks)"
       }
     ]
   }
@@ -60,7 +61,7 @@ Architecture guidelines:
 - Decompose into tasks that a single developer can complete in 1-4 hours
 - Include setup/scaffolding tasks first (T-001, T-002), then feature tasks
 
-Output ONLY the JSON.`;
+Think through the architecture step by step, then provide your final answer as a JSON object.`;
 
 export async function runArchitecture(
   state: ProjectState,
@@ -115,15 +116,31 @@ Recommended tech: ${state.spec.domain.techStack.join(", ")}`,
     return { success: false, state, error: `Invalid architecture JSON: ${archParseResult.error.message}` };
   }
   const parsed = archParseResult.data;
-  // Conditionally spread optional field to satisfy exactOptionalPropertyTypes
-  const architecture: import("../state/project-state.js").ArchDesign = {
+
+  // Map Zod output to ArchDesign, stripping explicit undefined to satisfy exactOptionalPropertyTypes
+  const architecture: ArchDesign = {
     techStack: parsed.techStack,
     components: parsed.components,
     apiContracts: parsed.apiContracts,
     databaseSchema: parsed.databaseSchema,
     fileStructure: parsed.fileStructure,
-    ...(parsed.taskDecomposition != null ? { taskDecomposition: parsed.taskDecomposition } : {}),
   };
+  if (parsed.taskDecomposition != null) {
+    const tasks: ArchTask[] = parsed.taskDecomposition.tasks.map((t) => {
+      const task: ArchTask = {
+        id: t.id,
+        title: t.title,
+        description: t.description,
+        estimatedComplexity: t.estimatedComplexity,
+        dependencies: t.dependencies,
+        acceptanceCriteria: t.acceptanceCriteria,
+      };
+      if (t.domain != null) task.domain = t.domain;
+      if (t.tags != null) task.tags = t.tags;
+      return task;
+    });
+    architecture.taskDecomposition = { tasks };
+  }
 
   console.log(`[architecture] Tech stack: ${Object.entries(architecture.techStack).map(([k, v]) => `${k}=${v}`).join(", ")}`);
   console.log(`[architecture] Components: ${architecture.components.length}`);

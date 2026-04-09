@@ -7,6 +7,8 @@ export interface DevTask {
   estimatedComplexity: "low" | "medium" | "high";
   dependencies: string[]; // IDs of tasks this depends on
   acceptanceCriteria: string[];
+  domain?: string; // agent name or role keyword for matching
+  tags?: string[];
 }
 
 export interface TaskDecomposition {

@@ -104,7 +104,11 @@ describe("Architecture Phase", () => {
         database: "PostgreSQL",
         orm: "Prisma",
       },
-      components: ["Web frontend", "API server", "Database layer"],
+      components: [
+        { name: "Web frontend", description: "Next.js app router", dependencies: [] },
+        { name: "API server", description: "Route handlers with Zod validation", dependencies: ["Web frontend"] },
+        { name: "Database layer", description: "Prisma ORM + PostgreSQL", dependencies: ["API server"] },
+      ],
       apiContracts: "REST API with OpenAPI spec",
       databaseSchema: "CREATE TABLE tasks (...)",
       fileStructure: "src/\n  app/\n  lib/\n  prisma/",

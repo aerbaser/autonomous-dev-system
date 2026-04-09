@@ -106,4 +106,86 @@ describe("AgentRegistry", () => {
     expect(def.tools).toContain("Read");
     expect(def.tools).toContain("Write");
   });
+
+  // ── Domain agent matching ─────────────────────────────────────────────────
+
+  it("finds domain agent by exact name (task.domain field lookup)", () => {
+    const registry = new AgentRegistry(TEST_STATE_DIR);
+    registry.register({
+      name: "payments-specialist",
+      role: "Payments Specialist",
+      systemPrompt: "You are a payments expert",
+      tools: ["Read", "Bash"],
+      evaluationCriteria: [],
+      version: 1,
+    });
+
+    // Simulates: const agent = registry.get(task.domain)
+    const agent = registry.get("payments-specialist");
+    expect(agent).toBeDefined();
+    expect(agent!.name).toBe("payments-specialist");
+    expect(agent!.role).toBe("Payments Specialist");
+  });
+
+  it("keyword fallback: getAll().find() matches agent by name in task title", () => {
+    const registry = new AgentRegistry(TEST_STATE_DIR);
+    registry.register({
+      name: "ml-engineer",
+      role: "Machine Learning Engineer",
+      systemPrompt: "You are an ML engineer",
+      tools: ["Bash", "Read"],
+      evaluationCriteria: [],
+      version: 1,
+    });
+
+    const BASE_NAMES = new Set(["developer", "qa-engineer", "architect", "product-manager", "reviewer", "devops", "analytics"]);
+    const domainAgents = registry.getAll().filter((bp) => !BASE_NAMES.has(bp.name));
+
+    // Title contains the agent name — should match
+    const titleWithName = "implement ml-engineer model training pipeline";
+    const matchByName = domainAgents.find((bp) =>
+      titleWithName.toLowerCase().includes(bp.name.toLowerCase())
+    );
+    expect(matchByName).toBeDefined();
+    expect(matchByName!.name).toBe("ml-engineer");
+  });
+
+  it("keyword fallback: getAll().find() matches agent by role keyword in task title", () => {
+    const registry = new AgentRegistry(TEST_STATE_DIR);
+    registry.register({
+      name: "security-auditor",
+      role: "Security Auditor",
+      systemPrompt: "You are a security auditor",
+      tools: ["Read", "Grep"],
+      evaluationCriteria: [],
+      version: 1,
+    });
+
+    const BASE_NAMES = new Set(["developer", "qa-engineer", "architect", "product-manager", "reviewer", "devops", "analytics"]);
+    const domainAgents = registry.getAll().filter((bp) => !BASE_NAMES.has(bp.name));
+
+    // Title contains part of the role — should match
+    const titleWithRole = "security auditor review of authentication module";
+    const matchByRole = domainAgents.find((bp) =>
+      titleWithRole.toLowerCase().includes(bp.role.toLowerCase())
+    );
+    expect(matchByRole).toBeDefined();
+    expect(matchByRole!.name).toBe("security-auditor");
+  });
+
+  it("returns undefined when no domain name or role keyword matches task title", () => {
+    const registry = new AgentRegistry(TEST_STATE_DIR);
+    // Only base agents registered
+
+    const BASE_NAMES = new Set(["developer", "qa-engineer", "architect", "product-manager", "reviewer", "devops", "analytics"]);
+    const domainAgents = registry.getAll().filter((bp) => !BASE_NAMES.has(bp.name));
+
+    const titleNoMatch = "implement user login flow";
+    const match = domainAgents.find(
+      (bp) =>
+        titleNoMatch.includes(bp.name.toLowerCase()) ||
+        titleNoMatch.includes(bp.role.toLowerCase())
+    );
+    expect(match).toBeUndefined();
+  });
 });

@@ -10,7 +10,6 @@ import type {
 import type { PhaseResult } from "./types.js";
 import type {
   DevTask,
-  TaskDecomposition,
   BatchResult,
   TaskResult,
 } from "./development-types.js";
@@ -58,7 +57,28 @@ export async function runDevelopment(
   );
 
   let devTasks: DevTask[];
-  if (pendingStories.length > 0) {
+  const archTasks = state.architecture?.taskDecomposition?.tasks;
+
+  if (archTasks && archTasks.length > 0 && existingTaskTitles.size === 0) {
+    // Use tasks produced by architecture phase — avoids redundant decomposition
+    console.log(`[development] Using ${archTasks.length} tasks from architecture phase`);
+    devTasks = archTasks.map((at): DevTask => ({
+      id: at.id,
+      title: at.title,
+      description: at.description,
+      estimatedComplexity: at.estimatedComplexity,
+      dependencies: at.dependencies,
+      acceptanceCriteria: at.acceptanceCriteria,
+    }));
+    for (const dt of devTasks) {
+      updatedState = addTask(updatedState, {
+        title: dt.title,
+        description: `${dt.description}\n\nAcceptance Criteria:\n${dt.acceptanceCriteria.map((ac) => `- ${ac}`).join("\n")}`,
+      });
+    }
+    // Persist tasks immediately so interruption doesn't lose them
+    saveState(config.stateDir, updatedState);
+  } else if (pendingStories.length > 0) {
     console.log(`[development] Decomposing ${pendingStories.length} user stories into tasks...`);
     devTasks = await decomposeUserStories(pendingStories, state, config);
     console.log(`[development] Created ${devTasks.length} implementation tasks`);
@@ -70,6 +90,8 @@ export async function runDevelopment(
         description: dt.description,
       });
     }
+    // Persist tasks immediately so interruption doesn't lose them
+    saveState(config.stateDir, updatedState);
   } else {
     console.log("[development] No new stories to decompose. Using existing tasks.");
     devTasks = updatedState.tasks
@@ -142,7 +164,7 @@ export async function runDevelopment(
 
     progress.emit("batch:end", { index: batchIdx, success: batchResult.taskResults.every((r) => r.success) });
 
-    // Update task statuses based on results
+    // Update task statuses and save state after each individual task result
     for (const taskResult of batchResult.taskResults) {
       updatedState = updateTask(updatedState, taskResult.taskId, {
         status: taskResult.success ? "completed" : "failed",
@@ -150,6 +172,8 @@ export async function runDevelopment(
         ...(taskResult.error !== undefined ? { error: taskResult.error } : {}),
         ...(taskResult.success ? { completedAt: new Date().toISOString() } : {}),
       });
+      // Persist after each task so interruption loses at most one task
+      saveState(config.stateDir, updatedState);
     }
 
     // Save checkpoint after each batch
@@ -242,6 +266,7 @@ Break these into concrete implementation tasks. Each task should be:
 - Small enough for one developer to complete (1-4 hours of work)
 - Self-contained with clear inputs/outputs
 - Include all acceptance criteria from the parent story
+- If the task requires specialized domain expertise, set "domain" to the agent name (e.g. "payments-specialist", "ml-engineer") — omit for generic dev tasks
 
 Output a JSON object with a "tasks" array.`;
 
@@ -270,6 +295,15 @@ Output a JSON object with a "tasks" array.`;
               acceptanceCriteria: {
                 type: "array",
                 items: { type: "string" },
+              },
+              domain: {
+                type: "string",
+                description: "Agent name for domain-specific tasks (e.g. 'payments-specialist'). Omit for generic tasks.",
+              },
+              tags: {
+                type: "array",
+                items: { type: "string" },
+                description: "Optional domain keywords",
               },
             },
             required: [
@@ -313,7 +347,14 @@ Output a JSON object with a "tasks" array.`;
   if (structuredOutput) {
     const parsed = TaskDecompositionSchema.safeParse(structuredOutput);
     if (parsed.success && parsed.data.tasks.length > 0) {
-      return parsed.data.tasks;
+      return parsed.data.tasks.map((t) => ({
+        id: t.id,
+        title: t.title,
+        description: t.description,
+        estimatedComplexity: t.estimatedComplexity,
+        dependencies: t.dependencies,
+        acceptanceCriteria: t.acceptanceCriteria,
+      }));
     }
   }
 
@@ -331,9 +372,13 @@ Output a JSON object with a "tasks" array.`;
 
 // --- Task Batching ---
 
+const MAX_BATCH_SIZE = 6;
+
 /**
  * Groups tasks into sequential batches where tasks within a batch
  * have no inter-dependencies and can be worked on in parallel.
+ * Large independent batches are split into sub-batches of MAX_BATCH_SIZE
+ * so interruptions lose at most one batch worth of progress.
  */
 function groupIntoBatches(projectTasks: Task[], devTasks: DevTask[]): Task[][] {
   // Build a lookup from title to devTask for dependency info
@@ -374,7 +419,14 @@ function groupIntoBatches(projectTasks: Task[], devTasks: DevTask[]): Task[][] {
       break;
     }
 
-    batches.push(batch);
+    // Split large independent batches to limit blast radius on interruption
+    if (batch.length > MAX_BATCH_SIZE) {
+      for (let i = 0; i < batch.length; i += MAX_BATCH_SIZE) {
+        batches.push(batch.slice(i, i + MAX_BATCH_SIZE));
+      }
+    } else {
+      batches.push(batch);
+    }
     const batchTaskIds = new Set(batch.map((t) => t.id));
     for (const id of batchIds) completed.add(id);
     remaining.splice(0, remaining.length, ...remaining.filter((t) => !batchTaskIds.has(t.id)));
@@ -414,7 +466,7 @@ function buildBatchAgents(
 
   // Create a dedicated agent per task in this batch
   for (const task of batch) {
-    // Check if a domain agent matches this task
+    // Check if a domain agent matches this task by title keywords
     const titleLower = task.title.toLowerCase();
     const matchingDomain = domainAgents.find(
       (bp) =>

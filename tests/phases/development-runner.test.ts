@@ -43,8 +43,10 @@ vi.mock("node:child_process", async (importOriginal) => {
 
 const { query } = await import("@anthropic-ai/claude-agent-sdk");
 const { runDevelopment } = await import("../../src/phases/development-runner.js");
+const { saveState } = await import("../../src/state/project-state.js");
 
 const mockedQuery = vi.mocked(query);
+const mockedSaveState = vi.mocked(saveState);
 
 function makeConfig(): Config {
   return {
@@ -111,7 +113,7 @@ function makeStateWithSpecAndArch(): ProjectState {
     },
     architecture: {
       techStack: { language: "TypeScript" },
-      components: ["frontend"],
+      components: [{ name: "frontend", description: "Web UI", dependencies: [] }],
       apiContracts: "REST",
       databaseSchema: "tasks",
       fileStructure: "src/",
@@ -297,5 +299,127 @@ describe("Development Runner", () => {
     // Heuristic: non-empty output without failure keywords → success
     expect(result.success).toBe(true);
     expect(result.nextPhase).toBe("testing");
+  });
+
+  // ── Batch size limiting ───────────────────────────────────────────────────
+
+  it("splits batches larger than MAX_BATCH_SIZE=6 into sub-batches", async () => {
+    // 7 independent arch tasks → groupIntoBatches produces [6, 1] → 2 executeBatch calls
+    const archTasks = Array.from({ length: 7 }, (_, i) => ({
+      id: `arch-${i + 1}`,
+      title: `Task ${i + 1}`,
+      description: `Desc ${i + 1}`,
+      estimatedComplexity: "medium" as const,
+      dependencies: [],
+      acceptanceCriteria: [`Criterion ${i + 1}`],
+    }));
+    const base = makeStateWithSpecAndArch();
+    const state: ProjectState = {
+      ...base,
+      tasks: [],
+      architecture: {
+        ...base.architecture!,
+        taskDecomposition: { tasks: archTasks },
+      },
+    };
+
+    // Heuristic success response for all batch executions
+    mockedQuery.mockReturnValue(makeQueryStream("All tasks completed successfully"));
+
+    await runDevelopment(state, makeConfig());
+
+    // Each independent batch triggers one query call — expect exactly 2 batches
+    expect(mockedQuery).toHaveBeenCalledTimes(2);
+  });
+
+  it("saves state after each task completion (not just after each batch)", async () => {
+    // 1 arch task → 1 batch → verify saveState called multiple times
+    const archTasks = [
+      {
+        id: "arch-1",
+        title: "Build feature",
+        description: "Implement it",
+        estimatedComplexity: "low" as const,
+        dependencies: [],
+        acceptanceCriteria: ["It works"],
+      },
+    ];
+    const base = makeStateWithSpecAndArch();
+    const state: ProjectState = {
+      ...base,
+      tasks: [],
+      architecture: {
+        ...base.architecture!,
+        taskDecomposition: { tasks: archTasks },
+      },
+    };
+
+    mockedQuery.mockReturnValue(makeQueryStream("Task completed successfully"));
+    mockedSaveState.mockClear();
+
+    await runDevelopment(state, makeConfig());
+
+    // saveState is called: once after decomposition, once per task result, once for checkpoint
+    expect(mockedSaveState).toHaveBeenCalledTimes(3);
+  });
+
+  // ── Architecture tasks reuse ──────────────────────────────────────────────
+
+  it("uses architecture tasks directly without calling decomposeUserStories", async () => {
+    // When arch has taskDecomposition.tasks and state.tasks is empty,
+    // runDevelopment must NOT call query for decomposition
+    const archTasks = [
+      {
+        id: "arch-001",
+        title: "Create task endpoint",
+        description: "POST /tasks handler",
+        estimatedComplexity: "medium" as const,
+        dependencies: [],
+        acceptanceCriteria: ["Returns 201 on success"],
+      },
+    ];
+    const base = makeStateWithSpecAndArch();
+    const state: ProjectState = {
+      ...base,
+      tasks: [],
+      architecture: {
+        ...base.architecture!,
+        taskDecomposition: { tasks: archTasks },
+      },
+    };
+
+    mockedQuery.mockReturnValue(makeQueryStream("Task completed successfully"));
+
+    await runDevelopment(state, makeConfig());
+
+    // Only 1 query call (batch execution), NOT 2 (no decomposition call)
+    expect(mockedQuery).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to decomposeUserStories when architecture has no tasks", async () => {
+    // architecture without taskDecomposition → query called for decomposition + batch
+    const state = makeStateWithSpecAndArch(); // has user stories, no arch tasks
+
+    const decompositionOutput = {
+      tasks: [
+        {
+          id: "task-001",
+          title: "Create task",
+          description: "Implement task creation",
+          estimatedComplexity: "medium",
+          dependencies: [],
+          acceptanceCriteria: ["Task is saved"],
+        },
+      ],
+    };
+
+    mockedQuery
+      .mockReturnValueOnce(makeQueryStream("", decompositionOutput))
+      .mockReturnValue(makeQueryStream("Task completed successfully"));
+
+    await runDevelopment(state, makeConfig());
+
+    // 2 query calls: one for decomposition, one for batch execution
+    expect(mockedQuery).toHaveBeenCalledTimes(2);
   });
 });

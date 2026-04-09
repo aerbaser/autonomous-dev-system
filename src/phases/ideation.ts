@@ -66,7 +66,7 @@ Requirements:
 - MVP scope must be realistic for a 2-4 week build; aggressively cut scope
 - Use MoSCoW: at least 2 "must" stories, mix of "should"/"could", be honest about "wont"
 
-Output ONLY the JSON, nothing else.`;
+Think through your analysis step by step, then provide your final answer as a JSON object.`;
 
 export async function runIdeation(
   state: ProjectState,

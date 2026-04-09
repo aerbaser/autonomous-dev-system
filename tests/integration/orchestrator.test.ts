@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   createInitialState,
+  loadState,
   type ProjectState,
 } from "../../src/state/project-state.js";
 import type { Config } from "../../src/utils/config.js";
@@ -71,9 +72,11 @@ vi.mock("../../src/phases/monitoring.js", () => ({
 const { runOrchestrator } = await import("../../src/orchestrator.js");
 const { runIdeation } = await import("../../src/phases/ideation.js");
 const { runArchitecture } = await import("../../src/phases/architecture.js");
+const { runEnvironmentSetup } = await import("../../src/phases/environment-setup.js");
 
 const mockedRunIdeation = vi.mocked(runIdeation);
 const mockedRunArchitecture = vi.mocked(runArchitecture);
+const mockedRunEnvironmentSetup = vi.mocked(runEnvironmentSetup);
 
 function makeConfig(): Config {
   return {
@@ -194,5 +197,89 @@ describe("Orchestrator", () => {
 
     // Retryable error: 1 initial + 3 retries = 4 calls
     expect(mockedRunIdeation).toHaveBeenCalledTimes(4);
+  });
+
+  // ── State persistence ─────────────────────────────────────────────────────
+
+  it("populates completedPhases after each successful phase transition", async () => {
+    const state = createInitialState("Build an app");
+    const config = makeConfig();
+
+    mockedRunIdeation.mockResolvedValueOnce({
+      success: true,
+      nextPhase: "specification",
+      state: { ...state, currentPhase: "ideation" },
+      costUsd: 0.04,
+    });
+    // specification is a pass-through → transitions to architecture
+    mockedRunArchitecture.mockResolvedValue({
+      success: true,
+      state: { ...state, currentPhase: "architecture" },
+    });
+
+    await runOrchestrator(state, config);
+
+    const saved = loadState(join(TEST_DIR, ".autonomous-dev"));
+    expect(saved).not.toBeNull();
+    // After ideation→specification and specification→architecture transitions, both are saved
+    expect(saved!.completedPhases).toContain("ideation");
+    expect(saved!.completedPhases).toContain("specification");
+  });
+
+  it("stores phaseResults with success flag and cost after each phase", async () => {
+    const state = createInitialState("Build an app");
+    const config = makeConfig();
+
+    mockedRunIdeation.mockResolvedValueOnce({
+      success: true,
+      nextPhase: "specification",
+      state: { ...state, currentPhase: "ideation" },
+      costUsd: 0.04,
+    });
+    mockedRunArchitecture.mockResolvedValue({
+      success: true,
+      state: { ...state, currentPhase: "architecture" },
+    });
+
+    await runOrchestrator(state, config);
+
+    const saved = loadState(join(TEST_DIR, ".autonomous-dev"));
+    expect(saved).not.toBeNull();
+    expect(saved!.phaseResults["ideation"]).toBeDefined();
+    expect(saved!.phaseResults["ideation"]!.success).toBe(true);
+    expect(saved!.phaseResults["ideation"]!.costUsd).toBeCloseTo(0.04);
+    expect(saved!.phaseResults["specification"]).toBeDefined();
+    expect(saved!.phaseResults["specification"]!.success).toBe(true);
+  });
+
+  it("accumulates totalCostUsd across multiple phases", async () => {
+    const state = createInitialState("Build an app");
+    const config = makeConfig();
+
+    mockedRunIdeation.mockResolvedValueOnce({
+      success: true,
+      nextPhase: "specification",
+      state: { ...state, currentPhase: "ideation" },
+      costUsd: 0.05,
+    });
+    mockedRunArchitecture.mockResolvedValueOnce({
+      success: true,
+      nextPhase: "environment-setup",
+      state: { ...state, currentPhase: "architecture" },
+      costUsd: 0.10,
+    });
+    // environment-setup returns no nextPhase — stops the loop
+    mockedRunEnvironmentSetup.mockResolvedValue({
+      success: true,
+      state: { ...state, currentPhase: "environment-setup" },
+    });
+
+    await runOrchestrator(state, config);
+
+    // State is saved during architecture→environment-setup transition
+    // By that point totalCostUsd = ideation(0.05) + architecture(0.10) = 0.15
+    const saved = loadState(join(TEST_DIR, ".autonomous-dev"));
+    expect(saved).not.toBeNull();
+    expect(saved!.totalCostUsd).toBeCloseTo(0.15);
   });
 });

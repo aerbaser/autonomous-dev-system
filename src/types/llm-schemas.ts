@@ -66,11 +66,17 @@ const ArchTaskSchema = z.object({
   estimatedComplexity: z.enum(["low", "medium", "high"]),
   dependencies: z.array(z.string()),
   acceptanceCriteria: z.array(z.string()),
+  domain: z.string().optional(),
+  tags: z.array(z.string()).optional(),
 });
 
 export const ArchDesignSchema = z.object({
   techStack: z.record(z.string(), z.string()),
-  components: z.array(z.string()),
+  components: z.array(z.object({
+    name: z.string(),
+    description: z.string(),
+    dependencies: z.array(z.string()).default([]),
+  })).catch([]),
   apiContracts: z.string(),
   databaseSchema: z.string(),
   fileStructure: z.string(),
@@ -347,6 +353,13 @@ export const ProjectStateSchema = z.object({
   environment: StackEnvironmentSchema.nullable().catch(null),
   agents: z.array(AgentBlueprintSchema).catch([]),
   tasks: z.array(TaskStateSchema).catch([]),
+  completedPhases: z.array(z.string()).catch([]),
+  phaseResults: z.record(z.string(), z.object({
+    success: z.boolean(),
+    costUsd: z.number().optional(),
+    error: z.string().optional(),
+    timestamp: z.string(),
+  })).catch({}),
   deployments: z.array(DeploymentStateSchema).catch([]),
   abTests: z.array(ABTestStateSchema).catch([]),
   evolution: z.array(EvolutionEntrySchema).catch([]),
