@@ -1,5 +1,12 @@
 import type { ProjectState, Phase, PhaseCheckpoint } from "../state/project-state.js";
 import type { Config } from "../utils/config.js";
+import type { RubricResult } from "../evaluation/rubric.js";
+
+export interface PhaseContext {
+  memoryContext?: string | undefined;
+  /** Rubric gaps from a previous evaluation iteration, injected for retry. */
+  rubricFeedback?: string | undefined;
+}
 
 export interface PhaseResult {
   success: boolean;
@@ -8,11 +15,13 @@ export interface PhaseResult {
   error?: string;
   sessionId?: string;
   costUsd?: number;
+  rubricResult?: RubricResult;
 }
 
 export type PhaseHandler = (
   state: ProjectState,
   config: Config,
   checkpoint?: PhaseCheckpoint | null,
-  sessionId?: string
+  sessionId?: string,
+  context?: PhaseContext,
 ) => Promise<PhaseResult>;

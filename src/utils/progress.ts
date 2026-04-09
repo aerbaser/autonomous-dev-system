@@ -6,8 +6,6 @@ export interface ProgressEvents {
   "phase:end": { phase: Phase; success: boolean; elapsed: number };
   "batch:start": { index: number; total: number; taskCount: number };
   "batch:end": { index: number; success: boolean };
-  "task:start": { taskId: string; title: string };
-  "task:end": { taskId: string; success: boolean };
   "shutdown": { phase: Phase };
 }
 

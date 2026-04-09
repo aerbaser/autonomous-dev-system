@@ -1,8 +1,8 @@
 # Autonomous Dev System — TODO
 
-Status: **~95% complete**. ~7,000 lines, 50 source files, 182 tests.
+Status: **~95% complete**. ~7,000 lines, 50+ source files, 193+ tests.
 
-Last updated after 10-wave audit refactoring (Apr 8, 2026).
+Last updated: Apr 9, 2026 (after documentation audit).
 
 ---
 
@@ -54,23 +54,67 @@ All Wave 1, 2, and 3 tasks are done except where noted:
 - [x] Zod-validated JSON.parse in ideation.ts, architecture.ts, development-runner.ts (was unsafe casts)
 - [x] ProjectStateSchema: all 7 `z.unknown()` fields replaced with typed Zod schemas with `.catch()` for backward compat
 - [x] ESLint: `ban-ts-comment` upgraded to error, `consistent-type-imports` added, CI `continue-on-error` removed
+- [x] CLI flags: `--budget`, `--dry-run`, `--quick`, `--confirm-spec` added to `src/index.ts`
+- [x] SIGINT handler: graceful Ctrl+C with checkpoint save (`src/index.ts`)
+- [x] Event bus: typed EventBus + EventLogger + Interrupter (`src/events/`)
+- [x] Rubric evaluation: per-phase rubrics + LLM grader + evaluate-loop (`src/evaluation/`)
+- [x] Memory store: cross-session MemoryStore + MemoryTypes + memory-capture hook (`src/state/`, `src/hooks/`)
+- [x] README: created with quickstart, correct prerequisites, 12-phase list, full architecture tree
 
 ## Remaining
+
+### Critical / security (tracked in task system)
+
+- [ ] Fix sandbox escape — add executable allowlist (task #6)
+- [ ] Fix prompt injection in mutation-engine.ts (task #7)
+- [ ] Fix security hook bypasses (task #10)
+- [ ] Fix command injection in lsp-manager.ts (task #8)
+- [ ] Fix sandbox timeout not cancelling task (task #9)
+- [ ] Update SDK to fix CVE path traversal (task #12)
+- [ ] Fix ReDoS in memory-store.ts (task #13)
+- [ ] Fix path traversal in state directories (task #14)
+
+### High priority (tracked in task system)
+
+- [ ] Fix broken rubric feedback loop in orchestrator.ts (task #2)
+- [ ] Fix grader overwriting LLM verdict (task #16)
+- [ ] Fix stale Interrupter singleton in orchestrator.ts (task #4)
+- [ ] Fix specification phase stub and circular import (task #5)
+- [ ] Fix unverified blueprints in optimizer-runner.ts (task #11)
+- [ ] Fix MemoryStore.search O(n) performance (task #17)
+- [ ] Fix SessionStore naming and clean up dead code (task #18)
+- [ ] Wire domain agents into development-runner (task #3)
+- [ ] Remove API key from Config object (task #15) — see note in config.ts
 
 ### Medium priority
 
 #### ExternalBenchmarkFileSchema unused
 `ExternalBenchmarkFileSchema` in llm-schemas.ts was used by the removed `loadBenchmarkTasks`. Either delete the schema or re-implement external benchmark loading.
 
+#### Fix duplicated extractFirstJson in development-runner.ts (task #1)
+Despite consolidation in shared.ts, development-runner.ts may still have inline copies.
+
 #### Type-aware ESLint rules
 `no-floating-promises` requires `projectService: true` which causes ESLint to take 15+ seconds. Enable when tooling performance improves.
 
 ### Low priority
 
-#### Additional test coverage
+#### Additional test coverage (task #20)
 - `tests/self-improve/mutation-engine.test.ts` — test each mutation type
 - `tests/self-improve/versioning.test.ts` — test savePromptVersion
 - `tests/hooks/notifications.test.ts` — test webhook delivery
+- `tests/evaluation/` — evaluate-loop, grader, rubric tests
+- `tests/events/` — event-bus, event-logger tests
 
 #### Stream LLM output
 `streamToConsole` was removed as dead code. If real-time output is wanted, re-implement by piping `assistant` messages to stdout during `consumeQuery`.
+
+### Not started (product layer)
+
+- [ ] Web UI / Dashboard — no implementation
+- [ ] `init` command — guided setup for first-time users
+- [ ] A/B testing phase — partially conceptual (PostHog integration not real)
+- [ ] Deployment cloud provider integration — staging/production phases exist but cloud deploy is incomplete
+- [ ] Real-time LLM output streaming — highest UX impact, see VIBE-REVIEW.md
+- [ ] Template / starter support — currently always starts from raw idea string
+- [ ] Domain agents wired into task assignment — agents created but not used in development-runner

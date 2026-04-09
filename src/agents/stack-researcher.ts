@@ -4,20 +4,7 @@ import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-hel
 import type { Config } from "../utils/config.js";
 import { StackResearchResultSchema } from "../types/llm-schemas.js";
 import { extractFirstJson, wrapUserInput } from "../utils/shared.js";
-
-const VALID_SCOPES = ["project", "user"] as const;
-type Scope = (typeof VALID_SCOPES)[number];
-
-function isValidScope(value: string): value is Scope {
-  return (VALID_SCOPES as readonly string[]).includes(value);
-}
-
-const VALID_OSS_TYPES = ["agent", "skill", "hook", "mcp-server", "pattern"] as const;
-type OssType = (typeof VALID_OSS_TYPES)[number];
-
-function isValidOssType(value: string): value is OssType {
-  return (VALID_OSS_TYPES as readonly string[]).includes(value);
-}
+import { isValidScope, isValidOssType } from "../utils/type-guards.js";
 
 const RESEARCH_PROMPT = `You are a Stack Researcher. Given a project's tech stack and domain,
 find the best tools to supercharge AI agent development.

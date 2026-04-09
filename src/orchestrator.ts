@@ -28,28 +28,38 @@ import { runReview } from "./phases/review.js";
 import { runDeployment } from "./phases/deployment.js";
 import { runABTesting } from "./phases/ab-testing.js";
 import { runMonitoring } from "./phases/monitoring.js";
-import type { PhaseResult, PhaseHandler } from "./phases/types.js";
+import type { PhaseResult, PhaseHandler, PhaseContext } from "./phases/types.js";
+import { EventBus } from "./events/event-bus.js";
+import { EventLogger } from "./events/event-logger.js";
+import { Interrupter } from "./events/interrupter.js";
+import { MemoryStore } from "./state/memory-store.js";
+import { capturePhaseMemories } from "./hooks/memory-capture.js";
+import { errMsg } from "./utils/shared.js";
+import { randomUUID } from "node:crypto";
+import { getPhaseRubric } from "./evaluation/phase-rubrics.js";
+import { gradePhaseOutput } from "./evaluation/grader.js";
+import type { RubricResult } from "./evaluation/rubric.js";
 
 export type { PhaseResult, PhaseHandler } from "./phases/types.js";
 
-// --- Graceful shutdown ---
-let shuttingDown = false;
+// --- Interrupter (scoped per runOrchestrator invocation) ---
+// Module-level reference allows external callers (e.g. SIGINT handler) to reach
+// the most-recently-started orchestrator's interrupter. Concurrent orchestrators
+// each get their own Interrupter instance — getInterrupter() returns the latest one.
+let _activeInterrupter = new Interrupter();
 
-export function requestShutdown(): void {
-  shuttingDown = true;
-}
-
-export function resetShutdown(): void {
-  shuttingDown = false;
+export function getInterrupter(): Interrupter {
+  return _activeInterrupter;
 }
 
 const PHASE_HANDLERS: Record<Phase, PhaseHandler> = {
   ideation: runIdeation,
-  specification: async (state, _config) => ({
-    success: true,
-    nextPhase: "architecture",
-    state,
-  }),
+  // specification is merged into ideation: the ideation phase already produces the spec.
+  // This pass-through preserves the phase in the lifecycle without duplicating logic.
+  specification: async (state, _config) => {
+    console.log("[specification] Specification merged into ideation — passing through to architecture.");
+    return { success: true, nextPhase: "architecture", state };
+  },
   architecture: runArchitecture,
   "environment-setup": runEnvironmentSetup,
   development: runDevelopment,
@@ -87,10 +97,30 @@ export async function runOrchestrator(
   resumeSessionId?: string,
   singlePhase?: Phase
 ): Promise<void> {
-  resetShutdown();
+  // Each invocation gets its own Interrupter so concurrent runs don't interfere.
+  const interrupter = new Interrupter();
+  _activeInterrupter = interrupter;
   let state = structuredClone(initialState);
 
   const { budgetUsd, dryRun, quickMode, confirmSpec } = config;
+
+  // Event architecture
+  const eventBus = new EventBus();
+  const runId = randomUUID();
+  const eventLogger = new EventLogger(config.stateDir, runId);
+  const unsubLogger = eventBus.onAll((record) => {
+    eventLogger.log(record).catch((err) => {
+      console.error(`[event-logger] Failed to write event: ${err}`);
+    });
+  });
+
+  // Memory store (persistent cross-session knowledge)
+  const memoryStore = config.memory?.enabled
+    ? new MemoryStore(config.stateDir, {
+        maxDocuments: config.memory.maxDocuments,
+        maxDocumentSizeKb: config.memory.maxDocumentSizeKb,
+      })
+    : null;
 
   let totalCostUsd = 0;
 
@@ -111,7 +141,7 @@ export async function runOrchestrator(
 
   if (singlePhase) {
     console.log(`[orchestrator] Running single phase: ${singlePhase}`);
-    await executePhaseSafe(singlePhase, state, config);
+    await executePhaseSafe(singlePhase, state, config, eventBus);
     return;
   }
 
@@ -120,9 +150,15 @@ export async function runOrchestrator(
   let iterations = 0;
 
   while (iterations < MAX_ITERATIONS) {
-    if (shuttingDown) {
+    if (interrupter.isInterrupted()) {
+      const reason = interrupter.getReason() ?? "unknown";
+      eventBus.emit("orchestrator.interrupt", {
+        phase: state.currentPhase,
+        reason,
+        redirectTo: interrupter.getRedirectPhase(),
+      });
       progress.emit("shutdown", { phase: state.currentPhase });
-      console.log(`[shutdown] Graceful shutdown. State saved at phase: ${state.currentPhase}`);
+      console.log(`[shutdown] Graceful shutdown (${reason}). State saved at phase: ${state.currentPhase}`);
       saveState(config.stateDir, state);
       break;
     }
@@ -138,6 +174,7 @@ export async function runOrchestrator(
     );
 
     progress.emit("phase:start", { phase, index: phaseIndex, total: totalPhases });
+    eventBus.emit("orchestrator.phase.start", { phase });
     console.log(`[orchestrator] Phase ${iterations}: ${phase}`);
 
     // Quick mode: skip optional phases
@@ -171,6 +208,26 @@ export async function runOrchestrator(
       console.log(`[dry-run] Would run phase: ${phase}`);
     }
 
+    // Inject knowledge from previous sessions
+    let memoryContext: string | undefined;
+    if (memoryStore) {
+      try {
+        const memories = await memoryStore.search(phase, { limit: 5 });
+        eventBus.emit("memory.recall", {
+          phase,
+          key: phase,
+          found: memories.length > 0,
+        });
+        if (memories.length > 0) {
+          memoryContext = "## Knowledge from previous sessions\n" +
+            memories.map((m) => `- **${m.topic}**: ${m.content}`).join("\n");
+          console.log(`[memory] Injected ${memories.length} memory document(s) for phase "${phase}"`);
+        }
+      } catch (err) {
+        console.warn(`[memory] Failed to search memories for phase "${phase}": ${errMsg(err)}`);
+      }
+    }
+
     const phaseStart = Date.now();
 
     let result: PhaseResult | null;
@@ -181,12 +238,19 @@ export async function runOrchestrator(
         state,
       };
     } else {
-      result = await executePhaseSafe(phase, state, config);
+      result = await executePhaseSafe(phase, state, config, eventBus, memoryContext);
     }
 
     const elapsedMs = Date.now() - phaseStart;
     const elapsed = (elapsedMs / 1000).toFixed(1);
-    progress.emit("phase:end", { phase, success: result?.success ?? false, elapsed: elapsedMs });
+    const phaseSuccess = result?.success ?? false;
+    progress.emit("phase:end", { phase, success: phaseSuccess, elapsed: elapsedMs });
+    eventBus.emit("orchestrator.phase.end", {
+      phase,
+      success: phaseSuccess,
+      costUsd: result?.costUsd,
+      durationMs: elapsedMs,
+    });
     console.log(`[progress] ${phase} completed in ${elapsed}s`);
 
     if (!result) {
@@ -205,6 +269,33 @@ export async function runOrchestrator(
     }
 
     state = result.state;
+
+    // Capture learnings from this phase
+    if (memoryStore && result.success) {
+      try {
+        await capturePhaseMemories(result, phase, memoryStore, config, eventBus);
+      } catch (err) {
+        console.warn(`[memory] Failed to capture memories for phase "${phase}": ${errMsg(err)}`);
+      }
+    }
+
+    // Write rubric feedback to memory store for future sessions
+    if (memoryStore && result.rubricResult) {
+      try {
+        await memoryStore.write(
+          `rubric-feedback-${phase}`,
+          result.rubricResult.summary,
+          [phase, "rubric", result.rubricResult.verdict],
+        );
+        eventBus.emit("memory.capture", {
+          phase,
+          key: `rubric-feedback-${phase}`,
+          summary: result.rubricResult.summary.slice(0, 100),
+        });
+      } catch (err) {
+        console.warn(`[memory] Failed to save rubric feedback for phase "${phase}": ${errMsg(err)}`);
+      }
+    }
 
     if (!result.success) {
       console.error(`[error] Phase ${phase} failed after retries: ${result.error}`);
@@ -244,6 +335,11 @@ export async function runOrchestrator(
   }
 
   console.log(`\n[orchestrator] Finished. Final phase: ${state.currentPhase}, total cost: $${totalCostUsd.toFixed(2)}`);
+
+  // Clean up event logger
+  unsubLogger();
+  await eventLogger.close();
+  console.log(`[event-logger] Run events saved: ${eventLogger.getLogPath()}`);
 }
 
 /**
@@ -253,7 +349,9 @@ export async function runOrchestrator(
 async function executePhaseSafe(
   phase: Phase,
   state: ProjectState,
-  config: Config
+  config: Config,
+  eventBus?: EventBus,
+  memoryContext?: string,
 ): Promise<PhaseResult | null> {
   const handler = PHASE_HANDLERS[phase];
   if (!handler) {
@@ -283,7 +381,8 @@ async function executePhaseSafe(
         // Save state before each attempt (crash safety)
         saveState(config.stateDir, state);
 
-        const phaseResult = await handler(state, config, checkpoint, sessionId);
+        const context = memoryContext ? { memoryContext } : undefined;
+        const phaseResult = await handler(state, config, checkpoint, sessionId, context);
 
         // Store session ID if the phase returned one
         if (phaseResult.sessionId) {
@@ -323,6 +422,100 @@ async function executePhaseSafe(
         );
       }
     );
+
+    // Rubric evaluation: if enabled and phase has a rubric, grade the result.
+    // Uses result.state (post-phase) and injects gap feedback into PhaseContext
+    // for each retry so the handler can address gaps on the next iteration.
+    if (config.rubrics?.enabled && result.success) {
+      const rubric = getPhaseRubric(phase);
+      if (rubric) {
+        console.log(`[rubric] Evaluating phase "${phase}" against rubric "${rubric.name}"`);
+        const maxIter = config.rubrics?.maxIterations ?? 3;
+        const baseCtx: PhaseContext = memoryContext ? { memoryContext } : {};
+        let currentState = result.state; // post-phase state, not pre-phase
+        let rubricFeedback: string | undefined;
+        let lastRubricResult: RubricResult | null = null;
+        let rubricCost = result.costUsd ?? 0;
+
+        for (let iter = 1; iter <= maxIter; iter++) {
+          eventBus?.emit("evaluation.rubric.start", { phase, rubricName: rubric.name, iteration: iter });
+
+          // Build context: base memory + rubric feedback injected for retries
+          const ctx: PhaseContext = rubricFeedback
+            ? { ...baseCtx, rubricFeedback }
+            : baseCtx;
+
+          // First iteration reuses the already-executed result (no double execution).
+          // Subsequent iterations re-run the handler with updated state + feedback.
+          const iterResult =
+            iter === 1 ? result : await handler(currentState, config, checkpoint, sessionId, ctx);
+
+          currentState = iterResult.state;
+          if (iter > 1 && iterResult.costUsd) rubricCost += iterResult.costUsd;
+
+          if (!iterResult.success) {
+            const failRubric: RubricResult = {
+              rubricName: rubric.name,
+              scores: [],
+              verdict: "failed",
+              overallScore: 0,
+              summary: `Phase handler failed: ${iterResult.error ?? "unknown error"}`,
+              iteration: iter,
+            };
+            eventBus?.emit("evaluation.rubric.end", {
+              phase, rubricName: rubric.name, result: "failed", iteration: iter,
+            });
+            return { ...iterResult, costUsd: rubricCost, rubricResult: failRubric };
+          }
+
+          const graderModel = config.rubrics?.graderModel;
+          const { rubricResult, costUsd: graderCost } = await gradePhaseOutput(
+            rubric,
+            iterResult,
+            currentState,
+            {
+              ...(graderModel ? { model: graderModel } : {}),
+              ...(eventBus ? { eventBus } : {}),
+              config,
+              phase,
+            },
+          );
+          rubricCost += graderCost;
+          rubricResult.iteration = iter;
+          lastRubricResult = rubricResult;
+
+          console.log(
+            `[rubric] Iteration ${iter}/${maxIter}: verdict=${rubricResult.verdict}, ` +
+            `score=${rubricResult.overallScore.toFixed(2)}`
+          );
+          eventBus?.emit("evaluation.rubric.end", {
+            phase, rubricName: rubric.name, result: rubricResult.verdict, iteration: iter,
+          });
+
+          if (rubricResult.verdict === "satisfied" || rubricResult.verdict === "failed") {
+            return { ...iterResult, costUsd: rubricCost, rubricResult };
+          }
+
+          // needs_revision: inject gap feedback into context for the next iteration
+          if (iter < maxIter) {
+            rubricFeedback =
+              "## Rubric Feedback — Items to Address\n" +
+              rubricResult.scores
+                .filter((s) => !s.passed)
+                .map((s) => `- ${s.criterionName}: ${s.feedback}`)
+                .join("\n");
+            console.log(`[rubric] Feedback for next iteration:\n${rubricFeedback}`);
+          }
+        }
+
+        // Exhausted iterations without reaching satisfied/failed
+        return {
+          ...result,
+          costUsd: rubricCost,
+          rubricResult: lastRubricResult as RubricResult,
+        };
+      }
+    }
 
     return result;
   } catch (err) {

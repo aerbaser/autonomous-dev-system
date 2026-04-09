@@ -35,15 +35,6 @@ export const ArchDesignSchema = z.object({
   fileStructure: z.string(),
 });
 
-export const ABTestDesignSchema = z.object({
-  tests: z.array(z.object({
-    name: z.string(),
-    hypothesis: z.string(),
-    variants: z.array(z.string()),
-    featureFlagKey: z.string(),
-  })),
-});
-
 // --- Schemas for JSON.parse validation across the codebase ---
 
 export const ABTestDesignResponseSchema = z.object({
@@ -87,7 +78,7 @@ export const OssToolArraySchema = z.array(z.object({
 
 export const SessionStoreSchema = z.object({
   sessions: z.record(z.string(), z.object({
-    agentRole: z.string(),
+    phase: z.string(),
     sessionId: z.string(),
     createdAt: z.string(),
     lastUsed: z.string(),
@@ -347,3 +338,32 @@ export const ReviewResultSchema = z.object({
   status: z.enum(["approved", "requested_changes"]),
   summary: z.string().optional(),
 });
+
+// --- Rubric evaluation schemas ---
+
+export const RubricCriterionSchema = z.object({
+  name: z.string(),
+  description: z.string(),
+  weight: z.number(),
+  threshold: z.number(),
+});
+
+export const CriterionScoreSchema = z.object({
+  criterionName: z.string(),
+  score: z.number(),
+  passed: z.boolean(),
+  feedback: z.string(),
+});
+
+export const RubricResultSchema = z.object({
+  rubricName: z.string(),
+  scores: z.array(CriterionScoreSchema),
+  verdict: z.enum(["satisfied", "needs_revision", "failed"]),
+  overallScore: z.number(),
+  summary: z.string(),
+  iteration: z.number(),
+});
+
+// --- Memory store schemas ---
+
+export { MemoryDocumentSchema, MemoryIndexSchema, MemoryHistoryEntrySchema, MemoryLearningSchema, MemoryLearningsArraySchema } from "../state/memory-types.js";

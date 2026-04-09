@@ -3,6 +3,9 @@ import { resolve } from "node:path";
 import type { McpDiscovery, McpServerConfig } from "../state/project-state.js";
 import { validateMcp } from "./validator.js";
 
+// Flags that allow arbitrary code execution — block them in LLM-generated MCP configs
+const DANGEROUS_MCP_FLAGS = new Set(['--eval', '-e', '-c', '--require', '-r']);
+
 export function configureMcpServers(
   projectDir: string,
   servers: McpDiscovery[]
@@ -31,6 +34,13 @@ export function configureMcpServers(
     if (mcpServers[server.name]) {
       console.log(`[mcp] Already configured: ${server.name}`);
       return { ...server, installed: true };
+    }
+
+    // Reject MCP configs with dangerous flags that allow arbitrary code execution
+    const dangerousArg = server.config.args?.find((arg) => DANGEROUS_MCP_FLAGS.has(arg));
+    if (dangerousArg !== undefined) {
+      console.log(`[mcp] Blocked ${server.name}: dangerous flag '${dangerousArg}' in args`);
+      return server;
     }
 
     console.log(`[mcp] Configuring: ${server.name} (${server.reason})`);

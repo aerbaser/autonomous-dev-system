@@ -191,10 +191,7 @@ export async function runOptimizerImpl(
             const parsedResult = BenchmarkRunResultSchema.safeParse(JSON.parse(worktreeResult.output));
             if (!parsedResult.success) {
               console.log(`[optimizer] Failed to parse worktree result: ${worktreeResult.output.slice(0, 100)}`);
-              newScore = 0;
-              newResults = [];
-              iterCost = 0;
-              totalCostUsd += iterCost;
+              registry.register(mutation.rollback());
               continue;
             }
             const parsed = parsedResult.data;
@@ -203,10 +200,7 @@ export async function runOptimizerImpl(
             iterCost = parsed.totalCostUsd;
           } catch {
             console.log(`[optimizer] Failed to parse worktree result: ${worktreeResult.output.slice(0, 100)}`);
-            newScore = 0;
-            newResults = [];
-            iterCost = 0;
-            totalCostUsd += iterCost;
+            registry.register(mutation.rollback());
             continue;
           }
         } else {

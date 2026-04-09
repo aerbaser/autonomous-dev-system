@@ -3,7 +3,7 @@ import type { AgentBlueprint, EvolutionEntry } from "../state/project-state.js";
 import type { BenchmarkResult } from "./benchmarks.js";
 import { randomUUID } from "node:crypto";
 import { ToolConfigResponseSchema, PhaseLogicResponseSchema } from "../types/llm-schemas.js";
-import { extractFirstJson, isApiRetry } from "../utils/shared.js";
+import { extractFirstJson, isApiRetry, wrapUserInput } from "../utils/shared.js";
 
 export type MutationType =
   | "agent_prompt"
@@ -157,15 +157,13 @@ async function generatePromptMutation(
 Agent: ${blueprint.name} (${blueprint.role})
 
 Current system prompt:
----
-${blueprint.systemPrompt}
----
+${wrapUserInput("system_prompt", blueprint.systemPrompt)}
 
 Recent benchmark results:
-${benchmarkSummary}
+${wrapUserInput("benchmark_results", benchmarkSummary)}
 
 Recent mutation history (learn from past attempts):
-${recentHistory || "No prior mutations"}
+${wrapUserInput("mutation_history", recentHistory || "No prior mutations")}
 
 Generate an improved version of this agent's system prompt.`,
       options: { maxTurns: 3 },
@@ -236,10 +234,10 @@ Agent: ${blueprint.name} (${blueprint.role})
 Current tools: ${JSON.stringify(blueprint.tools)}
 
 Recent benchmark results:
-${benchmarkSummary}
+${wrapUserInput("benchmark_results", benchmarkSummary)}
 
 Recent mutation history:
-${recentHistory || "No prior mutations"}
+${wrapUserInput("mutation_history", recentHistory || "No prior mutations")}
 
 Suggest an updated tool list for this agent.`,
       options: { maxTurns: 1 },
@@ -314,10 +312,10 @@ Agent: ${blueprint.name} (${blueprint.role})
 Current model: ${blueprint.model ?? "default (sonnet)"}
 
 Recent benchmark results:
-${benchmarkSummary}
+${wrapUserInput("benchmark_results", benchmarkSummary)}
 
 Recent mutation history:
-${recentHistory || "No prior mutations"}
+${wrapUserInput("mutation_history", recentHistory || "No prior mutations")}
 
 Suggest updated execution parameters.`,
       options: { maxTurns: 1 },

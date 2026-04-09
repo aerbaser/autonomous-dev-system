@@ -1,9 +1,10 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { SessionStoreSchema } from "../types/llm-schemas.js";
+import { assertSafePath } from "./project-state.js";
 
 interface SessionEntry {
-  agentRole: string;
+  phase: string;
   sessionId: string;
   createdAt: string;
   lastUsed: string;
@@ -14,6 +15,7 @@ interface SessionStore {
 }
 
 export function loadSessions(stateDir: string): SessionStore {
+  assertSafePath(stateDir);
   const path = resolve(stateDir, "sessions.json");
   if (!existsSync(path)) return { sessions: {} };
   const parsed = SessionStoreSchema.safeParse(JSON.parse(readFileSync(path, "utf-8")));
@@ -21,6 +23,7 @@ export function loadSessions(stateDir: string): SessionStore {
 }
 
 export function saveSessions(stateDir: string, store: SessionStore): void {
+  assertSafePath(stateDir);
   const path = resolve(stateDir, "sessions.json");
   const dir = dirname(path);
   mkdirSync(dir, { recursive: true });
@@ -29,24 +32,24 @@ export function saveSessions(stateDir: string, store: SessionStore): void {
 
 export function setSession(
   store: SessionStore,
-  agentRole: string,
+  phase: string,
   sessionId: string
 ): SessionStore {
   return {
     sessions: {
       ...store.sessions,
-      [agentRole]: {
-        agentRole,
+      [phase]: {
+        phase,
         sessionId,
-        createdAt: store.sessions[agentRole]?.createdAt ?? new Date().toISOString(),
+        createdAt: store.sessions[phase]?.createdAt ?? new Date().toISOString(),
         lastUsed: new Date().toISOString(),
       },
     },
   };
 }
 
-export function getSessionId(store: SessionStore, agentRole: string): string | undefined {
-  return store.sessions[agentRole]?.sessionId;
+export function getSessionId(store: SessionStore, phase: string): string | undefined {
+  return store.sessions[phase]?.sessionId;
 }
 
 /**

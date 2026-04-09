@@ -3,7 +3,7 @@
 import { Command } from "commander";
 import { loadConfig } from "./utils/config.js";
 import { loadState, createInitialState, saveState, ALL_PHASES, type Phase, type ProjectState } from "./state/project-state.js";
-import { runOrchestrator, requestShutdown } from "./orchestrator.js";
+import { runOrchestrator, getInterrupter } from "./orchestrator.js";
 import { runOptimizer } from "./self-improve/optimizer.js";
 
 function isPhase(value: string): value is Phase {
@@ -61,7 +61,7 @@ program
     }
 
     const onSigint = (): void => {
-      requestShutdown();
+      getInterrupter().requestShutdown();
       console.log("\n[shutdown] Ctrl+C received. Finishing current phase and saving state...");
     };
     process.on("SIGINT", onSigint);

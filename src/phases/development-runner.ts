@@ -15,7 +15,7 @@ import type {
   TaskResult,
 } from "./development-types.js";
 import { AgentRegistry } from "../agents/registry.js";
-import { getAgentDefinitions } from "../agents/factory.js";
+import { buildAgentTeam, getAgentDefinitions } from "../agents/factory.js";
 import { getMcpServerConfigs } from "../environment/mcp-manager.js";
 import { qualityGateHook } from "../hooks/quality-gate.js";
 import { auditLoggerHook } from "../hooks/audit-logger.js";
@@ -31,28 +31,10 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 import { TaskResultsSchema } from "../types/llm-schemas.js";
 import { getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
-import { isApiRetry, wrapUserInput } from "../utils/shared.js";
+import { isApiRetry, wrapUserInput, extractFirstJson } from "../utils/shared.js";
 import { TaskDecompositionSchema } from "../types/llm-schemas.js";
 import { getBaseAgentNames } from "../agents/base-blueprints.js";
 import { progress } from "../utils/progress.js";
-
-function extractFirstJson(text: string): string | null {
-  let depth = 0;
-  let start = -1;
-  for (let i = 0; i < text.length; i++) {
-    if (text[i] === '{') {
-      if (depth === 0) start = i;
-      depth++;
-    } else if (text[i] === '}') {
-      depth--;
-      if (depth === 0 && start >= 0) {
-        const candidate = text.slice(start, i + 1);
-        try { JSON.parse(candidate); return candidate; } catch { start = -1; }
-      }
-    }
-  }
-  return null;
-}
 
 // --- Main entry point ---
 
@@ -119,6 +101,9 @@ export async function runDevelopment(
   const taskBatches = groupIntoBatches(pendingTasks, devTasks);
 
   // Step 4: Execute each batch
+  // Ensure domain agents are built and registered before loading the registry.
+  // buildAgentTeam is idempotent: it skips generation if agents already exist.
+  await buildAgentTeam(updatedState, config);
   const registry = new AgentRegistry(config.stateDir);
   const baseAgentDefs = getAgentDefinitions(registry);
   const mcpServers = state.environment

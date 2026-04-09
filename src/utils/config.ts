@@ -43,13 +43,19 @@ export const MAX_TURNS_DEFAULTS = {
   ossScan: 10,
 } satisfies z.input<typeof maxTurnsSchema>;
 
+const memorySchema = z.object({
+  enabled: z.boolean().default(false),
+  maxDocuments: z.number().default(500),
+  maxDocumentSizeKb: z.number().default(100),
+  captureModel: z.string().optional(),
+});
+
 const deployTargetSchema = z.object({
   provider: z.enum(["vercel", "netlify", "docker", "custom"]),
   config: z.record(z.string(), z.string()).default({}),
 });
 
 export const ConfigSchema = z.object({
-  anthropicApiKey: z.string().optional(),
   model: z
     .enum(["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"])
     .default("claude-opus-4-6"),
@@ -73,20 +79,22 @@ export const ConfigSchema = z.object({
   dryRun: z.boolean().default(false),
   quickMode: z.boolean().default(false),
   confirmSpec: z.boolean().default(false),
+  memory: memorySchema.default({
+    enabled: false,
+    maxDocuments: 500,
+    maxDocumentSizeKb: 100,
+  } satisfies z.input<typeof memorySchema>),
+  rubrics: z.object({
+    enabled: z.boolean().default(false),
+    maxIterations: z.number().default(3),
+    graderModel: z.string().optional(),
+  }).default({ enabled: false, maxIterations: 3 }),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
 
-export function validateRequiredEnv(): void {
-  if (!process.env.ANTHROPIC_API_KEY) {
-    throw new Error("Missing required environment variable: ANTHROPIC_API_KEY");
-  }
-}
-
 export function loadConfig(configPath?: string): Config {
-  validateRequiredEnv();
   const defaults: Record<string, unknown> = {
-    anthropicApiKey: process.env.ANTHROPIC_API_KEY,
     posthogApiKey: process.env.POSTHOG_API_KEY,
     githubToken: process.env.GITHUB_TOKEN,
     slackWebhookUrl: process.env.SLACK_WEBHOOK_URL,

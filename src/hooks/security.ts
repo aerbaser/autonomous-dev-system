@@ -14,7 +14,26 @@ const DENY_PATTERNS = [
   /\bwget\b.*\|\s*(ba)?sh/,
   /\bnpm\s+config\s+set\b/,
   /--unsafe-perm/,
+  /\$\(/,                          // $() command substitution
+  /`/,                             // backtick command substitution
 ] as const;
+
+const ALLOWED_WEBFETCH_DOMAINS = new Set([
+  'github.com', 'raw.githubusercontent.com', 'api.github.com', 'gist.github.com',
+  'npmjs.com', 'registry.npmjs.org',
+  'nodejs.org',
+  'typescriptlang.org',
+  'anthropic.com', 'docs.anthropic.com',
+  'developer.mozilla.org',
+  'vitejs.dev', 'vitest.dev',
+  'stackoverflow.com',
+  'jsr.io',
+  'deno.com',
+  'bun.sh',
+  'pkg.go.dev',
+  'crates.io',
+  'pypi.org',
+]);
 
 const DENIED_PATHS = [
   /\.ssh\//,
@@ -66,6 +85,69 @@ export const securityHook: HookCallback = async (input, _toolUseID, _ctx) => {
             },
           };
         }
+      }
+    }
+  }
+
+  if (toolName === "Glob") {
+    const pattern = typeof toolInput.pattern === "string" ? toolInput.pattern : undefined;
+    if (pattern) {
+      for (const denied of DENIED_PATHS) {
+        if (denied.test(pattern)) {
+          return {
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse" as const,
+              permissionDecision: "deny" as const,
+              permissionDecisionReason: `Glob access denied to sensitive path pattern: ${pattern}`,
+            },
+          };
+        }
+      }
+    }
+  }
+
+  if (toolName === "Grep") {
+    const searchPath = typeof toolInput.path === "string" ? toolInput.path : undefined;
+    if (searchPath) {
+      for (const denied of DENIED_PATHS) {
+        if (denied.test(searchPath)) {
+          return {
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse" as const,
+              permissionDecision: "deny" as const,
+              permissionDecisionReason: `Grep access denied to sensitive path: ${searchPath}`,
+            },
+          };
+        }
+      }
+    }
+  }
+
+  if (toolName === "WebFetch") {
+    const url = typeof toolInput.url === "string" ? toolInput.url : undefined;
+    if (url) {
+      try {
+        const { hostname } = new URL(url);
+        const allowed =
+          ALLOWED_WEBFETCH_DOMAINS.has(hostname) ||
+          [...ALLOWED_WEBFETCH_DOMAINS].some((d) => hostname.endsWith(`.${d}`));
+        if (!allowed) {
+          return {
+            hookSpecificOutput: {
+              hookEventName: "PreToolUse" as const,
+              permissionDecision: "deny" as const,
+              permissionDecisionReason: `WebFetch blocked: '${hostname}' is not in the domain allowlist`,
+            },
+          };
+        }
+      } catch {
+        return {
+          hookSpecificOutput: {
+            hookEventName: "PreToolUse" as const,
+            permissionDecision: "deny" as const,
+            permissionDecisionReason: `WebFetch blocked: invalid URL`,
+          },
+        };
       }
     }
   }

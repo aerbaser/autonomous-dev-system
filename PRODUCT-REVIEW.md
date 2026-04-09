@@ -1,5 +1,20 @@
 # Product Review: Autonomous Dev System
 
+> **Note (2026-04-09):** This review was written at an earlier stage. Several issues raised here have since been fixed:
+> - `--budget` flag added (cost guardrails now exist)
+> - `--dry-run` mode added
+> - `--quick` mode added (skips env-setup, review, ab-testing)
+> - `--confirm-spec` flag added (pause after spec generation)
+> - SIGINT handler added (graceful Ctrl+C with checkpoint save)
+> - README with quickstart now exists
+> - Structured output (Zod schemas) added for testing, review, deployment, monitoring phases
+> - Event bus implemented (`src/events/`) for observability
+> - Rubric-based evaluation loop implemented (`src/evaluation/`)
+> - Persistent cross-session memory store implemented (`src/state/memory-store.ts`)
+> - `extractFirstJson` consolidated into `shared.ts` (was duplicated in 6 places)
+>
+> The following issues are still open: web UI/dashboard, real-time LLM output streaming, `init` command, A/B testing phase (partially implemented), deployment cloud provider integration, domain agents not wired into task assignment.
+
 **Reviewer:** Senior PM perspective  
 **Date:** 2026-04-08  
 **Codebase:** ~6,800 LOC (47 source files), ~4,600 LOC tests (29 test files), 3 deps  

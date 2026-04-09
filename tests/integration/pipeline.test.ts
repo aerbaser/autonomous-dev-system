@@ -33,7 +33,7 @@ vi.mock("../../src/phases/deployment.js", () => ({ runDeployment: vi.fn() }));
 vi.mock("../../src/phases/ab-testing.js", () => ({ runABTesting: vi.fn() }));
 vi.mock("../../src/phases/monitoring.js", () => ({ runMonitoring: vi.fn() }));
 
-const { runOrchestrator, requestShutdown, resetShutdown } = await import("../../src/orchestrator.js");
+const { runOrchestrator, getInterrupter } = await import("../../src/orchestrator.js");
 const { runIdeation } = await import("../../src/phases/ideation.js");
 const { runArchitecture } = await import("../../src/phases/architecture.js");
 const { runEnvironmentSetup } = await import("../../src/phases/environment-setup.js");
@@ -49,6 +49,8 @@ function makeConfig(): Config {
     selfImprove: { enabled: false, maxIterations: 50, nightlyOptimize: false },
     projectDir: TEST_DIR,
     stateDir: join(TEST_DIR, ".autonomous-dev"),
+    memory: { enabled: false, maxDocuments: 500, maxDocumentSizeKb: 100 },
+    rubrics: { enabled: false, maxIterations: 3 },
   };
 }
 
@@ -76,7 +78,7 @@ const specFixture = {
 describe("Pipeline E2E", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    resetShutdown();
+    getInterrupter().reset();
     if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
     mkdirSync(TEST_DIR, { recursive: true });
   });
@@ -148,7 +150,7 @@ describe("Pipeline E2E", () => {
 
     // After ideation completes, trigger shutdown before next phase
     mockedIdeation.mockImplementation(async (s) => {
-      requestShutdown();
+      getInterrupter().requestShutdown();
       return {
         success: true,
         nextPhase: "specification",

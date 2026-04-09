@@ -5,6 +5,29 @@ import { validateLsp } from "./validator.js";
 
 const execFileAsync = promisify(execFile);
 
+function parseCommand(command: string): string[] {
+  const args: string[] = [];
+  let current = "";
+  let inQuote: string | null = null;
+  for (const ch of command) {
+    if (inQuote) {
+      if (ch === inQuote) { inQuote = null; } else { current += ch; }
+    } else if (ch === '"' || ch === "'") {
+      inQuote = ch;
+    } else if (/\s/.test(ch)) {
+      if (current) { args.push(current); current = ""; }
+    } else {
+      current += ch;
+    }
+  }
+  if (current) args.push(current);
+  return args;
+}
+
+const ALLOWED_INSTALL_EXECUTABLES = new Set([
+  'npm', 'npx', 'pip', 'pip3', 'brew', 'cargo', 'go',
+]);
+
 async function smokeTestLsp(server: string): Promise<boolean> {
   try {
     await execFileAsync("which", [server], { timeout: 5000 });
@@ -27,8 +50,14 @@ export async function installLspServers(servers: LspConfig[]): Promise<LspConfig
 
     try {
       console.log(`[lsp] Installing ${lsp.server} for ${lsp.language}...`);
-      const parts = lsp.installCommand.split(/\s+/);
-      await execFileAsync(parts[0]!, parts.slice(1), { timeout: 120_000 });
+      const parts = parseCommand(lsp.installCommand);
+      const executable = parts[0]!;
+      if (!ALLOWED_INSTALL_EXECUTABLES.has(executable)) {
+        console.log(`[lsp] Blocked: '${executable}' is not an allowed install executable`);
+        results.push(lsp);
+        continue;
+      }
+      await execFileAsync(executable, parts.slice(1), { timeout: 120_000 });
 
       if (await smokeTestLsp(lsp.server)) {
         console.log(`[lsp] Installed and verified: ${lsp.server}`);

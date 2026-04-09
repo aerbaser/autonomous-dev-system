@@ -82,6 +82,8 @@ function makeConfig(): Config {
     selfImprove: { enabled: false, maxIterations: 50, nightlyOptimize: false },
     projectDir: TEST_DIR,
     stateDir: join(TEST_DIR, ".autonomous-dev"),
+    memory: { enabled: false, maxDocuments: 500, maxDocumentSizeKb: 100 },
+    rubrics: { enabled: false, maxIterations: 3 },
   };
 }
 

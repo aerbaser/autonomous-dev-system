@@ -1,6 +1,6 @@
 import type { Config } from "../utils/config.js";
 import type { ProjectState, PhaseCheckpoint } from "../state/project-state.js";
-import type { PhaseResult } from "../orchestrator.js";
+import type { PhaseResult } from "./types.js";
 import { researchStack } from "../agents/stack-researcher.js";
 import { installLspServers } from "../environment/lsp-manager.js";
 import { configureMcpServers } from "../environment/mcp-manager.js";

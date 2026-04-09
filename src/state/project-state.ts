@@ -1,7 +1,22 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { resolve, dirname, isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
 import { ProjectStateSchema } from "../types/llm-schemas.js";
+
+/**
+ * Prevents path traversal from relative stateDir values in config files
+ * (e.g. stateDir: "../../etc"). Absolute paths are trusted — they're
+ * explicitly chosen by the user or test environment.
+ */
+export function assertSafePath(stateDir: string): void {
+  if (!isAbsolute(stateDir)) {
+    const resolved = resolve(stateDir);
+    const base = process.cwd();
+    if (!resolved.startsWith(base + "/") && resolved !== base) {
+      throw new Error(`Path traversal detected: "${stateDir}" resolves outside project root`);
+    }
+  }
+}
 
 // --- Core types ---
 
@@ -232,6 +247,7 @@ export function createInitialState(idea: string): ProjectState {
 }
 
 export function loadState(stateDir: string): ProjectState | null {
+  assertSafePath(stateDir);
   const statePath = resolve(stateDir, "state.json");
   if (!existsSync(statePath)) return null;
   const parsed = ProjectStateSchema.safeParse(JSON.parse(readFileSync(statePath, "utf-8")));
@@ -239,6 +255,7 @@ export function loadState(stateDir: string): ProjectState | null {
 }
 
 export function saveState(stateDir: string, state: ProjectState): void {
+  assertSafePath(stateDir);
   const statePath = resolve(stateDir, "state.json");
   const dir = dirname(statePath);
   mkdirSync(dir, { recursive: true });

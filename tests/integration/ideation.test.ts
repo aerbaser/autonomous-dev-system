@@ -28,6 +28,8 @@ function makeConfig(): Config {
     selfImprove: { enabled: false, maxIterations: 50, nightlyOptimize: false },
     projectDir: ".",
     stateDir: ".autonomous-dev",
+    memory: { enabled: false, maxDocuments: 500, maxDocumentSizeKb: 100 },
+    rubrics: { enabled: false, maxIterations: 3 },
   };
 }
 

@@ -8,7 +8,8 @@ The system runs your project through a phased lifecycle, each handled by special
 
 ```
 idea → ideation → specification → architecture → environment-setup
-    → development → testing → review → deployment → A/B testing → monitoring
+    → development → testing → review → staging → ab-testing → analysis
+    → production → monitoring
 ```
 
 **Key features:**
@@ -24,7 +25,7 @@ idea → ideation → specification → architecture → environment-setup
 ### Prerequisites
 
 - Node.js 20+
-- [Claude Code](https://claude.ai/code) subscription (Pro, Max, or Team) — the system uses `@anthropic-ai/claude-agent-sdk` which runs through Claude Code's authentication, no separate API key needed
+- [Claude Code](https://claude.ai/code) subscription (Pro, Max, or Team) — authentication happens automatically through the Claude Code CLI; no separate `ANTHROPIC_API_KEY` needed
 
 ### Install
 
@@ -35,29 +36,28 @@ npm install
 npm run build
 ```
 
-### Run via Claude Code (recommended)
-
-The system is designed to run inside Claude Code. Open the project directory in Claude Code and ask it to start development:
-
-```bash
-# Open the project in Claude Code
-cd autonomous-dev-system
-claude
-
-# Then in Claude Code, say:
-# "Run autonomous-dev with idea: Build a real-time collaborative todo app"
-```
-
-Or run directly — Claude Code's SDK handles auth automatically when invoked within its context:
+### Run
 
 ```bash
 npx autonomous-dev run --idea "Build a real-time collaborative todo app with WebSocket sync"
 
+# With budget cap (stops when cost exceeds $10)
+npx autonomous-dev run --idea "..." --budget 10
+
+# Preview what would happen without spending API credits
+npx autonomous-dev run --idea "..." --dry-run
+
+# Skip optional phases (env-setup, review, ab-testing) for faster iteration
+npx autonomous-dev run --idea "..." --quick
+
+# Pause after spec generation for user confirmation before continuing
+npx autonomous-dev run --idea "..." --confirm-spec
+
+# Resume a previously interrupted project
+npx autonomous-dev run --idea "..." --resume <session-id>
+
 # Check project status
 npx autonomous-dev status
-
-# Resume a previously started project (auto-detects state)
-npx autonomous-dev run --idea "..." 
 
 # Run a specific phase
 npx autonomous-dev phase --name testing
@@ -99,7 +99,7 @@ Environment variables (all optional):
 - `SLACK_WEBHOOK_URL` — for Slack notifications
 - `POSTHOG_API_KEY` — for analytics
 
-> **Note:** No `ANTHROPIC_API_KEY` needed — the system uses Claude Agent SDK which authenticates through your Claude Code subscription.
+> Authentication is handled automatically by the Claude Code CLI subscription — no `ANTHROPIC_API_KEY` is needed.
 
 ## Architecture
 
@@ -142,16 +142,28 @@ src/
 │   ├── oss-scanner.ts        # Open-source tool scanner
 │   ├── claude-md-generator.ts # CLAUDE.md generation
 │   └── validator.ts          # Input validation for LSP/MCP/plugins
+├── events/                   # Structured event system
+│   ├── event-bus.ts          # Typed EventBus with onAll subscriber
+│   ├── event-logger.ts       # Persists events to JSONL per run
+│   └── interrupter.ts        # Graceful shutdown coordination
+├── evaluation/               # Rubric-based quality evaluation
+│   ├── rubric.ts             # Rubric + RubricResult types
+│   ├── phase-rubrics.ts      # Per-phase rubric definitions
+│   ├── grader.ts             # LLM-judged grading of phase output
+│   └── evaluate-loop.ts      # Re-run handler until rubric satisfied
 ├── hooks/                    # Claude Code hook handlers
 │   ├── quality-gate.ts       # Lint check on TaskCompleted (async)
 │   ├── security.ts           # Command/path deny-list enforcement
 │   ├── idle-handler.ts       # Idle agent management
 │   ├── audit-logger.ts       # Operation audit trail (JSONL)
 │   ├── notifications.ts      # Slack/webhook alerts
-│   └── improvement-tracker.ts # Tool usage metrics (TTL-evicted)
+│   ├── improvement-tracker.ts # Tool usage metrics (TTL-evicted)
+│   └── memory-capture.ts     # Extracts learnings from phase results into MemoryStore
 ├── state/                    # Persistent state management
 │   ├── project-state.ts      # Immutable state, ALL_PHASES, phase transitions
-│   └── session-store.ts      # Session persistence
+│   ├── session-store.ts      # Session persistence
+│   ├── memory-store.ts       # Cross-session knowledge store (search, upsert, evict)
+│   └── memory-types.ts       # MemoryDocument, MemoryIndex Zod schemas
 ├── types/
 │   └── llm-schemas.ts        # Zod schemas for all JSON parsing + structured output
 └── utils/                    # Shared utilities
@@ -177,6 +189,11 @@ tests/                        # 193 tests across 29 files
 | Command | Description |
 |---------|-------------|
 | `autonomous-dev run --idea "..."` | Start autonomous development |
+| `autonomous-dev run ... --budget <usd>` | Cap total API spend |
+| `autonomous-dev run ... --dry-run` | Preview phases without spending credits |
+| `autonomous-dev run ... --quick` | Skip optional phases (env-setup, review, ab-testing) |
+| `autonomous-dev run ... --confirm-spec` | Pause for approval after spec generation |
+| `autonomous-dev run ... --resume <id>` | Resume from checkpoint |
 | `autonomous-dev status` | Show project state |
 | `autonomous-dev phase --name <phase>` | Run specific phase |
 | `autonomous-dev optimize` | Run self-improvement loop |
@@ -206,7 +223,7 @@ Custom benchmarks can be added to `benchmarks/<category>/tasks.json`.
 
 ## Status
 
-The system is **production-ready**. All phases implemented, 193 tests passing, input sanitization via XML delimiters, full Zod schema validation, cost tracking across all phases, and ESLint enforced in CI. See `TODO.md` for remaining low-priority items.
+All 12 phases implemented, input sanitization via XML delimiters, full Zod schema validation, cost tracking across all phases, ESLint enforced in CI. Event bus emits typed events per phase/agent/memory operation. Rubric-based evaluation loop re-runs phases until quality bar is met. Persistent cross-session memory store. See `TODO.md` for remaining items.
 
 ## License
 

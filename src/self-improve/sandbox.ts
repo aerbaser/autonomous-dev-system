@@ -3,6 +3,10 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 
+const ALLOWED_EXECUTABLES = new Set([
+  'npm', 'npx', 'tsc', 'vitest', 'node', 'git',
+]);
+
 export interface SandboxOptions {
   timeoutMs: number;
   memoryLimitMb?: number;
@@ -62,6 +66,17 @@ export async function runCommandInSandbox(
   if (current) args.push(current);
   const executable = args.shift() ?? command;
 
+  // Reject executables not in the allowlist — prevents LLM-controlled benchmark commands from escaping
+  if (!ALLOWED_EXECUTABLES.has(executable)) {
+    return Promise.resolve({
+      success: false,
+      output: "",
+      error: `Blocked: '${executable}' is not an allowed executable. Allowed: ${[...ALLOWED_EXECUTABLES].join(', ')}`,
+      exitCode: 1,
+      durationMs: 0,
+    });
+  }
+
   return new Promise<SandboxResult>((res) => {
     const child = execFile(
       executable,
@@ -113,7 +128,7 @@ export interface WorktreeSandboxOptions extends SandboxOptions {
  * and always cleans up afterwards.
  */
 export async function runInWorktreeSandbox(
-  taskFn: (worktreeDir: string) => Promise<SandboxResult>,
+  taskFn: (worktreeDir: string, signal: AbortSignal) => Promise<SandboxResult>,
   options: WorktreeSandboxOptions
 ): Promise<SandboxResult> {
   const startTime = Date.now();
@@ -188,7 +203,7 @@ async function removeWorktree(
 }
 
 async function withTimeout(
-  taskFn: (dir: string) => Promise<SandboxResult>,
+  taskFn: (dir: string, signal: AbortSignal) => Promise<SandboxResult>,
   dir: string,
   timeoutMs: number,
   startTime: number
@@ -198,7 +213,7 @@ async function withTimeout(
 
   try {
     const result = await Promise.race([
-      taskFn(dir),
+      taskFn(dir, controller.signal),
       new Promise<null>((resolve) => {
         controller.signal.addEventListener("abort", () => resolve(null), { once: true });
       }),

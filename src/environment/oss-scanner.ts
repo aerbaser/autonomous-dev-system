@@ -4,13 +4,7 @@ import { OssToolArraySchema } from "../types/llm-schemas.js";
 import { getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 import { wrapUserInput } from "../utils/shared.js";
 import type { Config } from "../utils/config.js";
-
-const VALID_OSS_TYPES = ["agent", "skill", "hook", "mcp-server", "pattern"] as const;
-type OssType = (typeof VALID_OSS_TYPES)[number];
-
-function isValidOssType(value: string): value is OssType {
-  return (VALID_OSS_TYPES as readonly string[]).includes(value);
-}
+import { isValidOssType } from "../utils/type-guards.js";
 
 const SCAN_PROMPT = `You are an Open Source Scanner. Search GitHub and the web for
 reusable AI agent tools, Claude Code plugins, MCP servers, and patterns

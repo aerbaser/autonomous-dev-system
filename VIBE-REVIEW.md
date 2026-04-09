@@ -1,5 +1,16 @@
 # Vibe Coding Review: autonomous-dev-system
 
+> **Note (2026-04-09):** This review was written at an earlier stage. Several issues raised here have since been fixed:
+> - `--confirm-spec` flag added (P0 item #2 — pause after ideation for user approval)
+> - `--budget` flag added (P0-adjacent — cost controls)
+> - `--dry-run` mode added (preview without spending credits)
+> - `--quick` mode added (P1 item #5 — skip env-setup, A/B testing, monitoring)
+> - SIGINT handler added (graceful interruption with checkpoint save)
+> - Event bus (`src/events/`) emits typed events for all phase/agent/memory operations
+> - Rubric evaluation loop (`src/evaluation/`) provides quality feedback between iterations
+>
+> Still open: real-time LLM output streaming (P0 item #1 — highest impact), interactive refinement, browser preview, template support, domain agents wired into task assignment (P2 item #10).
+
 A deep analysis of the system's UX, architecture, and "magic" factor from the perspective of modern vibe coding tools (Cursor, Bolt, v0, Devin, Claude Code).
 
 ---
