@@ -28,3 +28,16 @@ coverage/
 
 # Claude Code local settings
 .claude/settings.local.json
+.claude/worktrees/
+
+# Composure plugin
+.composure/
+
+# Task plans
+tasks-plans/
+
+# pnpm store cache
+.pnpm-store/
+
+# Old autonomous dev runs
+.autonomous-dev-old-run*/
