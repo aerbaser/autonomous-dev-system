@@ -3,7 +3,7 @@ import { appendFileSync, mkdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { isRecord } from "../utils/shared.js";
 
-const AUDIT_LOG_PATH = process.env.AUDIT_LOG_PATH
+const AUDIT_LOG_PATH = process.env['AUDIT_LOG_PATH']
   ?? resolve(".autonomous-dev", "audit.jsonl");
 
 interface AuditEntry {
@@ -27,13 +27,13 @@ export const auditLoggerHook: HookCallback = async (input, _toolUseID, _ctx) => 
   };
 
   // Log file operations
-  if (typeof toolInput.file_path === "string") {
-    entry.filePath = toolInput.file_path;
+  if (typeof toolInput['file_path'] === "string") {
+    entry.filePath = toolInput['file_path'];
   }
 
   // Log Bash commands
-  if (typeof toolInput.command === "string") {
-    entry.command = toolInput.command.slice(0, 500);
+  if (typeof toolInput['command'] === "string") {
+    entry.command = toolInput['command'].slice(0, 500);
   }
 
   // Log a summary for other tool types

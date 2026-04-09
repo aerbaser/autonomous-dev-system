@@ -52,7 +52,7 @@ export const securityHook: HookCallback = async (input, _toolUseID, _ctx) => {
   const toolInput = isRecord(input.tool_input) ? input.tool_input : {};
 
   if (toolName === "Bash") {
-    const command = typeof toolInput.command === "string" ? toolInput.command : undefined;
+    const command = typeof toolInput['command'] === "string" ? toolInput['command'] : undefined;
     if (command) {
       // Split on shell command separators (not pipe — pipe is part of curl|sh patterns)
       const parts = command.split(/\s*(?:&&|\|\||;)\s*/);
@@ -73,7 +73,7 @@ export const securityHook: HookCallback = async (input, _toolUseID, _ctx) => {
   }
 
   if (["Read", "Write", "Edit"].includes(toolName)) {
-    const filePath = typeof toolInput.file_path === "string" ? toolInput.file_path : undefined;
+    const filePath = typeof toolInput['file_path'] === "string" ? toolInput['file_path'] : undefined;
     if (filePath) {
       for (const pattern of DENIED_PATHS) {
         if (pattern.test(filePath)) {
@@ -90,8 +90,8 @@ export const securityHook: HookCallback = async (input, _toolUseID, _ctx) => {
   }
 
   if (toolName === "Glob") {
-    const pattern = typeof toolInput.pattern === "string" ? toolInput.pattern : undefined;
-    const globPath = typeof toolInput.path === "string" ? toolInput.path : undefined;
+    const pattern = typeof toolInput['pattern'] === "string" ? toolInput['pattern'] : undefined;
+    const globPath = typeof toolInput['path'] === "string" ? toolInput['path'] : undefined;
     for (const denied of DENIED_PATHS) {
       if (pattern && denied.test(pattern)) {
         return {
@@ -115,7 +115,7 @@ export const securityHook: HookCallback = async (input, _toolUseID, _ctx) => {
   }
 
   if (toolName === "Grep") {
-    const searchPath = typeof toolInput.path === "string" ? toolInput.path : undefined;
+    const searchPath = typeof toolInput['path'] === "string" ? toolInput['path'] : undefined;
     if (searchPath) {
       for (const denied of DENIED_PATHS) {
         if (denied.test(searchPath)) {
@@ -132,7 +132,7 @@ export const securityHook: HookCallback = async (input, _toolUseID, _ctx) => {
   }
 
   if (toolName === "WebFetch") {
-    const url = typeof toolInput.url === "string" ? toolInput.url : undefined;
+    const url = typeof toolInput['url'] === "string" ? toolInput['url'] : undefined;
     if (url) {
       try {
         const { hostname } = new URL(url);

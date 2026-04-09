@@ -3,6 +3,25 @@ import { resolve } from "node:path";
 import type { WriteStream } from "node:fs";
 import type { EventRecord } from "./event-bus.js";
 import { isRecord } from "../utils/shared.js";
+import { z } from "zod";
+
+const AgentQueryEndDataSchema = z.object({
+  inputTokens: z.number(),
+  outputTokens: z.number(),
+  costUsd: z.number(),
+});
+
+const OrchestratorPhaseEndDataSchema = z.object({
+  phase: z.string(),
+  durationMs: z.number(),
+  success: z.boolean(),
+  costUsd: z.number().optional(),
+});
+
+const AgentToolResultDataSchema = z.object({
+  toolName: z.string(),
+  durationMs: z.number(),
+});
 
 export interface RunSummary {
   runId: string;
@@ -60,23 +79,18 @@ export class EventLogger {
 
     for (const event of events) {
       if (event.type === "agent.query.end") {
-        const data = event.data as {
-          inputTokens: number;
-          outputTokens: number;
-          costUsd: number;
-        };
+        const parsed = AgentQueryEndDataSchema.safeParse(event.data);
+        if (!parsed.success) continue;
+        const data = parsed.data;
         totalInput += data.inputTokens;
         totalOutput += data.outputTokens;
         totalCostUsd += data.costUsd;
       }
 
       if (event.type === "orchestrator.phase.end") {
-        const data = event.data as {
-          phase: string;
-          durationMs: number;
-          success: boolean;
-          costUsd?: number;
-        };
+        const parsed = OrchestratorPhaseEndDataSchema.safeParse(event.data);
+        if (!parsed.success) continue;
+        const data = parsed.data;
         phases.push({
           name: data.phase,
           durationMs: data.durationMs,
@@ -86,10 +100,9 @@ export class EventLogger {
       }
 
       if (event.type === "agent.tool.result") {
-        const data = event.data as {
-          toolName: string;
-          durationMs: number;
-        };
+        const parsed = AgentToolResultDataSchema.safeParse(event.data);
+        if (!parsed.success) continue;
+        const data = parsed.data;
         const existing = toolUsage[data.toolName];
         if (!existing) {
           toolUsage[data.toolName] = { count: 1, totalDurationMs: data.durationMs };

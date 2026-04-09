@@ -19,8 +19,6 @@ interface SetupStepResult {
 export async function runEnvironmentSetup(
   state: ProjectState,
   config: Config,
-  _checkpoint?: PhaseCheckpoint | null,
-  _sessionId?: string
 ): Promise<PhaseResult> {
   if (!state.architecture || !state.spec) {
     return {

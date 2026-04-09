@@ -21,7 +21,7 @@ const mockRunAllBenchmarks = vi.fn(async () => {
   return {
     totalScore: score,
     results: [
-      { benchmarkId: "code-quality", score, details: {}, timestamp: new Date().toISOString() },
+      { benchmarkId: "code-quality", score, details: {}, timestamp: new Date().toISOString(), costUsd: 0 },
     ] satisfies BenchmarkResult[],
     totalCostUsd: 0.001,
   };

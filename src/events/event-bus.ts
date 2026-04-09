@@ -174,6 +174,7 @@ export class EventBus {
       typeHandlers = new Set();
       this.handlers.set(type, typeHandlers);
     }
+    // Type-erased internally; public API preserves type safety via EventHandler<T>
     typeHandlers.add(handler as EventHandler);
 
     return () => {

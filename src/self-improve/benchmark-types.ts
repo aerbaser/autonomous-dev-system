@@ -28,5 +28,5 @@ export interface BenchmarkResult {
   score: number;
   details: Record<string, unknown>;
   timestamp: string;
-  costUsd?: number;
+  costUsd: number;
 }

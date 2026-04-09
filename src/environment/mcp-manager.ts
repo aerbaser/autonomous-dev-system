@@ -44,7 +44,7 @@ export function configureMcpServers(
     }
 
     console.log(`[mcp] Configuring: ${server.name} (${server.reason})`);
-    mcpServers[server.name] = server.config;
+    mcpServers[server.name] = server.config as McpServerConfig;
     return { ...server, installed: true };
   });
 
@@ -65,7 +65,7 @@ export function getMcpServerConfigs(
 ): Record<string, McpServerConfig> {
   const configs: Record<string, McpServerConfig> = {};
   for (const server of servers.filter((s) => s.installed)) {
-    configs[server.name] = server.config;
+    configs[server.name] = server.config as McpServerConfig;
   }
   return configs;
 }

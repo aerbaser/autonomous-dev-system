@@ -40,8 +40,8 @@ const PHASE_LABELS: Partial<Record<Phase, string>> = {
 };
 
 /** Returns a human-readable label for a phase slug. */
-export function phaseLabel(phase: string): string {
-  return PHASE_LABELS[phase as Phase] ?? phase;
+export function phaseLabel(phase: Phase): string {
+  return PHASE_LABELS[phase] ?? phase;
 }
 
 // ─── Inline progress bar ─────────────────────────────────────────────────────
@@ -163,7 +163,7 @@ class ProgressDisplay {
   }
 
   /** Print a formatted run summary. Call after runOrchestrator() returns. */
-  printSummary(finalPhase: string): void {
+  printSummary(finalPhase: Phase): void {
     if (!this._active) return;
 
     const totalMs   = Date.now() - this._startMs;

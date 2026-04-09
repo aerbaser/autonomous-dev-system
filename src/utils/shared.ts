@@ -9,7 +9,7 @@ export function isApiRetry(
 ): message is Extract<SDKMessage, { subtype: "api_retry" }> {
   if (message.type !== "system" || !("subtype" in message)) return false;
   const record: Record<string, unknown> = message;
-  return record.subtype === "api_retry";
+  return record['subtype'] === "api_retry";
 }
 
 /** Extract the first balanced JSON object from text, correctly handling strings with braces. */

@@ -95,9 +95,9 @@ export type Config = z.infer<typeof ConfigSchema>;
 
 export function loadConfig(configPath?: string): Config {
   const defaults: Record<string, unknown> = {
-    posthogApiKey: process.env.POSTHOG_API_KEY,
-    githubToken: process.env.GITHUB_TOKEN,
-    slackWebhookUrl: process.env.SLACK_WEBHOOK_URL,
+    posthogApiKey: process.env['POSTHOG_API_KEY'],
+    githubToken: process.env['GITHUB_TOKEN'],
+    slackWebhookUrl: process.env['SLACK_WEBHOOK_URL'],
   };
 
   if (configPath) {

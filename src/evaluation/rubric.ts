@@ -1,4 +1,4 @@
-import type { Phase, ProjectState } from "../state/project-state.js";
+import type { PhaseResult } from "../phases/types.js";
 
 // --- Core rubric types ---
 
@@ -31,16 +31,7 @@ export interface RubricResult {
   iteration: number;
 }
 
-export interface EvaluatedPhaseResult {
-  success: boolean;
-  nextPhase?: Phase;
-  state: ProjectState;
-  error?: string;
-  sessionId?: string;
-  costUsd?: number;
-  rubricResult: RubricResult;
-  totalIterations: number;
-}
+export type EvaluatedPhaseResult = Omit<PhaseResult, "rubricResult"> & { rubricResult: RubricResult; totalIterations: number };
 
 // --- Scoring helpers ---
 

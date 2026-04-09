@@ -214,12 +214,16 @@ async function withTimeout(
   try {
     const result = await Promise.race([
       taskFn(dir, controller.signal),
-      new Promise<null>((resolve) => {
-        controller.signal.addEventListener("abort", () => resolve(null), { once: true });
+      new Promise<SandboxResult>((_, reject) => {
+        controller.signal.addEventListener("abort", () =>
+          reject(new Error(`Timeout after ${timeoutMs}ms`))
+        );
       }),
     ]);
-
-    if (result === null) {
+    return result;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("Timeout after")) {
       return {
         success: false,
         output: "",
@@ -228,8 +232,7 @@ async function withTimeout(
         durationMs: Date.now() - startTime,
       };
     }
-
-    return result;
+    throw err;
   } finally {
     clearTimeout(timer);
   }

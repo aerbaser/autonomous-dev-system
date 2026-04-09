@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ALL_PHASES } from "./phases.js";
 
 export const DomainAnalysisSchema = z.object({
   classification: z.string(),
@@ -59,7 +60,7 @@ export const ProductSpecSchema = ProductSpecWithoutDomainSchema.extend({
   domain: DomainAnalysisSchema,
 });
 
-const ArchTaskSchema = z.object({
+export const ArchTaskSchema = z.object({
   id: z.string(),
   title: z.string(),
   description: z.string(),
@@ -120,13 +121,13 @@ export const TaskDecompositionSchema = z.object({
 export const OssToolArraySchema = z.array(z.object({
   name: z.string(),
   repo: z.string(),
-  type: z.string(),
+  type: z.enum(["agent", "skill", "hook", "mcp-server", "pattern"]).catch("pattern"),
   integrationPlan: z.string(),
 }));
 
 export const SessionStoreSchema = z.object({
   sessions: z.record(z.string(), z.object({
-    phase: z.string(),
+    phase: z.enum(ALL_PHASES),
     sessionId: z.string(),
     createdAt: z.string(),
     lastUsed: z.string(),
@@ -298,6 +299,8 @@ export const TaskStateSchema = z.object({
   completedAt: z.string().optional(),
   result: z.string().optional(),
   error: z.string().optional(),
+  domain: z.string().optional(),
+  tags: z.array(z.string()).optional(),
 });
 
 export const DeploymentStateSchema = z.object({
@@ -336,30 +339,32 @@ export const EvolutionEntrySchema = z.object({
 });
 
 export const PhaseCheckpointSchema = z.object({
-  phase: z.string(),
+  phase: z.enum(ALL_PHASES),
   completedTasks: z.array(z.string()),
   pendingTasks: z.array(z.string()),
   timestamp: z.string(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
+export const PhaseResultSummarySchema = z.object({
+  success: z.boolean(),
+  costUsd: z.number().optional(),
+  error: z.string().optional(),
+  timestamp: z.string(),
+});
+
 // Re-export ProjectState schema for loadState validation
 export const ProjectStateSchema = z.object({
   id: z.string(),
   idea: z.string(),
-  currentPhase: z.string(),
+  currentPhase: z.enum(ALL_PHASES),
   spec: ProductSpecSchema.nullable().catch(null),
   architecture: ArchDesignSchema.nullable().catch(null),
   environment: StackEnvironmentSchema.nullable().catch(null),
   agents: z.array(AgentBlueprintSchema).catch([]),
   tasks: z.array(TaskStateSchema).catch([]),
-  completedPhases: z.array(z.string()).catch([]),
-  phaseResults: z.record(z.string(), z.object({
-    success: z.boolean(),
-    costUsd: z.number().optional(),
-    error: z.string().optional(),
-    timestamp: z.string(),
-  })).catch({}),
+  completedPhases: z.array(z.enum(ALL_PHASES)).catch([]),
+  phaseResults: z.record(z.string(), PhaseResultSummarySchema).catch({}),
   deployments: z.array(DeploymentStateSchema).catch([]),
   abTests: z.array(ABTestStateSchema).catch([]),
   evolution: z.array(EvolutionEntrySchema).catch([]),

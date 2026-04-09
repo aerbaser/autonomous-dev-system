@@ -46,6 +46,7 @@ function makeBenchmarkResults(
       score: 0.7,
       details: {},
       timestamp: new Date().toISOString(),
+      costUsd: 0,
       ...overrides?.[0],
     },
     {
@@ -53,6 +54,7 @@ function makeBenchmarkResults(
       score: 0.5,
       details: {},
       timestamp: new Date().toISOString(),
+      costUsd: 0,
       ...overrides?.[1],
     },
   ];
@@ -164,6 +166,7 @@ describe("MutationEngine", () => {
           score: 0.3, // below 0.5 threshold
           details: {},
           timestamp: new Date().toISOString(),
+          costUsd: 0,
         },
       ];
 

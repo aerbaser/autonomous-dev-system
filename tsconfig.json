@@ -12,6 +12,7 @@
     "forceConsistentCasingInFileNames": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
     "exactOptionalPropertyTypes": true,
     "resolveJsonModule": true,
     "declaration": true,

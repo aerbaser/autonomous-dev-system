@@ -36,7 +36,7 @@ export interface ConsumeQueryOptions {
   eventBus?: EventBus;
   phase?: Phase;
   agentName?: string;
-  model?: string;
+  model?: "opus" | "sonnet" | "haiku";
 }
 
 interface MessageWithToolUse {

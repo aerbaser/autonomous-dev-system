@@ -39,6 +39,7 @@ const mockRunAllBenchmarks = vi.fn(async () => {
         score,
         details: {},
         timestamp: new Date().toISOString(),
+        costUsd: 0,
       },
     ] satisfies BenchmarkResult[],
     totalCostUsd: 0.001,

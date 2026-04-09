@@ -20,10 +20,14 @@ export interface PhaseResult {
   dryRunPlan?: string;
 }
 
+export interface PhaseExecutionContext {
+  checkpoint?: PhaseCheckpoint;
+  sessionId?: string;
+  context?: PhaseContext;
+}
+
 export type PhaseHandler = (
   state: ProjectState,
   config: Config,
-  checkpoint?: PhaseCheckpoint | null,
-  sessionId?: string,
-  context?: PhaseContext,
+  ctx?: PhaseExecutionContext,
 ) => Promise<PhaseResult>;

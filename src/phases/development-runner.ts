@@ -4,10 +4,11 @@ import type { Config } from "../utils/config.js";
 import type {
   ProjectState,
   PhaseCheckpoint,
+  McpServerConfig,
   Task,
   UserStory,
 } from "../state/project-state.js";
-import type { PhaseResult } from "./types.js";
+import type { PhaseResult, PhaseExecutionContext } from "./types.js";
 import type {
   DevTask,
   BatchResult,
@@ -40,8 +41,7 @@ import { progress } from "../utils/progress.js";
 export async function runDevelopment(
   state: ProjectState,
   config: Config,
-  checkpoint?: PhaseCheckpoint | null,
-  _sessionId?: string
+  ctx?: PhaseExecutionContext,
 ): Promise<PhaseResult> {
   if (!state.spec || !state.architecture) {
     return { success: false, state, error: "Spec and architecture required" };
@@ -107,7 +107,7 @@ export async function runDevelopment(
   }
 
   // Step 2: Filter out tasks completed in a previous checkpoint
-  const completedIds = new Set(checkpoint?.completedTasks ?? []);
+  const completedIds = new Set(ctx?.checkpoint?.completedTasks ?? []);
   const pendingTasks = updatedState.tasks.filter(
     (t) => t.status === "pending" && !completedIds.has(t.id)
   );
@@ -580,7 +580,7 @@ async function executeBatch(
   agentDefs: Record<string, AgentDefinition>,
   state: ProjectState,
   config: Config,
-  mcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>
+  mcpServers: Record<string, McpServerConfig>
 ): Promise<BatchResult> {
   const taskList = batch
     .map((t, i) => `${i + 1}. **${t.title}**: ${t.description}`)
@@ -702,7 +702,7 @@ async function autoFixQualityIssues(
   state: ProjectState,
   config: Config,
   agentDefs: Record<string, { description: string; prompt: string; tools: string[] }>,
-  mcpServers: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>
+  mcpServers: Record<string, McpServerConfig>
 ): Promise<{ fixed: boolean; costUsd: number }> {
   // Capture current errors
   let typeErrors = "";

@@ -37,7 +37,7 @@ function truncate(text: string, max = 60): string {
   return text.length > max ? text.slice(0, max - 1) + "…" : text;
 }
 
-function printBanner(idea: string, projectId: string, startPhase: string): void {
+function printBanner(idea: string, projectId: string, startPhase: Phase): void {
   const W  = 46;
   const hr = "═".repeat(W);
   console.log(`\n${C.bold}${C.cyan}╔${hr}╗`);

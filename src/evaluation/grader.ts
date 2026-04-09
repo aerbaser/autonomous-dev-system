@@ -3,11 +3,10 @@ import type { OutputFormat } from "@anthropic-ai/claude-agent-sdk";
 import { consumeQuery, getQueryPermissions } from "../utils/sdk-helpers.js";
 import { wrapUserInput } from "../utils/shared.js";
 import type { Config } from "../utils/config.js";
-import type { ProjectState } from "../state/project-state.js";
+import type { ProjectState, Phase } from "../state/project-state.js";
 import type { PhaseResult } from "../phases/types.js";
 import type { Rubric, RubricResult, CriterionScore } from "./rubric.js";
 import type { EventBus } from "../events/event-bus.js";
-import type { Phase } from "../state/project-state.js";
 import { computeWeightedScore, determineVerdict } from "./rubric.js";
 import { CriterionScoreSchema } from "../types/llm-schemas.js";
 import { z } from "zod";
@@ -112,7 +111,7 @@ export async function gradePhaseOutput(
   options: GraderOptions,
 ): Promise<{ rubricResult: RubricResult; costUsd: number }> {
   const { config, eventBus } = options;
-  const phase = options.phase ?? (state.currentPhase as Phase);
+  const phase = options.phase ?? state.currentPhase;
   const model = options.model ?? config.subagentModel;
   const stateSummary = buildStateSummary(state);
   const prompt = buildGraderPrompt(rubric, phaseResult, stateSummary);

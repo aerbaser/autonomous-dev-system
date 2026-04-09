@@ -28,7 +28,7 @@ import { runReview } from "./phases/review.js";
 import { runDeployment } from "./phases/deployment.js";
 import { runABTesting } from "./phases/ab-testing.js";
 import { runMonitoring } from "./phases/monitoring.js";
-import type { PhaseResult, PhaseHandler, PhaseContext } from "./phases/types.js";
+import type { PhaseResult, PhaseHandler, PhaseContext, PhaseExecutionContext } from "./phases/types.js";
 import { EventBus } from "./events/event-bus.js";
 import { EventLogger } from "./events/event-logger.js";
 import { Interrupter } from "./events/interrupter.js";
@@ -175,6 +175,12 @@ export async function runOrchestrator(
   // Each invocation gets its own Interrupter so concurrent runs don't interfere.
   const interrupter = new Interrupter();
   _activeInterrupter = interrupter;
+
+  const sigintHandler = () => {
+    interrupter.interrupt("SIGINT");
+  };
+  process.on("SIGINT", sigintHandler);
+
   let state = structuredClone(initialState);
 
   const { budgetUsd, dryRun, quickMode, confirmSpec } = config;
@@ -203,6 +209,8 @@ export async function runOrchestrator(
   let sessionStore = loadSessions(config.stateDir);
   sessionStore = cleanStaleSessions(sessionStore);
   saveSessions(config.stateDir, sessionStore);
+
+  try {
 
   // Validate resume session ID if provided
   if (resumeSessionId) {
@@ -437,6 +445,10 @@ export async function runOrchestrator(
   unsubLogger();
   await eventLogger.close();
   console.log(`[event-logger] Run events saved: ${eventLogger.getLogPath()}`);
+
+  } finally {
+    process.removeListener("SIGINT", sigintHandler);
+  }
 }
 
 /**
@@ -478,8 +490,13 @@ async function executePhaseSafe(
         // Save state before each attempt (crash safety)
         saveState(config.stateDir, state);
 
-        const context = memoryContext ? { memoryContext } : undefined;
-        const phaseResult = await handler(state, config, checkpoint, sessionId, context);
+        const context: PhaseContext | undefined = memoryContext ? { memoryContext } : undefined;
+        const execCtx: PhaseExecutionContext = {
+          ...(checkpoint ? { checkpoint } : {}),
+          ...(sessionId ? { sessionId } : {}),
+          ...(context ? { context } : {}),
+        };
+        const phaseResult = await handler(state, config, execCtx);
 
         // Store session ID if the phase returned one
         if (phaseResult.sessionId) {
@@ -544,8 +561,13 @@ async function executePhaseSafe(
 
           // First iteration reuses the already-executed result (no double execution).
           // Subsequent iterations re-run the handler with updated state + feedback.
+          const iterExecCtx: PhaseExecutionContext = {
+            ...(checkpoint ? { checkpoint } : {}),
+            ...(sessionId ? { sessionId } : {}),
+            context: ctx,
+          };
           const iterResult =
-            iter === 1 ? result : await handler(currentState, config, checkpoint, sessionId, ctx);
+            iter === 1 ? result : await handler(currentState, config, iterExecCtx);
 
           currentState = iterResult.state;
           if (iter > 1 && iterResult.costUsd) rubricCost += iterResult.costUsd;
