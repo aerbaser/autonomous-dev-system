@@ -27,7 +27,7 @@ const C = USE_COLOR
       reset: "", bold: "", dim: "", red: "", green: "", yellow: "", cyan: "", gray: "",
     };
 
-const OPTIONAL_PHASES: Phase[] = ["environment-setup", "review", "ab-testing", "monitoring"];
+const OPTIONAL_PHASES: Phase[] = ["review", "ab-testing", "monitoring"];
 
 function isPhase(value: string): value is Phase {
   return (ALL_PHASES as readonly string[]).includes(value);
