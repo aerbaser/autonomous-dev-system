@@ -30,6 +30,9 @@ coverage/
 .claude/settings.local.json
 .claude/worktrees/
 
+# Local Codex skills/config bundle
+.codex/
+
 # Composure plugin
 .composure/
 
