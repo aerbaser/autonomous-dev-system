@@ -147,6 +147,7 @@ export class EventLogger {
 
     return content.split("\n")
       .map((line) => { try { return JSON.parse(line) as unknown; } catch { return null; } })
-      .filter((r): r is EventRecord => isRecord(r) && typeof r["seq"] === "number" && typeof r["type"] === "string");
+      .filter((r): r is EventRecord => isRecord(r) && typeof r["seq"] === "number" && typeof r["type"] === "string")
+      .sort((a, b) => a.seq - b.seq);
   }
 }

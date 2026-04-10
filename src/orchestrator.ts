@@ -224,7 +224,12 @@ export async function runOrchestrator(
 
   if (singlePhase) {
     console.log(`[orchestrator] Running single phase: ${singlePhase}`);
-    await executePhaseSafe(singlePhase, state, config, eventBus);
+    const singlePhaseResult = await executePhaseSafe(singlePhase, state, config, eventBus);
+    if (singlePhaseResult) {
+      saveState(config.stateDir, singlePhaseResult.state);
+    }
+    unsubLogger();
+    await eventLogger.close();
     return;
   }
 

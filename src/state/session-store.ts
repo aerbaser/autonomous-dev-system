@@ -18,8 +18,12 @@ export function loadSessions(stateDir: string): SessionStore {
   assertSafePath(stateDir);
   const path = resolve(stateDir, "sessions.json");
   if (!existsSync(path)) return { sessions: {} };
-  const parsed = SessionStoreSchema.safeParse(JSON.parse(readFileSync(path, "utf-8")));
-  return parsed.success ? parsed.data : { sessions: {} };
+  try {
+    const parsed = SessionStoreSchema.safeParse(JSON.parse(readFileSync(path, "utf-8")));
+    return parsed.success ? parsed.data : { sessions: {} };
+  } catch {
+    return { sessions: {} };
+  }
 }
 
 export function saveSessions(stateDir: string, store: SessionStore): void {
@@ -71,4 +75,3 @@ export function cleanStaleSessions(
 
   return { sessions: cleaned };
 }
-

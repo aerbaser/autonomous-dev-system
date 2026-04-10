@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, rmSync, readFileSync } from "node:fs";
+import { mkdtempSync, rmSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { EventLogger } from "../../src/events/event-logger.js";
@@ -132,6 +132,40 @@ describe("EventLogger", () => {
     expect(summary.totalTokens.output).toBe(0);
     expect(summary.totalCostUsd).toBe(0);
     expect(summary.phases).toHaveLength(0);
+  });
+
+  it("orders summary boundaries by event sequence instead of file order", async () => {
+    const logger = new EventLogger(tempDir, "out-of-order-run");
+    const logPath = logger.getLogPath();
+
+    rmSync(logPath, { force: true });
+    const earlier = "2026-04-10T10:00:00.000Z";
+    const later = "2026-04-10T10:05:00.000Z";
+
+    const outOfOrderLines = [
+      JSON.stringify({
+        type: "agent.query.end",
+        timestamp: later,
+        seq: 2,
+        data: { inputTokens: 10, outputTokens: 5, costUsd: 0.01 },
+      }),
+      JSON.stringify({
+        type: "agent.query.end",
+        timestamp: earlier,
+        seq: 1,
+        data: { inputTokens: 20, outputTokens: 10, costUsd: 0.02 },
+      }),
+    ];
+
+    writeFileSync(logPath, outOfOrderLines.join("\n") + "\n", "utf-8");
+
+    const summary = await logger.generateRunSummary();
+
+    expect(summary.startedAt).toBe(earlier);
+    expect(summary.endedAt).toBe(later);
+    expect(summary.totalTokens.input).toBe(30);
+    expect(summary.totalTokens.output).toBe(15);
+    expect(summary.totalCostUsd).toBeCloseTo(0.03);
   });
 
   it("creates events directory if it does not exist", async () => {

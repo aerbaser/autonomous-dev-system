@@ -121,6 +121,14 @@ describe("Pipeline E2E", () => {
     expect(mockedIdeation).toHaveBeenCalledTimes(1);
     expect(mockedArchitecture).toHaveBeenCalledTimes(1);
     expect(mockedEnvSetup).toHaveBeenCalledTimes(1);
+    expect(mockedArchitecture.mock.calls[0]?.[0].spec).toEqual(specFixture);
+    expect(mockedEnvSetup.mock.calls[0]?.[0].architecture).toEqual({
+      techStack: { language: "TypeScript", framework: "React" },
+      components: ["TodoList", "TodoItem"],
+      apiContracts: "",
+      databaseSchema: "",
+      fileStructure: "src/",
+    });
   });
 
   it("saves state to disk after each phase", async () => {
@@ -142,6 +150,12 @@ describe("Pipeline E2E", () => {
 
     const savedState = loadState(config.stateDir);
     expect(savedState).not.toBeNull();
+    expect(savedState!.currentPhase).toBe("architecture");
+    expect(savedState!.spec).toEqual(specFixture);
+    expect(savedState!.completedPhases).toContain("ideation");
+    expect(savedState!.completedPhases).toContain("specification");
+    expect(savedState!.phaseResults["ideation"]?.success).toBe(true);
+    expect(savedState!.phaseResults["specification"]?.success).toBe(true);
   });
 
   it("stops gracefully on SIGINT (requestShutdown)", async () => {
@@ -190,5 +204,6 @@ describe("Pipeline E2E", () => {
     expect(mockedIdeation).not.toHaveBeenCalled();
     // Should call architecture (current phase)
     expect(mockedArchitecture).toHaveBeenCalledTimes(1);
+    expect(mockedArchitecture.mock.calls[0]?.[0].spec).toEqual(specFixture);
   });
 });

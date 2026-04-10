@@ -28,6 +28,11 @@ describe("SessionStore", () => {
       expect(store).toEqual({ sessions: {} });
     });
 
+    it("returns empty store when file contains malformed JSON", () => {
+      writeFileSync(join(TEST_STATE_DIR, "sessions.json"), '{"sessions":');
+      expect(loadSessions(TEST_STATE_DIR)).toEqual({ sessions: {} });
+    });
+
     it("loads persisted sessions", () => {
       const store = setSession({ sessions: {} }, "development", "session-abc");
       saveSessions(TEST_STATE_DIR, store);
@@ -171,6 +176,22 @@ describe("SessionStore", () => {
 
       const cleaned = cleanStaleSessions(store as any);
       expect(Object.keys(cleaned.sessions)).toHaveLength(1);
+    });
+
+    it("drops sessions with invalid timestamps instead of keeping corrupt state", () => {
+      const store = {
+        sessions: {
+          broken: {
+            phase: "broken",
+            sessionId: "sid",
+            createdAt: "not-a-date",
+            lastUsed: "also-not-a-date",
+          },
+        },
+      };
+
+      const cleaned = cleanStaleSessions(store as any);
+      expect(cleaned.sessions).toEqual({});
     });
   });
 });

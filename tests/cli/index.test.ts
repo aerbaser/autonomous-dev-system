@@ -18,13 +18,27 @@ vi.mock("../../src/orchestrator.js", () => ({
   getInterrupter: vi.fn(() => ({ requestShutdown: vi.fn() })),
 }));
 
+vi.mock("../../src/self-improve/optimizer.js", () => ({
+  runOptimizer: vi.fn(),
+}));
+
+vi.mock("../../src/dashboard/generate.js", () => ({
+  generateDashboard: vi.fn(),
+  openInBrowser: vi.fn(),
+}));
+
 const { runOrchestrator } = await import("../../src/orchestrator.js");
+const { runOptimizer } = await import("../../src/self-improve/optimizer.js");
+const { generateDashboard, openInBrowser } = await import("../../src/dashboard/generate.js");
 
 process.argv = ["node", "autonomous-dev"];
 const { createCliProgram } = await import("../../src/index.js");
 process.argv = originalArgv;
 
 const mockedRunOrchestrator = vi.mocked(runOrchestrator);
+const mockedRunOptimizer = vi.mocked(runOptimizer);
+const mockedGenerateDashboard = vi.mocked(generateDashboard);
+const mockedOpenInBrowser = vi.mocked(openInBrowser);
 
 function makeStateDir(testName: string): string {
   const dir = join(TEST_ROOT, testName);
@@ -80,6 +94,28 @@ describe("CLI contract", () => {
     expect(resume).toBeUndefined();
   });
 
+  it("passes explicit run options through to the orchestrator config", async () => {
+    const stateDir = makeStateDir("run-options");
+    process.chdir(join(TEST_ROOT, "run-options"));
+
+    await runCli([
+      "run",
+      "--idea", "Build a todo app",
+      "--budget", "7",
+      "--dry-run",
+      "--quick",
+      "--confirm-spec",
+      "--verbose",
+    ]);
+
+    expect(mockedRunOrchestrator).toHaveBeenCalledTimes(1);
+    const [_state, config] = mockedRunOrchestrator.mock.calls[0]!;
+    expect(config.budgetUsd).toBe(7);
+    expect(config.dryRun).toBe(true);
+    expect(config.quickMode).toBe(true);
+    expect(config.confirmSpec).toBe(true);
+  });
+
   it("exits deterministically when `run` finds existing state without `--resume`", async () => {
     const cwd = join(TEST_ROOT, "run-existing");
     const stateDir = makeStateDir("run-existing");
@@ -92,6 +128,39 @@ describe("CLI contract", () => {
 
     expect(mockedRunOrchestrator).not.toHaveBeenCalled();
     expect(String(errorSpy.mock.calls.at(-1)?.[0] ?? "")).toContain("Use --resume");
+  });
+
+  it("resumes an existing state when `run` receives `--resume`", async () => {
+    const cwd = join(TEST_ROOT, "run-resume");
+    const stateDir = makeStateDir("run-resume");
+    process.chdir(cwd);
+    const state = createInitialState("Existing project");
+    saveState(stateDir, state);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runCli(["run", "--idea", "Ignored idea", "--resume", "session-123"]);
+
+    expect(mockedRunOrchestrator).toHaveBeenCalledTimes(1);
+    const [resumedState, _config, resume] = mockedRunOrchestrator.mock.calls[0]!;
+    expect(resumedState.id).toBe(state.id);
+    expect(resume).toBe("session-123");
+    expect(logSpy.mock.calls.flat().join("\n")).toContain("Resuming project");
+  });
+
+  it("exits deterministically when `run --resume` has no saved state", async () => {
+    const cwd = join(TEST_ROOT, "run-resume-missing");
+    mkdirSync(cwd, { recursive: true });
+    process.chdir(cwd);
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      runCli(["run", "--idea", "Build a todo app", "--resume", "session-123"])
+    ).rejects.toMatchObject({ code: 1 });
+
+    expect(mockedRunOrchestrator).not.toHaveBeenCalled();
+    expect(String(errorSpy.mock.calls.flat().join("\n"))).toContain("No saved state found");
   });
 
   it("shows the `status` command output when no state exists", async () => {
@@ -167,5 +236,83 @@ describe("CLI contract", () => {
 
     expect(mockedRunOrchestrator).not.toHaveBeenCalled();
     expect(String(errorSpy.mock.calls.flat().join("\n"))).toContain("Unknown phase");
+  });
+
+  it("exits deterministically when `optimize` runs without saved state", async () => {
+    const cwd = join(TEST_ROOT, "optimize-empty");
+    mkdirSync(cwd, { recursive: true });
+    process.chdir(cwd);
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(runCli(["optimize"])).rejects.toMatchObject({ code: 1 });
+
+    expect(mockedRunOptimizer).not.toHaveBeenCalled();
+    expect(String(errorSpy.mock.calls.flat().join("\n"))).toContain("No project state found");
+  });
+
+  it("runs `optimize` with parsed benchmark and iteration options", async () => {
+    const cwd = join(TEST_ROOT, "optimize-state");
+    const stateDir = makeStateDir("optimize-state");
+    process.chdir(cwd);
+    const state = createInitialState("Improve prompts");
+    saveState(stateDir, state);
+
+    await runCli(["optimize", "--benchmark", "code-quality", "--max-iterations", "7"]);
+
+    expect(mockedRunOptimizer).toHaveBeenCalledTimes(1);
+    const [savedState, config, options] = mockedRunOptimizer.mock.calls[0]!;
+    expect(savedState.id).toBe(state.id);
+    expect(config.stateDir).toBe(".autonomous-dev");
+    expect(options).toEqual({
+      benchmarkId: "code-quality",
+      maxIterations: 7,
+    });
+  });
+
+  it("runs `dashboard` by generating the file and opening it", async () => {
+    const cwd = join(TEST_ROOT, "dashboard");
+    mkdirSync(cwd, { recursive: true });
+    process.chdir(cwd);
+
+    await runCli(["dashboard"]);
+
+    expect(mockedGenerateDashboard).toHaveBeenCalledTimes(1);
+    expect(mockedGenerateDashboard).toHaveBeenCalledWith(
+      ".autonomous-dev",
+      ".autonomous-dev/dashboard.html"
+    );
+    expect(mockedOpenInBrowser).toHaveBeenCalledTimes(1);
+    expect(mockedOpenInBrowser).toHaveBeenCalledWith(".autonomous-dev/dashboard.html");
+  });
+
+  it("regenerates `dashboard --watch` on an interval and exits on SIGINT", async () => {
+    const cwd = join(TEST_ROOT, "dashboard-watch");
+    mkdirSync(cwd, { recursive: true });
+    process.chdir(cwd);
+
+    vi.useFakeTimers();
+
+    let sigintHandler: (() => void) | undefined;
+    const processOnSpy = vi.spyOn(process, "on").mockImplementation(((event: string, listener: () => void) => {
+      if (event === "SIGINT") sigintHandler = listener;
+      return process;
+    }) as never);
+
+    const runPromise = runCli(["dashboard", "--watch"]);
+
+    await vi.advanceTimersByTimeAsync(5_100);
+
+    expect(mockedGenerateDashboard).toHaveBeenCalledTimes(2);
+    expect(mockedOpenInBrowser).toHaveBeenCalledTimes(1);
+    expect(processOnSpy).toHaveBeenCalledWith("SIGINT", expect.any(Function));
+    expect(sigintHandler).toBeDefined();
+
+    await expect((async () => {
+      sigintHandler?.();
+      return runPromise;
+    })()).rejects.toMatchObject({ code: 0 });
+
+    vi.useRealTimers();
   });
 });
