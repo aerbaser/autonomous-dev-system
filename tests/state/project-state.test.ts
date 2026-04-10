@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -52,6 +52,21 @@ describe("ProjectState", () => {
 
     it("returns null for missing state", () => {
       const loaded = loadState(join(tmpdir(), "ads-nonexistent-dir"));
+      expect(loaded).toBeNull();
+    });
+
+    it("returns null for schema-invalid state", () => {
+      writeFileSync(join(TEST_STATE_DIR, "state.json"), JSON.stringify({ idea: "partial state" }));
+
+      const loaded = loadState(TEST_STATE_DIR);
+      expect(loaded).toBeNull();
+    });
+
+    it("returns null for malformed state JSON", () => {
+      const statePath = join(TEST_STATE_DIR, "state.json");
+      writeFileSync(statePath, "{not valid json");
+
+      const loaded = loadState(TEST_STATE_DIR);
       expect(loaded).toBeNull();
     });
   });

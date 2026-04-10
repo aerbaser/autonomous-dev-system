@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./utils/config.js";
@@ -67,6 +68,17 @@ function printDryRunPlan(quickMode: boolean): void {
   console.log();
 }
 
+function loadPersistedState(stateDir: string): {
+  state: ProjectState | null;
+  unreadable: boolean;
+} {
+  const state = loadState(stateDir);
+  return {
+    state,
+    unreadable: state === null && existsSync(resolve(stateDir, "state.json")),
+  };
+}
+
 // ─── CLI definition ───────────────────────────────────────────────────────────
 
 const program = new Command();
@@ -115,13 +127,15 @@ program
     config.confirmSpec = opts.confirmSpec ?? false;
     const stateDir = config.stateDir;
 
-    const existingState = loadState(stateDir);
+    const { state: existingState, unreadable } = loadPersistedState(stateDir);
 
     let state: ProjectState;
     if (opts.resume) {
       if (!existingState) {
         console.error(
-          `\n${C.red}[ERROR]${C.reset} No saved state found. Run without --resume to start fresh.`
+          unreadable
+            ? `\n${C.red}[ERROR]${C.reset} Saved state is unreadable. Repair or remove ${resolve(stateDir, "state.json")} before resuming.`
+            : `\n${C.red}[ERROR]${C.reset} No saved state found. Run without --resume to start fresh.`
         );
         process.exit(1);
       }
@@ -130,6 +144,12 @@ program
         `${C.cyan}[resume]${C.reset} Resuming project ${C.bold}${state.id}${C.reset}` +
         ` — phase: ${phaseLabel(state.currentPhase)}`
       );
+    } else if (unreadable) {
+      console.error(
+        `\n${C.red}[ERROR]${C.reset} Saved state is unreadable at ${resolve(stateDir, "state.json")}.\n` +
+        `  Repair or remove it before starting a fresh run.`
+      );
+      process.exit(1);
     } else if (existingState) {
       console.error(
         `\n${C.red}[ERROR]${C.reset} Found existing project "${existingState.id}"` +
@@ -177,11 +197,13 @@ program
   .option("--max-iterations <n>", "Max optimization iterations", "10")
   .action(async (opts: { config?: string; benchmark?: string; maxIterations: string }) => {
     const config = loadConfig(opts.config);
-    const state  = loadState(config.stateDir);
+    const { state, unreadable } = loadPersistedState(config.stateDir);
     if (!state) {
       console.error(
-        `\n${C.red}[ERROR]${C.reset} No project state found.` +
-        ` Run ${C.bold}autonomous-dev run${C.reset} first.`
+        unreadable
+          ? `\n${C.red}[ERROR]${C.reset} Project state is unreadable. Repair or remove ${resolve(config.stateDir, "state.json")} before optimizing.`
+          : `\n${C.red}[ERROR]${C.reset} No project state found.` +
+              ` Run ${C.bold}autonomous-dev run${C.reset} first.`
       );
       process.exit(1);
     }
@@ -198,12 +220,19 @@ program
   .option("--config <path>", "Path to config file")
   .action((opts: { config?: string }) => {
     const config = loadConfig(opts.config);
-    const state  = loadState(config.stateDir);
+    const { state, unreadable } = loadPersistedState(config.stateDir);
     if (!state) {
-      console.log(
-        `${C.dim}No project found in ${config.stateDir}/.${C.reset}\n` +
-        `  Start one with: ${C.bold}autonomous-dev run --idea "..."${C.reset}`
-      );
+      if (unreadable) {
+        console.log(
+          `${C.yellow}Saved state is unreadable at ${resolve(config.stateDir, "state.json")}.${C.reset}\n` +
+          `  Repair or remove it before resuming or optimizing this project.`
+        );
+      } else {
+        console.log(
+          `${C.dim}No project found in ${config.stateDir}/.${C.reset}\n` +
+          `  Start one with: ${C.bold}autonomous-dev run --idea "..."${C.reset}`
+        );
+      }
       return;
     }
 
@@ -242,11 +271,13 @@ program
   .option("--stack <technologies>", "Comma-separated tech stack (for environment-setup)")
   .action(async (opts: { name: string; config?: string; stack?: string }) => {
     const config = loadConfig(opts.config);
-    const state  = loadState(config.stateDir);
+    const { state, unreadable } = loadPersistedState(config.stateDir);
     if (!state) {
       console.error(
-        `\n${C.red}[ERROR]${C.reset} No project state found.` +
-        ` Run ${C.bold}autonomous-dev run${C.reset} first.`
+        unreadable
+          ? `\n${C.red}[ERROR]${C.reset} Project state is unreadable. Repair or remove ${resolve(config.stateDir, "state.json")} before running a phase.`
+          : `\n${C.red}[ERROR]${C.reset} No project state found.` +
+              ` Run ${C.bold}autonomous-dev run${C.reset} first.`
       );
       process.exit(1);
     }

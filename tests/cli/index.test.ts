@@ -1,5 +1,5 @@
 import { beforeEach, afterEach, describe, expect, it, vi } from "vitest";
-import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createInitialState, saveState } from "../../src/state/project-state.js";
@@ -47,6 +47,13 @@ function makeStateDir(testName: string): string {
   }
   mkdirSync(dir, { recursive: true });
   return join(dir, ".autonomous-dev");
+}
+
+function makeMalformedStateDir(testName: string): string {
+  const stateDir = makeStateDir(testName);
+  mkdirSync(stateDir, { recursive: true });
+  writeFileSync(join(stateDir, "state.json"), "{not valid json");
+  return stateDir;
 }
 
 async function runCli(args: string[]): Promise<void> {
@@ -163,6 +170,34 @@ describe("CLI contract", () => {
     expect(String(errorSpy.mock.calls.flat().join("\n"))).toContain("No saved state found");
   });
 
+  it("exits deterministically when `run --resume` sees malformed state JSON", async () => {
+    const cwd = join(TEST_ROOT, "run-resume-malformed");
+    makeMalformedStateDir("run-resume-malformed");
+    process.chdir(cwd);
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(
+      runCli(["run", "--idea", "Build a todo app", "--resume", "session-123"])
+    ).rejects.toMatchObject({ code: 1 });
+
+    expect(mockedRunOrchestrator).not.toHaveBeenCalled();
+    expect(String(errorSpy.mock.calls.flat().join("\n"))).toContain("Saved state is unreadable");
+  });
+
+  it("refuses to start a fresh run over malformed saved state", async () => {
+    const cwd = join(TEST_ROOT, "run-malformed");
+    makeMalformedStateDir("run-malformed");
+    process.chdir(cwd);
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(runCli(["run", "--idea", "Build a todo app"])).rejects.toMatchObject({ code: 1 });
+
+    expect(mockedRunOrchestrator).not.toHaveBeenCalled();
+    expect(String(errorSpy.mock.calls.flat().join("\n"))).toContain("Saved state is unreadable");
+  });
+
   it("shows the `status` command output when no state exists", async () => {
     const cwd = join(TEST_ROOT, "status-empty");
     mkdirSync(cwd, { recursive: true });
@@ -173,6 +208,19 @@ describe("CLI contract", () => {
     await runCli(["status"]);
 
     expect(logSpy.mock.calls.flat().join("\n")).toContain("No project found");
+    expect(mockedRunOrchestrator).not.toHaveBeenCalled();
+  });
+
+  it("shows a warning when `status` sees malformed state JSON", async () => {
+    const cwd = join(TEST_ROOT, "status-malformed");
+    makeMalformedStateDir("status-malformed");
+    process.chdir(cwd);
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await runCli(["status"]);
+
+    expect(logSpy.mock.calls.flat().join("\n")).toContain("Saved state is unreadable");
     expect(mockedRunOrchestrator).not.toHaveBeenCalled();
   });
 
@@ -249,6 +297,19 @@ describe("CLI contract", () => {
 
     expect(mockedRunOptimizer).not.toHaveBeenCalled();
     expect(String(errorSpy.mock.calls.flat().join("\n"))).toContain("No project state found");
+  });
+
+  it("exits deterministically when `optimize` sees malformed state JSON", async () => {
+    const cwd = join(TEST_ROOT, "optimize-malformed");
+    makeMalformedStateDir("optimize-malformed");
+    process.chdir(cwd);
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(runCli(["optimize"])).rejects.toMatchObject({ code: 1 });
+
+    expect(mockedRunOptimizer).not.toHaveBeenCalled();
+    expect(String(errorSpy.mock.calls.flat().join("\n"))).toContain("Project state is unreadable");
   });
 
   it("runs `optimize` with parsed benchmark and iteration options", async () => {

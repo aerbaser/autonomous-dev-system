@@ -116,8 +116,12 @@ export function loadState(stateDir: string): ProjectState | null {
   assertSafePath(stateDir);
   const statePath = resolve(stateDir, "state.json");
   if (!existsSync(statePath)) return null;
-  const parsed = ProjectStateSchema.safeParse(JSON.parse(readFileSync(statePath, "utf-8")));
-  return parsed.success ? parsed.data : null;
+  try {
+    const parsed = ProjectStateSchema.safeParse(JSON.parse(readFileSync(statePath, "utf-8")));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
 }
 
 export function saveState(stateDir: string, state: ProjectState): void {
