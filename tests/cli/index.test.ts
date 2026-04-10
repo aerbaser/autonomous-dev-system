@@ -22,6 +22,13 @@ vi.mock("../../src/self-improve/optimizer.js", () => ({
   runOptimizer: vi.fn(),
 }));
 
+vi.mock("../../src/nightly/nightly-runner.js", () => ({
+  runNightlyMaintenance: vi.fn(async () => ({
+    status: "passed",
+    steps: [],
+  })),
+}));
+
 vi.mock("../../src/dashboard/generate.js", () => ({
   generateDashboard: vi.fn(),
   openInBrowser: vi.fn(),
@@ -29,6 +36,7 @@ vi.mock("../../src/dashboard/generate.js", () => ({
 
 const { runOrchestrator } = await import("../../src/orchestrator.js");
 const { runOptimizer } = await import("../../src/self-improve/optimizer.js");
+const { runNightlyMaintenance } = await import("../../src/nightly/nightly-runner.js");
 const { generateDashboard, openInBrowser } = await import("../../src/dashboard/generate.js");
 
 process.argv = ["node", "autonomous-dev"];
@@ -37,6 +45,7 @@ process.argv = originalArgv;
 
 const mockedRunOrchestrator = vi.mocked(runOrchestrator);
 const mockedRunOptimizer = vi.mocked(runOptimizer);
+const mockedRunNightlyMaintenance = vi.mocked(runNightlyMaintenance);
 const mockedGenerateDashboard = vi.mocked(generateDashboard);
 const mockedOpenInBrowser = vi.mocked(openInBrowser);
 
@@ -329,6 +338,69 @@ describe("CLI contract", () => {
       benchmarkId: "code-quality",
       maxIterations: 7,
     });
+  });
+
+  it("runs `nightly` with parsed options and existing state", async () => {
+    const cwd = join(TEST_ROOT, "nightly-state");
+    const stateDir = makeStateDir("nightly-state");
+    process.chdir(cwd);
+    const state = createInitialState("Maintain prompts");
+    saveState(stateDir, state);
+
+    await runCli([
+      "nightly",
+      "--max-iterations", "3",
+      "--skip-dashboard",
+    ]);
+
+    expect(mockedRunNightlyMaintenance).toHaveBeenCalledTimes(1);
+    const [savedState, config, options] = mockedRunNightlyMaintenance.mock.calls[0]!;
+    expect(savedState.id).toBe(state.id);
+    expect(config.stateDir).toBe(".autonomous-dev");
+    expect(options).toEqual({
+      maxIterations: 3,
+      skipOptimize: false,
+      skipDashboard: true,
+    });
+  });
+
+  it("exits deterministically when `nightly` runs without saved state", async () => {
+    const cwd = join(TEST_ROOT, "nightly-empty");
+    mkdirSync(cwd, { recursive: true });
+    process.chdir(cwd);
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(runCli(["nightly"])).rejects.toMatchObject({ code: 1 });
+
+    expect(mockedRunNightlyMaintenance).not.toHaveBeenCalled();
+    expect(String(errorSpy.mock.calls.flat().join("\n"))).toContain("No project state found");
+  });
+
+  it("exits deterministically when `nightly` sees malformed state JSON", async () => {
+    const cwd = join(TEST_ROOT, "nightly-malformed");
+    makeMalformedStateDir("nightly-malformed");
+    process.chdir(cwd);
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(runCli(["nightly"])).rejects.toMatchObject({ code: 1 });
+
+    expect(mockedRunNightlyMaintenance).not.toHaveBeenCalled();
+    expect(String(errorSpy.mock.calls.flat().join("\n"))).toContain("Project state is unreadable");
+  });
+
+  it("exits non-zero when the nightly runner reports failure", async () => {
+    const cwd = join(TEST_ROOT, "nightly-failed");
+    const stateDir = makeStateDir("nightly-failed");
+    process.chdir(cwd);
+    saveState(stateDir, createInitialState("Maintain project"));
+    mockedRunNightlyMaintenance.mockResolvedValueOnce({
+      status: "failed",
+      steps: [{ name: "optimize", status: "failed", detail: "optimizer exploded" }],
+    });
+
+    await expect(runCli(["nightly"])).rejects.toMatchObject({ code: 1 });
   });
 
   it("runs `dashboard` by generating the file and opening it", async () => {

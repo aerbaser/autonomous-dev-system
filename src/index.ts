@@ -11,6 +11,7 @@ import {
 } from "./state/project-state.js";
 import { runOrchestrator, getInterrupter } from "./orchestrator.js";
 import { runOptimizer } from "./self-improve/optimizer.js";
+import { runNightlyMaintenance } from "./nightly/nightly-runner.js";
 import { display, phaseLabel } from "./utils/progress.js";
 import { generateDashboard, openInBrowser } from "./dashboard/generate.js";
 
@@ -212,6 +213,50 @@ program
       ...(opts.benchmark !== undefined ? { benchmarkId: opts.benchmark } : {}),
       maxIterations: parseInt(opts.maxIterations, 10),
     });
+  });
+
+program
+  .command("nightly")
+  .description("Run unattended nightly maintenance tasks")
+  .option("--config <path>", "Path to config file")
+  .option("--max-iterations <n>", "Max nightly optimization iterations")
+  .option("--skip-optimize", "Skip nightly self-improvement")
+  .option("--skip-dashboard", "Skip dashboard generation")
+  .action(async (opts: {
+    config?: string;
+    maxIterations?: string;
+    skipOptimize?: boolean;
+    skipDashboard?: boolean;
+  }) => {
+    const config = loadConfig(opts.config);
+    const { state, unreadable } = loadPersistedState(config.stateDir);
+    if (!state) {
+      console.error(
+        unreadable
+          ? `\n${C.red}[ERROR]${C.reset} Project state is unreadable. Repair or remove ${resolve(config.stateDir, "state.json")} before running nightly maintenance.`
+          : `\n${C.red}[ERROR]${C.reset} No project state found.` +
+              ` Run ${C.bold}autonomous-dev run${C.reset} first.`
+      );
+      process.exit(1);
+    }
+
+    const result = await runNightlyMaintenance(state, config, {
+      ...(opts.maxIterations !== undefined
+        ? { maxIterations: parseInt(opts.maxIterations, 10) }
+        : {}),
+      skipOptimize: opts.skipOptimize ?? false,
+      skipDashboard: opts.skipDashboard ?? false,
+    });
+
+    for (const step of result.steps) {
+      const color =
+        step.status === "failed" ? C.red : step.status === "passed" ? C.green : C.dim;
+      console.log(`${color}[nightly:${step.name}]${C.reset} ${step.status} — ${step.detail}`);
+    }
+
+    if (result.status === "failed") {
+      process.exit(1);
+    }
   });
 
 program

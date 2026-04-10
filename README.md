@@ -64,6 +64,9 @@ npx autonomous-dev phase --name testing
 
 # Run self-improvement optimization
 npx autonomous-dev optimize --max-iterations 10
+
+# Run unattended nightly maintenance
+npx autonomous-dev nightly --max-iterations 3
 ```
 
 ### Development mode (no build step)
@@ -197,12 +200,14 @@ tests/                        # 193 tests across 29 files
 | `autonomous-dev status` | Show project state |
 | `autonomous-dev phase --name <phase>` | Run specific phase |
 | `autonomous-dev optimize` | Run self-improvement loop |
+| `autonomous-dev nightly` | Run unattended nightly optimize/dashboard maintenance |
 
 ## Scripts
 
 ```bash
 npm run build       # Compile TypeScript
 npm run dev         # Run with tsx (no build)
+npm run nightly     # Run unattended nightly maintenance
 npm run test        # Run all tests
 npm run test:watch  # Watch mode
 npm run typecheck   # Type checking
