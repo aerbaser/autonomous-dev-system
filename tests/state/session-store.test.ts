@@ -7,6 +7,9 @@ import {
   setSession,
   getSessionId,
   cleanStaleSessions,
+  loadQueryTelemetry,
+  saveQueryTelemetry,
+  upsertQueryTelemetry,
 } from "../../src/state/session-store.js";
 
 // Must be inside project root to satisfy assertSafePath
@@ -67,6 +70,56 @@ describe("SessionStore", () => {
       const nestedDir = join(TEST_STATE_DIR, "nested", "path");
       const store = setSession({ sessions: {} }, "ideation", "s-1");
       expect(() => saveSessions(nestedDir, store)).not.toThrow();
+      if (existsSync(nestedDir)) rmSync(nestedDir, { recursive: true });
+    });
+  });
+
+  describe("query telemetry store", () => {
+    it("persists and restores query telemetry entries", () => {
+      const telemetry = upsertQueryTelemetry(TEST_STATE_DIR, {
+        sessionId: "query-1",
+        label: "ideation",
+        phase: "ideation",
+        agentName: "spec-writer",
+        model: "unknown",
+        costUsd: 0.12,
+        turns: 3,
+        success: true,
+        startedAt: "2026-04-10T10:00:00.000Z",
+        endedAt: "2026-04-10T10:01:00.000Z",
+        durationMs: 60000,
+      });
+
+      expect(telemetry.queries["query-1"]?.label).toBe("ideation");
+
+      const loaded = loadQueryTelemetry(TEST_STATE_DIR);
+      expect(loaded.queries["query-1"]).toBeDefined();
+      expect(loaded.queries["query-1"]!.sessionId).toBe("query-1");
+      expect(loaded.queries["query-1"]!.turns).toBe(3);
+    });
+
+    it("creates telemetry state dir if it does not exist", () => {
+      const nestedDir = join(TEST_STATE_DIR, "nested", "telemetry");
+      expect(() =>
+        saveQueryTelemetry(nestedDir, {
+          queries: {
+            "query-2": {
+              sessionId: "query-2",
+              label: "architecture",
+              model: "unknown",
+              costUsd: 0.01,
+              turns: 1,
+              success: false,
+              startedAt: "2026-04-10T10:00:00.000Z",
+              endedAt: "2026-04-10T10:00:10.000Z",
+              durationMs: 10000,
+            },
+          },
+        })
+      ).not.toThrow();
+
+      const loaded = loadQueryTelemetry(nestedDir);
+      expect(loaded.queries["query-2"]?.success).toBe(false);
       if (existsSync(nestedDir)) rmSync(nestedDir, { recursive: true });
     });
   });

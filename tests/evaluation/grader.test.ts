@@ -49,6 +49,20 @@ function makeMockQueryStream(structuredOutput: unknown) {
   })();
 }
 
+function makeMockQueryErrorStream(subtype: "error_max_turns" | "error_during_execution" = "error_max_turns") {
+  return (async function* () {
+    yield {
+      type: "result",
+      subtype,
+      result: "",
+      session_id: "grader-session",
+      total_cost_usd: 0.002,
+      num_turns: 0,
+      errors: ["Reached maximum number of turns (1)"],
+    };
+  })();
+}
+
 describe("gradePhaseOutput", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -202,5 +216,24 @@ describe("gradePhaseOutput", () => {
     const callArgs = mockedQuery.mock.calls[0]![0]! as Record<string, unknown>;
     const options = callArgs.options as Record<string, unknown>;
     expect(options.model).toBe("claude-haiku-4-5-20251001");
+  });
+
+  it("fails open when grader query errors", async () => {
+    mockedQuery.mockReturnValue(makeMockQueryErrorStream() as any);
+
+    const state = createInitialState("Test project");
+    const phaseResult: PhaseResult = { success: true, state };
+
+    const { rubricResult, costUsd } = await gradePhaseOutput(
+      TEST_RUBRIC,
+      phaseResult,
+      state,
+      { config: makeConfig() as any },
+    );
+
+    expect(rubricResult.verdict).toBe("satisfied");
+    expect(rubricResult.summary).toContain("Grader unavailable");
+    expect(rubricResult.scores.every((score) => score.passed)).toBe(true);
+    expect(costUsd).toBe(0);
   });
 });

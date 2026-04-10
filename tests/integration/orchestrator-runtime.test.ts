@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { mkdirSync, rmSync, existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -32,15 +32,18 @@ vi.mock("../../src/phases/review.js", () => ({ runReview: vi.fn() }));
 vi.mock("../../src/phases/deployment.js", () => ({ runDeployment: vi.fn() }));
 vi.mock("../../src/phases/ab-testing.js", () => ({ runABTesting: vi.fn() }));
 vi.mock("../../src/phases/monitoring.js", () => ({ runMonitoring: vi.fn() }));
+vi.mock("../../src/dashboard/generate.js", () => ({ generateDashboard: vi.fn() }));
 
 const { runOrchestrator } = await import("../../src/orchestrator.js");
 const { runArchitecture } = await import("../../src/phases/architecture.js");
 const { runReview } = await import("../../src/phases/review.js");
 const { runDeployment } = await import("../../src/phases/deployment.js");
+const { generateDashboard } = await import("../../src/dashboard/generate.js");
 
 const mockedArchitecture = vi.mocked(runArchitecture);
 const mockedReview = vi.mocked(runReview);
 const mockedDeployment = vi.mocked(runDeployment);
+const mockedGenerateDashboard = vi.mocked(generateDashboard);
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
   return {
@@ -60,6 +63,7 @@ describe("Orchestrator runtime matrix", () => {
     vi.clearAllMocks();
     if (existsSync(TEST_DIR)) rmSync(TEST_DIR, { recursive: true });
     mkdirSync(TEST_DIR, { recursive: true });
+    mockedGenerateDashboard.mockResolvedValue(undefined);
   });
 
   it("persists post-phase state when running a single phase", async () => {
@@ -130,5 +134,50 @@ describe("Orchestrator runtime matrix", () => {
 
     const saved = loadState(config.stateDir);
     expect(saved?.currentPhase).toBe("staging");
+  });
+
+  it("persists failed phase diagnostics without marking the phase complete", async () => {
+    const state: ProjectState = {
+      ...createInitialState("Build an app"),
+      currentPhase: "architecture",
+      spec: {
+        summary: "A todo app",
+        userStories: [],
+        nonFunctionalRequirements: [],
+        domain: {
+          classification: "web-application",
+          specializations: [],
+          requiredRoles: [],
+          requiredMcpServers: [],
+          techStack: ["typescript"],
+        },
+      },
+    };
+    const config = makeConfig();
+
+    mockedArchitecture.mockResolvedValueOnce({
+      success: false,
+      error: "Invalid architecture JSON: missing fileStructure",
+      state,
+    });
+
+    await runOrchestrator(state, config, undefined, "architecture");
+
+    const saved = loadState(config.stateDir);
+    expect(saved).not.toBeNull();
+    expect(saved?.currentPhase).toBe("architecture");
+    expect(saved?.completedPhases).not.toContain("architecture");
+    expect(saved?.phaseResults["architecture"]).toMatchObject({
+      success: false,
+      error: "Invalid architecture JSON: missing fileStructure",
+    });
+    expect(mockedGenerateDashboard).toHaveBeenCalledWith(
+      config.stateDir,
+      join(config.stateDir, "dashboard.html"),
+    );
+
+    const eventsDir = join(config.stateDir, "events");
+    const eventFiles = readdirSync(eventsDir);
+    expect(eventFiles.some((file) => file.endsWith(".summary.json"))).toBe(true);
   });
 });

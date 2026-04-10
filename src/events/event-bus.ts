@@ -23,6 +23,7 @@ export interface AgentQueryStartData {
   agentName: string;
   model: string;
   promptLength: number;
+  label?: string | undefined;
 }
 
 export interface AgentQueryEndData {
@@ -33,6 +34,9 @@ export interface AgentQueryEndData {
   costUsd: number;
   durationMs: number;
   success: boolean;
+  label?: string | undefined;
+  sessionId?: string | undefined;
+  turns?: number | undefined;
 }
 
 export interface AgentToolUseData {

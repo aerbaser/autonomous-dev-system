@@ -3,6 +3,7 @@ import { mkdirSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentRegistry } from "../../src/agents/registry.js";
+import type { Config } from "../../src/utils/config.js";
 
 const TEST_STATE_DIR = join(tmpdir(), `ads-test-registry-${process.pid}`);
 
@@ -105,6 +106,32 @@ describe("AgentRegistry", () => {
     expect(def.prompt).toBeTruthy();
     expect(def.tools).toContain("Read");
     expect(def.tools).toContain("Write");
+  });
+
+  it("can convert a subagent into a Codex-backed proxy definition", () => {
+    const registry = new AgentRegistry(TEST_STATE_DIR);
+    const config = {
+      projectDir: TEST_STATE_DIR,
+      stateDir: join(TEST_STATE_DIR, ".autonomous-dev"),
+      codexSubagents: {
+        enabled: true,
+        model: "gpt-5.4",
+        reasoningEffort: "xhigh",
+        sandbox: "workspace-write",
+        approvalPolicy: "on-request",
+        ephemeral: true,
+        skipGitRepoCheck: true,
+      },
+    } as Config;
+
+    const def = registry.toAgentDefinition("developer", config);
+
+    expect(def.description).toContain("Codex-backed");
+    expect(def.prompt).toContain("## FORWARDED ASSIGNMENT FOR CODEX");
+    expect(def.prompt).toContain("gpt-5.4");
+    expect(def.prompt).toContain("reasoning effort \"xhigh\"");
+    expect(def.tools).toContain("Bash");
+    expect(def.tools).not.toContain("Agent");
   });
 
   // ── Domain agent matching ─────────────────────────────────────────────────

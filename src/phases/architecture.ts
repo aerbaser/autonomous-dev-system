@@ -1,10 +1,10 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
 import type { ProjectState, ArchDesign, ArchTask } from "../state/project-state.js";
-import type { PhaseResult } from "./types.js";
+import type { PhaseExecutionContext, PhaseResult } from "./types.js";
 import { buildAgentTeam } from "../agents/factory.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
-import { extractFirstJson, errMsg, wrapUserInput } from "../utils/shared.js";
+import { extractFirstJson, errMsg, isRecord, wrapUserInput } from "../utils/shared.js";
 import { ArchDesignSchema } from "../types/llm-schemas.js";
 
 const ARCH_PROMPT = `You are a Principal Software Architect. Given a product specification, design the complete
@@ -63,9 +63,167 @@ Architecture guidelines:
 
 Think through the architecture step by step, then provide your final answer as a JSON object.`;
 
+const ARCH_REPAIR_PROMPT = `You are repairing a previously generated architecture response so it matches the required JSON contract.
+
+Return ONLY a JSON object with this exact structure:
+{
+  "techStack": { "language": "...", "framework": "..." },
+  "components": [
+    { "name": "Component name", "description": "What it does", "dependencies": [] }
+  ],
+  "apiContracts": "Readable API contract summary as a string",
+  "databaseSchema": "Readable schema summary as a string",
+  "fileStructure": "Readable project tree as a string",
+  "taskDecomposition": {
+    "tasks": [
+      {
+        "id": "T-001",
+        "title": "Task title",
+        "description": "Implementation details",
+        "estimatedComplexity": "low|medium|high",
+        "dependencies": [],
+        "acceptanceCriteria": ["Given/When/Then..."]
+      }
+    ]
+  }
+}
+
+Rules:
+- apiContracts, databaseSchema, and fileStructure MUST be strings, even if the original response used objects or arrays
+- components must be a non-empty array
+- Preserve the original intent; only fix structure and missing required fields
+- Do not include markdown fences or explanation`;
+
+function stringifyArchitectureField(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value == null) return "";
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value, null, 2);
+}
+
+function normalizeArchitecturePayload(payload: unknown): unknown {
+  if (payload == null || typeof payload !== "object" || Array.isArray(payload)) {
+    return payload;
+  }
+
+  const normalized: Record<string, unknown> = { ...payload as Record<string, unknown> };
+  for (const key of ["apiContracts", "databaseSchema", "fileStructure"] as const) {
+    if (key in normalized) {
+      normalized[key] = stringifyArchitectureField(normalized[key]);
+    }
+  }
+
+  if (Array.isArray(normalized["components"])) {
+    normalized["components"] = normalized["components"].map((component) => {
+      if (typeof component === "string") {
+        return {
+          name: component,
+          description: `${component} component`,
+          dependencies: [],
+        };
+      }
+
+      if (!isRecord(component)) {
+        return component;
+      }
+
+      return {
+        name: typeof component["name"] === "string" ? component["name"] : "Unnamed component",
+        description: typeof component["description"] === "string"
+          ? component["description"]
+          : stringifyArchitectureField(component),
+        dependencies: Array.isArray(component["dependencies"])
+          ? component["dependencies"].filter((dep): dep is string => typeof dep === "string")
+          : [],
+      };
+    });
+  }
+
+  return normalized;
+}
+
+function validateArchitectureCompleteness(
+  architecture: Pick<ArchDesign, "techStack" | "components" | "apiContracts" | "databaseSchema" | "fileStructure">
+): string | undefined {
+  const missing: string[] = [];
+  if (Object.keys(architecture.techStack).length === 0) missing.push("techStack");
+  if (architecture.components.length === 0) missing.push("components");
+  if (architecture.apiContracts.trim().length === 0) missing.push("apiContracts");
+  if (architecture.databaseSchema.trim().length === 0) missing.push("databaseSchema");
+  if (architecture.fileStructure.trim().length === 0) missing.push("fileStructure");
+  if (missing.length === 0) return undefined;
+  return `Architecture incomplete: missing ${missing.join(", ")}`;
+}
+
+function parseArchitectureText(archText: string): {
+  parsed?: ReturnType<typeof ArchDesignSchema.parse>;
+  error?: string;
+} {
+  const jsonStr = extractFirstJson(archText);
+  if (!jsonStr) {
+    return { error: "no valid JSON" };
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(jsonStr);
+  } catch {
+    return { error: "no valid JSON" };
+  }
+
+  const normalizedPayload = normalizeArchitecturePayload(parsedJson);
+  const archParseResult = ArchDesignSchema.safeParse(normalizedPayload);
+  if (!archParseResult.success) {
+    return { error: archParseResult.error.message };
+  }
+
+  const completenessError = validateArchitectureCompleteness(archParseResult.data);
+  if (completenessError) {
+    return { error: completenessError };
+  }
+
+  return { parsed: archParseResult.data };
+}
+
+async function repairArchitectureText(
+  archText: string,
+  parseError: string,
+  config: Config,
+  ctx?: PhaseExecutionContext,
+): Promise<{ repairedText: string; costUsd?: number; sessionId?: string }> {
+  const repairResult = await consumeQuery(
+    query({
+      prompt: `${ARCH_REPAIR_PROMPT}
+
+Validation error: ${parseError}
+
+${wrapUserInput("broken-architecture-response", archText)}`,
+      options: {
+        allowedTools: [],
+        ...getQueryPermissions(config),
+        maxTurns: 1,
+      },
+    }),
+    {
+      label: "architecture-repair",
+      eventBus: ctx?.eventBus,
+      phase: "architecture",
+      agentName: "architecture-repair",
+      model: config.model,
+    }
+  );
+
+  return {
+    repairedText: repairResult.result,
+    ...(repairResult.cost != null ? { costUsd: repairResult.cost } : {}),
+    ...(repairResult.sessionId ? { sessionId: repairResult.sessionId } : {}),
+  };
+}
+
 export async function runArchitecture(
   state: ProjectState,
-  config: Config
+  config: Config,
+  ctx?: PhaseExecutionContext,
 ): Promise<PhaseResult> {
   if (!state.spec) {
     return { success: false, state, error: "No spec found. Run ideation first." };
@@ -78,6 +236,7 @@ export async function runArchitecture(
 
   let archText: string;
   let costUsd: number | undefined;
+  let sessionId: string | undefined;
   try {
     const queryResult = await consumeQuery(
       query({
@@ -94,10 +253,17 @@ Recommended tech: ${state.spec.domain.techStack.join(", ")}`,
           maxTurns: getMaxTurns(config, "architecture"),
         },
       }),
-      "architecture"
+      {
+        label: "architecture",
+        eventBus: ctx?.eventBus,
+        phase: "architecture",
+        agentName: "architect",
+        model: config.model,
+      }
     );
     archText = queryResult.result;
     costUsd = queryResult.cost;
+    sessionId = queryResult.sessionId;
   } catch (err) {
     return {
       success: false,
@@ -106,16 +272,36 @@ Recommended tech: ${state.spec.domain.techStack.join(", ")}`,
     };
   }
 
-  const jsonStr = extractFirstJson(archText);
-  if (!jsonStr) {
-    return { success: false, state, error: "Failed to generate architecture: no valid JSON" };
+  let archParseResult = parseArchitectureText(archText);
+  if (!archParseResult.parsed) {
+    console.warn(`[architecture] Primary parse failed, attempting repair: ${archParseResult.error}`);
+    try {
+      const repairResult = await repairArchitectureText(
+        archText,
+        archParseResult.error ?? "unknown parse error",
+        config,
+        ctx,
+      );
+      archText = repairResult.repairedText;
+      if (repairResult.costUsd != null) {
+        costUsd = (costUsd ?? 0) + repairResult.costUsd;
+      }
+      if (!sessionId && repairResult.sessionId) {
+        sessionId = repairResult.sessionId;
+      }
+      archParseResult = parseArchitectureText(archText);
+    } catch (err) {
+      return {
+        success: false,
+        state,
+        error: `Invalid architecture JSON: ${archParseResult.error}. Repair failed: ${errMsg(err)}`,
+      };
+    }
   }
-
-  const archParseResult = ArchDesignSchema.safeParse(JSON.parse(jsonStr));
-  if (!archParseResult.success) {
-    return { success: false, state, error: `Invalid architecture JSON: ${archParseResult.error.message}` };
+  if (!archParseResult.parsed) {
+    return { success: false, state, error: `Invalid architecture JSON: ${archParseResult.error}` };
   }
-  const parsed = archParseResult.data;
+  const parsed = archParseResult.parsed;
 
   // Map Zod output to ArchDesign, stripping explicit undefined to satisfy exactOptionalPropertyTypes
   const architecture: ArchDesign = {
@@ -165,5 +351,6 @@ Recommended tech: ${state.spec.domain.techStack.join(", ")}`,
     nextPhase: "environment-setup",
     state: newState,
     ...(costUsd != null ? { costUsd } : {}),
+    ...(sessionId ? { sessionId } : {}),
   };
 }

@@ -1,7 +1,7 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
 import type { ProjectState, ProductSpec } from "../state/project-state.js";
-import type { PhaseResult } from "./types.js";
+import type { PhaseExecutionContext, PhaseResult } from "./types.js";
 import { analyzeDomain } from "../agents/domain-analyzer.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 import { extractFirstJson, errMsg, wrapUserInput } from "../utils/shared.js";
@@ -68,18 +68,142 @@ Requirements:
 
 Think through your analysis step by step, then provide your final answer as a JSON object.`;
 
+const SPEC_REPAIR_PROMPT = `You are repairing a previously generated product specification so it matches the required JSON contract.
+
+Return ONLY a JSON object with this exact structure:
+{
+  "summary": "2-3 sentence product vision",
+  "targetAudience": {
+    "primaryPersona": "Primary user persona",
+    "secondaryPersonas": ["Other user types"],
+    "marketSize": "Estimated addressable market size"
+  },
+  "competitiveAnalysis": {
+    "directCompetitors": [
+      {
+        "name": "Real competitor name",
+        "strengths": ["what they do well"],
+        "weaknesses": ["where they fall short"],
+        "differentiator": "How our product beats them"
+      }
+    ],
+    "ourEdge": "Main differentiator"
+  },
+  "mvpScope": {
+    "included": ["Core MVP features"],
+    "excluded": ["Deferred items"],
+    "successMetrics": ["Measurable KPIs"]
+  },
+  "techStackRecommendation": {
+    "rationale": "Why this stack fits",
+    "recommended": ["TypeScript", "Node.js"],
+    "alternatives": ["Viable alternatives"]
+  },
+  "userStories": [
+    {
+      "id": "US-001",
+      "title": "Short title",
+      "description": "As a [persona], I want [feature], so that [benefit]",
+      "acceptanceCriteria": ["Given X, When Y, Then Z"],
+      "priority": "must|should|could|wont"
+    }
+  ],
+  "nonFunctionalRequirements": ["Performance requirement", "Security requirement"]
+}
+
+Rules:
+- Preserve the original meaning; only fix structure and formatting
+- Return valid JSON only, with no markdown fences or commentary
+- userStories must be a non-empty array
+- nonFunctionalRequirements must be a non-empty array`;
+
+function parseSpecText(specText: string): {
+  parsed?: ReturnType<typeof ProductSpecWithoutDomainSchema.parse>;
+  error?: string;
+} {
+  const jsonStr = extractFirstJson(specText);
+  if (!jsonStr) {
+    return { error: "no valid JSON in output" };
+  }
+
+  let parsedJson: unknown;
+  try {
+    parsedJson = JSON.parse(jsonStr);
+  } catch {
+    return { error: "no valid JSON in output" };
+  }
+
+  const parseResult = ProductSpecWithoutDomainSchema.safeParse(parsedJson);
+  if (!parseResult.success) {
+    return { error: parseResult.error.message };
+  }
+
+  if (parseResult.data.userStories.length === 0) {
+    return { error: "userStories must not be empty" };
+  }
+  if (parseResult.data.nonFunctionalRequirements.length === 0) {
+    return { error: "nonFunctionalRequirements must not be empty" };
+  }
+
+  return { parsed: parseResult.data };
+}
+
+async function repairSpecText(
+  specText: string,
+  parseError: string,
+  state: ProjectState,
+  config: Config,
+  ctx?: PhaseExecutionContext,
+): Promise<{ repairedText: string; costUsd?: number; sessionId?: string }> {
+  const repairResult = await consumeQuery(
+    query({
+      prompt: `${SPEC_REPAIR_PROMPT}
+
+Validation error: ${parseError}
+
+${wrapUserInput("project-idea", state.idea)}
+
+${wrapUserInput("broken-product-spec", specText)}`,
+      options: {
+        allowedTools: [],
+        ...getQueryPermissions(config),
+        maxTurns: 1,
+      },
+    }),
+    {
+      label: "ideation-repair",
+      eventBus: ctx?.eventBus,
+      phase: "ideation",
+      agentName: "spec-repair",
+      model: config.model,
+    }
+  );
+
+  return {
+    repairedText: repairResult.result,
+    ...(repairResult.cost != null ? { costUsd: repairResult.cost } : {}),
+    ...(repairResult.sessionId ? { sessionId: repairResult.sessionId } : {}),
+  };
+}
+
 export async function runIdeation(
   state: ProjectState,
-  config: Config
+  config: Config,
+  ctx?: PhaseExecutionContext,
 ): Promise<PhaseResult> {
   console.log("[ideation] Generating product specification...");
 
   // Step 1: Domain analysis (parallel with spec generation)
-  const domainPromise = analyzeDomain(state.idea, config);
+  const domainPromise = analyzeDomain(state.idea, config, {
+    eventBus: ctx?.eventBus,
+    phase: "ideation",
+    model: config.model,
+  });
 
   // Step 2: Generate spec
   let specText: string;
   let costUsd: number | undefined;
+  let sessionId: string | undefined;
   try {
     const queryResult = await consumeQuery(
       query({
@@ -90,10 +214,17 @@ export async function runIdeation(
           maxTurns: getMaxTurns(config, "ideation"),
         },
       }),
-      "ideation"
+      {
+        label: "ideation",
+        eventBus: ctx?.eventBus,
+        phase: "ideation",
+        agentName: "spec-writer",
+        model: config.model,
+      }
     );
     specText = queryResult.result;
     costUsd = queryResult.cost;
+    sessionId = queryResult.sessionId;
   } catch (err) {
     return {
       success: false,
@@ -102,25 +233,41 @@ export async function runIdeation(
     };
   }
 
-  // Parse spec
-  const jsonStr = extractFirstJson(specText);
-  if (!jsonStr) {
+  let specParseResult = parseSpecText(specText);
+  if (!specParseResult.parsed) {
+    console.warn(`[ideation] Primary parse failed, attempting repair: ${specParseResult.error}`);
+    try {
+      const repairResult = await repairSpecText(
+        specText,
+        specParseResult.error ?? "unknown parse error",
+        state,
+        config,
+        ctx,
+      );
+      specText = repairResult.repairedText;
+      if (repairResult.costUsd != null) {
+        costUsd = (costUsd ?? 0) + repairResult.costUsd;
+      }
+      if (!sessionId && repairResult.sessionId) {
+        sessionId = repairResult.sessionId;
+      }
+      specParseResult = parseSpecText(specText);
+    } catch (err) {
+      return {
+        success: false,
+        state,
+        error: `Invalid spec JSON: ${specParseResult.error}. Repair failed: ${errMsg(err)}`,
+      };
+    }
+  }
+  if (!specParseResult.parsed) {
     return {
       success: false,
       state,
-      error: "Failed to generate spec: no valid JSON in output",
+      error: `Invalid spec JSON: ${specParseResult.error}`,
     };
   }
-
-  const parseResult = ProductSpecWithoutDomainSchema.safeParse(JSON.parse(jsonStr));
-  if (!parseResult.success) {
-    return {
-      success: false,
-      state,
-      error: `Invalid spec JSON: ${parseResult.error.message}`,
-    };
-  }
-  const specData = parseResult.data;
+  const specData = specParseResult.parsed;
 
   // Step 3: Combine with domain analysis
   const domain = await domainPromise;
@@ -154,5 +301,6 @@ export async function runIdeation(
     nextPhase: "specification",
     state: newState,
     ...(costUsd != null ? { costUsd } : {}),
+    ...(sessionId ? { sessionId } : {}),
   };
 }

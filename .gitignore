@@ -41,3 +41,6 @@ tasks-plans/
 
 # Old autonomous dev runs
 .autonomous-dev-old-run*/
+
+# Generated end-to-end run sandboxes
+e2e-runs/

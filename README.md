@@ -15,6 +15,7 @@ idea → ideation → specification → architecture → environment-setup
 **Key features:**
 - **Phase-based orchestration** — each phase produces artifacts consumed by the next
 - **Dynamic agent factory** — creates domain-specific agents on the fly (e.g., a "quant researcher" for fintech projects)
+- **Codex-backed subagents** — Opus can keep orchestrating ordinary subagents while the actual implementation work is delegated to `codex exec` on `gpt-5.4` with `xhigh` reasoning
 - **Stack auto-discovery** — detects your tech stack and configures LSP servers, MCP servers, and Claude Code plugins automatically
 - **Self-improvement engine** — benchmarks agent performance and evolves prompts via mutation + hill-climbing optimization
 - **Git worktree sandbox** — evaluates mutations in isolated worktrees so your working directory stays clean
@@ -86,6 +87,13 @@ The system looks for config in `.autonomous-dev/config.json`, or you can pass `-
   "subagentModel": "claude-sonnet-4-6",
   "projectDir": ".",
   "stateDir": ".autonomous-dev",
+  "codexSubagents": {
+    "enabled": true,
+    "model": "gpt-5.4",
+    "reasoningEffort": "xhigh",
+    "sandbox": "workspace-write",
+    "approvalPolicy": "on-request"
+  },
   "selfImprove": {
     "enabled": true,
     "maxIterations": 50
@@ -96,6 +104,8 @@ The system looks for config in `.autonomous-dev/config.json`, or you can pass `-
   }
 }
 ```
+
+When `codexSubagents.enabled=true`, the development orchestrator still delegates to normal-looking subagents through Opus, but each subagent becomes a thin proxy that forwards its assignment to `codex exec` and reports the result back upstream.
 
 Environment variables (all optional):
 - `GITHUB_TOKEN` — for GitHub integrations
@@ -125,6 +135,7 @@ src/
 │   └── monitoring.ts         # Structured output: MonitoringResultSchema
 ├── agents/                   # Agent management
 │   ├── base-blueprints.ts    # 7 base agents + getBaseAgentNames()
+│   ├── codex-proxy.ts        # Wraps normal subagents so Opus can delegate into Codex CLI
 │   ├── factory.ts            # Dynamic domain-specific agent creation
 │   ├── registry.ts           # Blueprint storage + performance tracking
 │   ├── domain-analyzer.ts    # Domain classification via LLM

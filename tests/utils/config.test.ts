@@ -6,4 +6,14 @@ describe("loadConfig", () => {
     const { loadConfig } = await import("../../src/utils/config.js");
     expect(typeof loadConfig).toBe("function");
   });
+
+  it("exposes sane defaults for optional codex-backed subagents", async () => {
+    const { getCodexSubagentsConfig } = await import("../../src/utils/config.js");
+    const codex = getCodexSubagentsConfig();
+
+    expect(codex.enabled).toBe(false);
+    expect(codex.model).toBe("gpt-5.4");
+    expect(codex.reasoningEffort).toBe("xhigh");
+    expect(codex.sandbox).toBe("workspace-write");
+  });
 });

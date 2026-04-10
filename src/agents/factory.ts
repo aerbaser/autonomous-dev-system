@@ -1,5 +1,6 @@
+import type { AgentDefinition } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
-import type { ProjectState, AgentBlueprint } from "../state/project-state.js";
+import type { ProjectState } from "../state/project-state.js";
 import { AgentRegistry } from "./registry.js";
 import { analyzeDomain, generateDomainAgents } from "./domain-analyzer.js";
 import { getBaseAgentNames } from "./base-blueprints.js";
@@ -54,12 +55,13 @@ export async function buildAgentTeam(
  * Get all agent definitions for the Agent SDK, suitable for passing to query() options.
  */
 export function getAgentDefinitions(
-  registry: AgentRegistry
-): Record<string, { description: string; prompt: string; tools: string[] }> {
-  const defs: Record<string, { description: string; prompt: string; tools: string[] }> = {};
+  registry: AgentRegistry,
+  config?: Config,
+): Record<string, AgentDefinition> {
+  const defs: Record<string, AgentDefinition> = {};
 
   for (const bp of registry.getAll()) {
-    defs[bp.name] = registry.toAgentDefinition(bp.name);
+    defs[bp.name] = registry.toAgentDefinition(bp.name, config);
   }
 
   return defs;

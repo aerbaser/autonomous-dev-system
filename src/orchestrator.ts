@@ -32,10 +32,12 @@ import type { PhaseResult, PhaseHandler, PhaseContext, PhaseExecutionContext } f
 import { EventBus } from "./events/event-bus.js";
 import { EventLogger } from "./events/event-logger.js";
 import { Interrupter } from "./events/interrupter.js";
+import { generateDashboard } from "./dashboard/generate.js";
 import { MemoryStore } from "./state/memory-store.js";
 import { capturePhaseMemories } from "./hooks/memory-capture.js";
 import { errMsg } from "./utils/shared.js";
 import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 import { getPhaseRubric } from "./evaluation/phase-rubrics.js";
 import { gradePhaseOutput } from "./evaluation/grader.js";
 import type { RubricResult } from "./evaluation/rubric.js";
@@ -166,6 +168,39 @@ function buildProgressBar(current: number, total: number): string {
   return `${bar} ${pct}%`;
 }
 
+function appendUniquePhase(phases: Phase[], phase: Phase): Phase[] {
+  return phases.includes(phase) ? phases : [...phases, phase];
+}
+
+function recordPhaseResult(
+  previousState: ProjectState,
+  nextState: ProjectState,
+  phase: Phase,
+  result: PhaseResult,
+  totalCostUsd: number,
+): ProjectState {
+  const phaseResult = {
+    success: result.success,
+    ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+    ...(result.error !== undefined ? { error: result.error } : {}),
+    timestamp: new Date().toISOString(),
+  };
+
+  return {
+    ...previousState,
+    ...nextState,
+    totalCostUsd,
+    phaseResults: {
+      ...(previousState.phaseResults ?? {}),
+      ...(nextState.phaseResults ?? {}),
+      [phase]: phaseResult,
+    },
+    completedPhases: result.success
+      ? appendUniquePhase(previousState.completedPhases ?? [], phase)
+      : (previousState.completedPhases ?? []),
+  };
+}
+
 export async function runOrchestrator(
   initialState: ProjectState,
   config: Config,
@@ -189,6 +224,7 @@ export async function runOrchestrator(
   const eventBus = new EventBus();
   const runId = randomUUID();
   const eventLogger = new EventLogger(config.stateDir, runId);
+  const dashboardPath = resolve(config.stateDir, "dashboard.html");
   const unsubLogger = eventBus.onAll((record) => {
     eventLogger.log(record).catch((err) => {
       console.error(`[event-logger] Failed to write event: ${err}`);
@@ -204,6 +240,40 @@ export async function runOrchestrator(
     : null;
 
   let totalCostUsd = 0;
+
+  const flushRunArtifacts = async (): Promise<void> => {
+    try {
+      saveState(config.stateDir, state);
+    } catch (err) {
+      console.error(`[orchestrator] Failed to save final state: ${errMsg(err)}`);
+    }
+
+    try {
+      unsubLogger();
+    } catch {
+      // ignore unsubscribe failures during shutdown
+    }
+
+    try {
+      await eventLogger.close();
+    } catch (err) {
+      console.error(`[event-logger] Failed to close event log: ${errMsg(err)}`);
+    }
+
+    try {
+      const summaryPath = await eventLogger.persistRunSummary();
+      console.log(`[event-logger] Run summary saved: ${summaryPath}`);
+    } catch (err) {
+      console.error(`[event-logger] Failed to persist run summary: ${errMsg(err)}`);
+    }
+
+    try {
+      await generateDashboard(config.stateDir, dashboardPath);
+      console.log(`[dashboard] Generated ${dashboardPath}`);
+    } catch (err) {
+      console.error(`[dashboard] Failed to generate dashboard: ${errMsg(err)}`);
+    }
+  };
 
   // Clean up stale sessions on startup
   let sessionStore = loadSessions(config.stateDir);
@@ -224,12 +294,14 @@ export async function runOrchestrator(
 
   if (singlePhase) {
     console.log(`[orchestrator] Running single phase: ${singlePhase}`);
-    const singlePhaseResult = await executePhaseSafe(singlePhase, state, config, eventBus);
+    eventBus.emit("session.state", { phase: singlePhase, state: "running" });
+    const singlePhaseResult = await executePhaseSafe(singlePhase, state, config, eventBus, undefined);
     if (singlePhaseResult) {
-      saveState(config.stateDir, singlePhaseResult.state);
+      if (singlePhaseResult.costUsd !== undefined) {
+        totalCostUsd += singlePhaseResult.costUsd;
+      }
+      state = recordPhaseResult(state, singlePhaseResult.state, singlePhase, singlePhaseResult, totalCostUsd);
     }
-    unsubLogger();
-    await eventLogger.close();
     return;
   }
 
@@ -263,6 +335,7 @@ export async function runOrchestrator(
 
     progress.emit("phase:start", { phase, index: phaseIndex, total: totalPhases });
     eventBus.emit("orchestrator.phase.start", { phase });
+    eventBus.emit("session.state", { phase, state: "running" });
     console.log(`[orchestrator] Phase ${iterations}: ${phase}`);
 
     // Quick mode: skip optional phases
@@ -345,6 +418,7 @@ export async function runOrchestrator(
       costUsd: result?.costUsd,
       durationMs: elapsedMs,
     });
+    eventBus.emit("session.state", { phase, state: phaseSuccess ? "idle" : "terminated" });
     console.log(`[progress] ${phase} completed in ${elapsed}s`);
 
     if (!result) {
@@ -352,28 +426,13 @@ export async function runOrchestrator(
       break;
     }
 
-    if (result.costUsd) {
+    if (result.costUsd !== undefined) {
       totalCostUsd += result.costUsd;
       console.log(`[budget] Phase cost: $${result.costUsd.toFixed(4)}, total: $${totalCostUsd.toFixed(4)}`);
     }
 
-    // Persist running cost total into state so it survives checkpoints/resume
-    state = { ...result.state, totalCostUsd };
-
-    // Track completed phases and their results
-    state = {
-      ...state,
-      completedPhases: [...(state.completedPhases ?? []), phase],
-      phaseResults: {
-        ...(state.phaseResults ?? {}),
-        [phase]: {
-          success: result.success,
-          ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
-          ...(result.error !== undefined ? { error: result.error } : {}),
-          timestamp: new Date().toISOString(),
-        },
-      },
-    };
+    // Persist running cost total and phase outcome into state so it survives checkpoints/resume.
+    state = recordPhaseResult(state, result.state, phase, result, totalCostUsd);
 
     if (budgetUsd !== undefined && totalCostUsd > budgetUsd) {
       console.log(`[budget] Budget exceeded ($${totalCostUsd.toFixed(4)}/$${budgetUsd.toFixed(4)}). Stopping.`);
@@ -451,13 +510,10 @@ export async function runOrchestrator(
 
   console.log(`\n[orchestrator] Finished. Final phase: ${state.currentPhase}, total cost: $${totalCostUsd.toFixed(2)}`);
 
-  // Clean up event logger
-  unsubLogger();
-  await eventLogger.close();
-  console.log(`[event-logger] Run events saved: ${eventLogger.getLogPath()}`);
-
   } finally {
     process.removeListener("SIGINT", sigintHandler);
+    await flushRunArtifacts();
+    console.log(`[event-logger] Run events saved: ${eventLogger.getLogPath()}`);
   }
 }
 
@@ -505,6 +561,7 @@ async function executePhaseSafe(
           ...(checkpoint ? { checkpoint } : {}),
           ...(sessionId ? { sessionId } : {}),
           ...(context ? { context } : {}),
+          ...(eventBus ? { eventBus } : {}),
         };
         const phaseResult = await handler(state, config, execCtx);
 
@@ -575,6 +632,7 @@ async function executePhaseSafe(
             ...(checkpoint ? { checkpoint } : {}),
             ...(sessionId ? { sessionId } : {}),
             context: ctx,
+            ...(eventBus ? { eventBus } : {}),
           };
           const iterResult =
             iter === 1 ? result : await handler(currentState, config, iterExecCtx);

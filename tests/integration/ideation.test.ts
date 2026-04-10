@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createInitialState } from "../../src/state/project-state.js";
 import type { Config } from "../../src/utils/config.js";
 
@@ -33,7 +33,37 @@ function makeConfig(): Config {
   };
 }
 
+function makeMockQueryIterator(resultText: string) {
+  return {
+    [Symbol.asyncIterator]() {
+      let done = false;
+      return {
+        async next() {
+          if (done) return { value: undefined, done: true };
+          done = true;
+          return {
+            value: {
+              result: resultText,
+              type: "result",
+              subtype: "success",
+              session_id: "test-s",
+              total_cost_usd: 0.01,
+              num_turns: 1,
+            },
+            done: false,
+          };
+        },
+      };
+    },
+    close() {},
+  };
+}
+
 describe("Ideation Phase", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
   it("generates a valid product spec from query result", async () => {
     const specJson = JSON.stringify({
       summary: "A task management app for teams with real-time collaboration",
@@ -93,23 +123,7 @@ describe("Ideation Phase", () => {
     });
 
     // Mock query to return a realistic spec
-    const mockAsyncIterator = {
-      [Symbol.asyncIterator]() {
-        let done = false;
-        return {
-          async next() {
-            if (done) return { value: undefined, done: true };
-            done = true;
-            return {
-              value: { result: specJson, type: "result", subtype: "success", session_id: "test-s" },
-              done: false,
-            };
-          },
-        };
-      },
-      close() {},
-    };
-    mockedQuery.mockReturnValue(mockAsyncIterator as any);
+    mockedQuery.mockReturnValue(makeMockQueryIterator(specJson) as any);
 
     // Mock domain analysis
     mockedAnalyzeDomain.mockResolvedValue({
@@ -142,24 +156,28 @@ describe("Ideation Phase", () => {
     expect(priorities.filter((p) => p === "must").length).toBeGreaterThanOrEqual(2);
   });
 
-  it("returns failure when query returns no JSON", async () => {
-    const mockAsyncIterator = {
-      [Symbol.asyncIterator]() {
-        let done = false;
-        return {
-          async next() {
-            if (done) return { value: undefined, done: true };
-            done = true;
-            return {
-              value: { result: "I could not generate a spec for this idea.", type: "result", subtype: "success", session_id: "test-s" },
-              done: false,
-            };
-          },
-        };
-      },
-      close() {},
-    };
-    mockedQuery.mockReturnValue(mockAsyncIterator as any);
+  it("repairs a non-JSON spec response into valid JSON", async () => {
+    const repairedSpecJson = JSON.stringify({
+      summary: "A focused todo app for small teams",
+      userStories: [
+        {
+          id: "US-001",
+          title: "Create task",
+          description: "As a user, I want to create tasks so I can track work",
+          acceptanceCriteria: [
+            "Given the dashboard, When I click new task, Then a task form appears",
+          ],
+          priority: "must",
+        },
+      ],
+      nonFunctionalRequirements: [
+        "Performance: page load under 2s",
+      ],
+    });
+
+    mockedQuery
+      .mockReturnValueOnce(makeMockQueryIterator("I could not generate a spec for this idea.") as any)
+      .mockReturnValueOnce(makeMockQueryIterator(repairedSpecJson) as any);
 
     mockedAnalyzeDomain.mockResolvedValue({
       classification: "web-application",
@@ -172,28 +190,15 @@ describe("Ideation Phase", () => {
     const state = createInitialState("Something vague");
     const result = await runIdeation(state, makeConfig());
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain("no valid JSON");
+    expect(result.success).toBe(true);
+    expect(mockedQuery).toHaveBeenCalledTimes(2);
+    expect(result.state.spec?.summary).toContain("todo app");
   });
 
-  it("returns failure when query returns invalid JSON", async () => {
-    const mockAsyncIterator = {
-      [Symbol.asyncIterator]() {
-        let done = false;
-        return {
-          async next() {
-            if (done) return { value: undefined, done: true };
-            done = true;
-            return {
-              value: { result: "{ invalid json }", type: "result", subtype: "success", session_id: "test-s" },
-              done: false,
-            };
-          },
-        };
-      },
-      close() {},
-    };
-    mockedQuery.mockReturnValue(mockAsyncIterator as any);
+  it("returns failure when initial response and repair output are both invalid", async () => {
+    mockedQuery
+      .mockReturnValueOnce(makeMockQueryIterator("{ invalid json }") as any)
+      .mockReturnValueOnce(makeMockQueryIterator("still not json") as any);
 
     mockedAnalyzeDomain.mockResolvedValue({
       classification: "web-application",
@@ -207,6 +212,7 @@ describe("Ideation Phase", () => {
     const result = await runIdeation(state, makeConfig());
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("no valid JSON");
+    expect(mockedQuery).toHaveBeenCalledTimes(2);
+    expect(result.error).toContain("Invalid spec JSON");
   });
 });

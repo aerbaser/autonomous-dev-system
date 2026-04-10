@@ -50,6 +50,26 @@ const memorySchema = z.object({
   captureModel: z.string().optional(),
 });
 
+const codexSubagentsSchema = z.object({
+  enabled: z.boolean().default(false),
+  model: z.string().default("gpt-5.4"),
+  reasoningEffort: z.enum(["low", "medium", "high", "xhigh"]).default("xhigh"),
+  sandbox: z.enum(["read-only", "workspace-write", "danger-full-access"]).default("workspace-write"),
+  approvalPolicy: z.enum(["untrusted", "on-request", "never"]).default("on-request"),
+  ephemeral: z.boolean().default(true),
+  skipGitRepoCheck: z.boolean().default(true),
+});
+
+export const DEFAULT_CODEX_SUBAGENTS = {
+  enabled: false,
+  model: "gpt-5.4",
+  reasoningEffort: "xhigh",
+  sandbox: "workspace-write",
+  approvalPolicy: "on-request",
+  ephemeral: true,
+  skipGitRepoCheck: true,
+} satisfies z.input<typeof codexSubagentsSchema>;
+
 const deployTargetSchema = z.object({
   provider: z.enum(["vercel", "netlify", "docker", "custom"]),
   config: z.record(z.string(), z.string()).default({}),
@@ -84,6 +104,7 @@ export const ConfigSchema = z.object({
     maxDocuments: 500,
     maxDocumentSizeKb: 100,
   } satisfies z.input<typeof memorySchema>),
+  codexSubagents: codexSubagentsSchema.optional(),
   rubrics: z.object({
     enabled: z.boolean().default(true),
     maxIterations: z.number().default(3),
@@ -92,6 +113,14 @@ export const ConfigSchema = z.object({
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
+export type CodexSubagentsConfig = z.infer<typeof codexSubagentsSchema>;
+
+export function getCodexSubagentsConfig(config?: Config): CodexSubagentsConfig {
+  return {
+    ...DEFAULT_CODEX_SUBAGENTS,
+    ...(config?.codexSubagents ?? {}),
+  };
+}
 
 export function loadConfig(configPath?: string): Config {
   const defaults: Record<string, unknown> = {

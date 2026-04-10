@@ -1,6 +1,7 @@
 import type { ProjectState, Phase, PhaseCheckpoint } from "../state/project-state.js";
 import type { Config } from "../utils/config.js";
 import type { RubricResult } from "../evaluation/rubric.js";
+import type { EventBus } from "../events/event-bus.js";
 
 export interface PhaseContext {
   memoryContext?: string | undefined;
@@ -24,6 +25,7 @@ export interface PhaseExecutionContext {
   checkpoint?: PhaseCheckpoint;
   sessionId?: string;
   context?: PhaseContext;
+  eventBus?: EventBus;
 }
 
 export type PhaseHandler = (

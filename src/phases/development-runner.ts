@@ -15,6 +15,7 @@ import type {
   TaskResult,
 } from "./development-types.js";
 import { AgentRegistry } from "../agents/registry.js";
+import { buildRunnableAgentDefinition } from "../agents/codex-proxy.js";
 import { buildAgentTeam, getAgentDefinitions } from "../agents/factory.js";
 import { getMcpServerConfigs } from "../environment/mcp-manager.js";
 import { qualityGateHook } from "../hooks/quality-gate.js";
@@ -127,7 +128,7 @@ export async function runDevelopment(
   // buildAgentTeam is idempotent: it skips generation if agents already exist.
   await buildAgentTeam(updatedState, config);
   const registry = new AgentRegistry(config.stateDir);
-  const baseAgentDefs = getAgentDefinitions(registry);
+  const baseAgentDefs = getAgentDefinitions(registry, config);
   const mcpServers = state.environment
     ? getMcpServerConfigs(state.environment.mcpServers)
     : {};
@@ -442,7 +443,7 @@ const BASE_AGENT_NAMES = getBaseAgentNames();
 function buildBatchAgents(
   batch: Task[],
   state: ProjectState,
-  baseAgentDefs: Record<string, { description: string; prompt: string; tools: string[] }>,
+  baseAgentDefs: Record<string, AgentDefinition>,
   config: Config,
   registry: AgentRegistry
 ): Record<string, AgentDefinition> {
@@ -451,9 +452,7 @@ function buildBatchAgents(
   // Include base agents (developer, qa-engineer, etc.)
   for (const [name, def] of Object.entries(baseAgentDefs)) {
     agents[name] = {
-      description: def.description,
-      prompt: def.prompt,
-      tools: def.tools,
+      ...def,
       model: config.subagentModel,
       maxTurns: getMaxTurns(config, "default"),
     };
@@ -476,22 +475,25 @@ function buildBatchAgents(
 
     if (matchingDomain) {
       const agentName = matchingDomain.name;
-      const def = registry.toAgentDefinition(agentName);
+      const def = registry.toAgentDefinition(agentName, config);
       console.log(`[dev] Using domain agent: ${agentName}`);
       agents[agentName] = {
-        description: def.description,
+        ...def,
         prompt: def.prompt + `\n\n${wrapUserInput("current-task", `**${task.title}**\n${task.description}`)}`,
-        tools: def.tools,
         model: config.subagentModel,
         maxTurns: getMaxTurns(config, "default"),
       };
     } else {
       const agentName = `dev-${task.id.slice(0, 8)}`;
       console.log(`[dev] Using generic agent for: ${task.title}`);
-      agents[agentName] = {
-        description: `Implement: ${task.title}`,
-        prompt: buildTaskPrompt(task, state),
+      const def = buildRunnableAgentDefinition({
+        name: agentName,
+        role: "Software Developer",
+        systemPrompt: buildTaskPrompt(task, state),
         tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
+      }, config);
+      agents[agentName] = {
+        ...def,
         model: config.subagentModel,
         maxTurns: getMaxTurns(config, "default"),
       };
@@ -701,7 +703,7 @@ async function runQualityChecks(): Promise<boolean> {
 async function autoFixQualityIssues(
   state: ProjectState,
   config: Config,
-  agentDefs: Record<string, { description: string; prompt: string; tools: string[] }>,
+  agentDefs: Record<string, AgentDefinition>,
   mcpServers: Record<string, McpServerConfig>
 ): Promise<{ fixed: boolean; costUsd: number }> {
   // Capture current errors
@@ -741,10 +743,8 @@ After fixing, run \`npx tsc --noEmit\` and \`npm test\` to verify.`;
   const sdkAgentDefs: Record<string, AgentDefinition> = {};
   for (const [name, def] of Object.entries(agentDefs)) {
     sdkAgentDefs[name] = {
-      description: def.description,
-      prompt: def.prompt,
-      tools: def.tools,
-      model: config.subagentModel,
+      ...def,
+      model: def.model ?? config.subagentModel,
     };
   }
 
