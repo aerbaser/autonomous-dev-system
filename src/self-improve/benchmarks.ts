@@ -45,9 +45,16 @@ export async function runBenchmark(
       : createLlmVerifier("Rate the quality of the output on a scale of 0 to 1, considering correctness, completeness, and clarity.", {});
 
   for (const task of benchmark.tasks) {
-    const result = await verifier.run(task);
-    taskScores.push(result.score);
-    totalCost += result.costUsd;
+    try {
+      const result = await verifier.run(task);
+      taskScores.push(Number.isFinite(result.score) ? result.score : 0);
+      totalCost += result.costUsd ?? 0;
+    } catch (err) {
+      console.log(
+        `[benchmark] Task failed for ${benchmark.id}: ${err instanceof Error ? err.message : String(err)}`
+      );
+      taskScores.push(0);
+    }
   }
 
   const avgScore =
@@ -115,7 +122,8 @@ export async function runAllBenchmarks(
     const result = results[i];
     const benchmark = suite[i];
     if (result && benchmark) {
-      weightedSum += result.score * benchmark.weight;
+      const score = Number.isFinite(result.score) ? result.score : 0;
+      weightedSum += score * benchmark.weight;
       totalWeight += benchmark.weight;
     }
   }

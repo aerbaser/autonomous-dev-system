@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { PhaseResult } from "../../src/phases/types.js";
 import type { Rubric, RubricResult } from "../../src/evaluation/rubric.js";
 import { createInitialState } from "../../src/state/project-state.js";
+import { EventBus } from "../../src/events/event-bus.js";
 
 // Mock grader
 vi.mock("../../src/evaluation/grader.js", () => ({
@@ -213,5 +214,60 @@ describe("evaluateWithRubric", () => {
 
     // 3 handler calls * 0.10 + 3 grader calls * 0.05 = 0.45
     expect(result.costUsd).toBeCloseTo(0.45);
+  });
+
+  it("accumulates prior iteration costs and emits start/end events when a later iteration fails", async () => {
+    const state = createInitialState("Test");
+    const handler = vi
+      .fn<() => Promise<PhaseResult>>()
+      .mockResolvedValueOnce({
+        success: true,
+        state,
+        costUsd: 0.10,
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        state,
+        error: "Compilation failed on retry",
+        costUsd: 0.20,
+      });
+
+    mockedGradePhaseOutput.mockResolvedValue({
+      rubricResult: makeRubricResult("needs_revision", 0.5),
+      costUsd: 0.01,
+    });
+
+    const eventBus = new EventBus();
+
+    const result = await evaluateWithRubric(
+      handler,
+      makeConfig() as any,
+      TEST_RUBRIC,
+      3,
+      { eventBus, phase: "development" },
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.costUsd).toBeCloseTo(0.31);
+    expect(result.totalIterations).toBe(2);
+    expect(eventBus.getEvents()).toEqual([
+      expect.objectContaining({
+        type: "evaluation.rubric.start",
+        data: expect.objectContaining({ phase: "development", rubricName: "test-rubric", iteration: 1 }),
+      }),
+      expect.objectContaining({
+        type: "evaluation.rubric.start",
+        data: expect.objectContaining({ phase: "development", rubricName: "test-rubric", iteration: 2 }),
+      }),
+      expect.objectContaining({
+        type: "evaluation.rubric.end",
+        data: expect.objectContaining({
+          phase: "development",
+          rubricName: "test-rubric",
+          result: "failed",
+          iteration: 2,
+        }),
+      }),
+    ]);
   });
 });

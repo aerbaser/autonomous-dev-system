@@ -54,6 +54,7 @@ export async function evaluateWithRubric(
       }
       return {
         ...phaseResult,
+        costUsd: totalCost,
         rubricResult: {
           rubricName: rubric.name,
           scores: [],

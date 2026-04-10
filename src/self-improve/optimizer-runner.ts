@@ -113,6 +113,8 @@ export async function runOptimizerImpl(
     savePromptVersion(config.stateDir, agent);
   }
 
+  saveState(config.stateDir, currentState);
+
   // Update convergence with baseline
   convergenceState = updateConvergence(convergenceState, baselineScore, convergenceConfig);
 
@@ -162,63 +164,67 @@ export async function runOptimizerImpl(
       registry.register(mutatedBlueprint);
 
       // Re-run benchmarks (optionally inside an isolated worktree)
-      let newScore: number;
-      let newResults: BenchmarkResult[];
-      let iterCost: number;
+      let newScore = 0;
+      let newResults: BenchmarkResult[] = [];
+      let iterCost = 0;
+      let evaluationFailed = false;
+      let evaluationFailureMessage = "";
 
-      if (options.worktreeIsolation) {
-        const worktreeResult = await runInWorktreeSandbox(
-          async (_worktreeDir) => {
-            const benchResult = await runAllBenchmarks(benchmarks, {
-              ...(options.parallel !== undefined ? { parallel: options.parallel } : {}),
-              stateDir: config.stateDir,
-            });
-            return {
-              success: true,
-              output: JSON.stringify(benchResult),
-              exitCode: 0,
-              durationMs: 0,
-            };
-          },
-          {
-            repoDir: options.worktreeIsolation.repoDir,
-            timeoutMs: options.worktreeIsolation.timeoutMs ?? 300_000,
-          }
-        );
-
-        if (worktreeResult.success) {
-          try {
-            const parsedResult = BenchmarkRunResultSchema.safeParse(JSON.parse(worktreeResult.output));
-            if (!parsedResult.success) {
-              console.log(`[optimizer] Failed to parse worktree result: ${worktreeResult.output.slice(0, 100)}`);
-              registry.register(mutation.rollback());
-              continue;
+      try {
+        if (options.worktreeIsolation) {
+          const worktreeResult = await runInWorktreeSandbox(
+            async (_worktreeDir) => {
+              const benchResult = await runAllBenchmarks(benchmarks, {
+                ...(options.parallel !== undefined ? { parallel: options.parallel } : {}),
+                stateDir: config.stateDir,
+              });
+              return {
+                success: true,
+                output: JSON.stringify(benchResult),
+                exitCode: 0,
+                durationMs: 0,
+              };
+            },
+            {
+              repoDir: options.worktreeIsolation.repoDir,
+              timeoutMs: options.worktreeIsolation.timeoutMs ?? 300_000,
             }
-            const parsed = parsedResult.data;
-            newScore = parsed.totalScore;
-            newResults = parsed.results;
-            iterCost = parsed.totalCostUsd;
-          } catch {
-            console.log(`[optimizer] Failed to parse worktree result: ${worktreeResult.output.slice(0, 100)}`);
-            registry.register(mutation.rollback());
-            continue;
+          );
+
+          if (worktreeResult.success) {
+            const parsedResult = BenchmarkRunResultSchema.safeParse(
+              JSON.parse(worktreeResult.output)
+            );
+            if (!parsedResult.success) {
+              evaluationFailed = true;
+              evaluationFailureMessage = `Failed to parse worktree result: ${worktreeResult.output.slice(0, 100)}`;
+            } else {
+              const parsed = parsedResult.data;
+              newScore = parsed.totalScore;
+              newResults = parsed.results;
+              iterCost = parsed.totalCostUsd;
+            }
+          } else {
+            console.log(
+              `[optimizer] Worktree sandbox failed: ${worktreeResult.error}`
+            );
           }
         } else {
-          console.log(
-            `[optimizer] Worktree sandbox failed: ${worktreeResult.error}`
-          );
-          newScore = 0;
-          newResults = [];
-          iterCost = 0;
+          const benchResult = await runAllBenchmarks(benchmarks, {
+            ...(options.parallel !== undefined ? { parallel: options.parallel } : {}),
+            stateDir: config.stateDir,
+          });
+          newScore = benchResult.totalScore;
+          newResults = benchResult.results;
+          iterCost = benchResult.totalCostUsd;
         }
-      } else {
-        const benchResult = await runAllBenchmarks(benchmarks, {
-          ...(options.parallel !== undefined ? { parallel: options.parallel } : {}),
-          stateDir: config.stateDir,
-        });
-        newScore = benchResult.totalScore;
-        newResults = benchResult.results;
-        iterCost = benchResult.totalCostUsd;
+      } catch (err) {
+        evaluationFailed = true;
+        evaluationFailureMessage = `Mutation evaluation failed: ${err instanceof Error ? err.message : String(err)}`;
+      }
+
+      if (evaluationFailed) {
+        console.log(`[optimizer] ${evaluationFailureMessage}`);
       }
       totalCostUsd += iterCost;
 
