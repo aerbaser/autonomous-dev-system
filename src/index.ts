@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 
 import { Command } from "commander";
+import { resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { loadConfig } from "./utils/config.js";
 import {
   loadState, createInitialState, saveState,
@@ -68,6 +70,10 @@ function printDryRunPlan(quickMode: boolean): void {
 // ─── CLI definition ───────────────────────────────────────────────────────────
 
 const program = new Command();
+
+export function createCliProgram(): Command {
+  return program;
+}
 
 program
   .name("autonomous-dev")
@@ -289,4 +295,6 @@ program
     }
   });
 
-program.parse();
+if (process.argv[1] !== undefined && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  program.parse();
+}

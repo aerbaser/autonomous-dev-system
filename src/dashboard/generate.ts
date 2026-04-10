@@ -170,17 +170,18 @@ export function collectDashboardData(stateDir: string): DashboardData {
   const stateExists = existsSync(statePath);
 
   if (!stateExists) {
+    const now = new Date().toISOString();
     return {
       projectId: "—",
       idea: "No project found in " + stateDir,
       currentPhase: "ideation",
       totalCostUsd: 0,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
       phases: ALL_PHASES.map((phase) => ({ phase, status: "pending" as const })),
       events: [],
       agents: [],
       evolution: [],
-      generatedAt: new Date().toISOString(),
+      generatedAt: now,
       stateExists: false,
     };
   }
@@ -220,7 +221,12 @@ export async function generateDashboard(stateDir: string, outputPath: string): P
 }
 
 export async function openInBrowser(filePath: string): Promise<void> {
-  await execFileAsync("open", [filePath]).catch(() => {
-    // non-macOS or open unavailable — ignore
-  });
+  for (const cmd of ["open", "xdg-open"]) {
+    try {
+      await execFileAsync(cmd, [filePath]);
+      return;
+    } catch {
+      // try the next opener
+    }
+  }
 }

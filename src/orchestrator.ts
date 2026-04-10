@@ -352,11 +352,6 @@ export async function runOrchestrator(
       console.log(`[budget] Phase cost: $${result.costUsd.toFixed(4)}, total: $${totalCostUsd.toFixed(4)}`);
     }
 
-    if (budgetUsd !== undefined && totalCostUsd > budgetUsd) {
-      console.log(`[budget] Budget exceeded ($${totalCostUsd.toFixed(4)}/$${budgetUsd.toFixed(4)}). Stopping.`);
-      break;
-    }
-
     // Persist running cost total into state so it survives checkpoints/resume
     state = { ...result.state, totalCostUsd };
 
@@ -374,6 +369,12 @@ export async function runOrchestrator(
         },
       },
     };
+
+    if (budgetUsd !== undefined && totalCostUsd > budgetUsd) {
+      console.log(`[budget] Budget exceeded ($${totalCostUsd.toFixed(4)}/$${budgetUsd.toFixed(4)}). Stopping.`);
+      saveState(config.stateDir, state);
+      break;
+    }
 
     // Capture learnings from this phase
     if (memoryStore && result.success) {
@@ -416,10 +417,14 @@ export async function runOrchestrator(
           `NFRs: ${state.spec.nonFunctionalRequirements.length}`
         );
       }
-      console.log(
-        "[confirm] Spec generated. Review above and press Enter to continue, or Ctrl+C to abort."
-      );
-      await new Promise((resolve) => process.stdin.once("data", resolve));
+      if (process.stdin.isTTY) {
+        console.log(
+          "[confirm] Spec generated. Review above and press Enter to continue, or Ctrl+C to abort."
+        );
+        await new Promise((resolve) => process.stdin.once("data", resolve));
+      } else {
+        console.log("[confirm] Non-interactive stdin detected; continuing without pause.");
+      }
     }
 
     if (result.nextPhase && canTransition(phase, result.nextPhase)) {
