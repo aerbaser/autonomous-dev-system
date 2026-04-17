@@ -2,6 +2,7 @@ import type { ProjectState } from "../state/project-state.js";
 import type { Config } from "../utils/config.js";
 import { runOptimizer } from "../self-improve/optimizer.js";
 import { generateDashboard } from "../dashboard/generate.js";
+import { NIGHTLY_ENV_FLAG } from "../runtime/codex-preflight.js";
 
 export type NightlyStepName = "optimize" | "dashboard";
 export type NightlyStepStatus = "passed" | "failed" | "skipped";
@@ -29,6 +30,11 @@ export async function runNightlyMaintenance(
   config: Config,
   options: NightlyRunOptions = {},
 ): Promise<NightlyRunResult> {
+  // Phase 10: mark the process as a nightly run so any downstream code that
+  // uses `isNightlyRun()` (e.g. orchestrator startup) knows inline prompt
+  // mutation is allowed. Live runs never set this flag.
+  process.env[NIGHTLY_ENV_FLAG] = "1";
+
   if (options.skipOptimize && options.skipDashboard) {
     return {
       status: "skipped",

@@ -407,12 +407,23 @@ export function loadLedger(stateDir: string, runId: string): RunLedgerSnapshot |
 // Heuristic: maps base-blueprint agent names to the session types defined in
 // the Phase 1 plan. Unknown agents default to "child_agent" (safe fallback for
 // spend attribution — they'll still show up in the ledger).
-function inferSessionType(agentName: string): SessionType {
+//
+// Phase 2 (narrowed): Codex-backed subagents deliberately collapse to
+// `child_agent`. The SDK still runs the outer query as a Claude model over
+// the proxy system prompt, but the unit of delegated work is a Codex session
+// — attributing it as `child_agent` keeps spend buckets honest (coordination
+// vs. implementation) and doesn't create a phantom `team_lead` bucket for
+// what is effectively a team member.
+export function inferSessionType(agentName: string): SessionType {
   const n = agentName.toLowerCase();
   if (n.includes("grader") || n.includes("rubric")) return "rubric";
   if (n.includes("memory") || n.includes("reflection")) return "memory";
   if (n.includes("coordinator") || n.includes("orchestrator")) return "coordinator";
   if (n.includes("lead")) return "team_lead";
   if (n.includes("subagent")) return "subagent";
+  // Codex-backed agents land on the default `child_agent` bucket. Kept explicit
+  // so future rename sweeps don't accidentally reroute them into another
+  // category via a prefix collision.
+  if (n.startsWith("codex-") || n.includes("codex")) return "child_agent";
   return "child_agent";
 }

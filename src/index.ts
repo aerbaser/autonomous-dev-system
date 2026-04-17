@@ -5,6 +5,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./utils/config.js";
+import { NIGHTLY_ENV_FLAG } from "./runtime/codex-preflight.js";
 import {
   loadState, createInitialState, saveState,
   ALL_PHASES, type Phase, type ProjectState,
@@ -235,6 +236,10 @@ program
       );
       process.exit(1);
     }
+
+    // Phase 10: mark the process as offline so any downstream code that uses
+    // `isNightlyRun()` treats this as a legitimate prompt-mutation context.
+    process.env[NIGHTLY_ENV_FLAG] = "1";
 
     await runOptimizer(state, config, {
       ...(opts.benchmark !== undefined ? { benchmarkId: opts.benchmark } : {}),

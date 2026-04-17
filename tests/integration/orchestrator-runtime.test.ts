@@ -136,6 +136,62 @@ describe("Orchestrator runtime matrix", () => {
     expect(saved?.currentPhase).toBe("staging");
   });
 
+  it("forces outer model to Opus when codexSubagents.enabled=true", async () => {
+    const state: ProjectState = {
+      ...createInitialState("Build an app"),
+      currentPhase: "architecture",
+      spec: {
+        summary: "A todo app",
+        userStories: [],
+        nonFunctionalRequirements: [],
+        domain: {
+          classification: "web-application",
+          specializations: [],
+          requiredRoles: [],
+          requiredMcpServers: [],
+          techStack: ["typescript"],
+        },
+      },
+    };
+    // Start with a non-Opus outer model but enable Codex subagents + point
+    // preflight at `node` so the check passes without Codex installed.
+    // Re-importing the module so our command override threads through the
+    // default-arg binding isn't practical here — we rely on the dryRun path
+    // to skip the preflight call entirely, while still exercising the model-
+    // coercion branch (Opus forcing happens before the dryRun gate).
+    const config = makeConfig({
+      model: "claude-sonnet-4-6",
+      dryRun: true,
+      codexSubagents: {
+        enabled: true,
+        model: "gpt-5.4",
+        reasoningEffort: "xhigh",
+        sandbox: "workspace-write",
+        approvalPolicy: "on-request",
+        ephemeral: true,
+        skipGitRepoCheck: true,
+      },
+    });
+
+    mockedArchitecture.mockResolvedValueOnce({
+      success: true,
+      state: {
+        ...state,
+        architecture: {
+          techStack: { language: "TypeScript" },
+          components: [],
+          apiContracts: "REST",
+          databaseSchema: "todos",
+          fileStructure: "src/",
+        },
+      },
+    });
+
+    await runOrchestrator(state, config, undefined, "architecture");
+
+    expect(config.model).toBe("claude-opus-4-6");
+  });
+
   it("persists failed phase diagnostics without marking the phase complete", async () => {
     const state: ProjectState = {
       ...createInitialState("Build an app"),

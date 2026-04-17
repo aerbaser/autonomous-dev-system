@@ -43,6 +43,11 @@ import { getPhaseRubric } from "./evaluation/phase-rubrics.js";
 import { gradePhaseOutput } from "./evaluation/grader.js";
 import type { RubricResult } from "./evaluation/rubric.js";
 import { buildEnvelope, type ExecutionEnvelope } from "./runtime/execution-envelope.js";
+import {
+  runCodexPreflight,
+  UnsupportedTeamRuntimeError,
+  isNightlyRun,
+} from "./runtime/codex-preflight.js";
 
 export type { PhaseResult, PhaseHandler } from "./phases/types.js";
 
@@ -220,6 +225,35 @@ export async function runOrchestrator(
 
   let state = structuredClone(initialState);
 
+  // Phase 2 (narrowed): when Codex-backed subagents are enabled, force the
+  // outer orchestration model to Opus. Opus is the designated team lead for
+  // Codex-backed coding teams; running a weaker coordinator over GPT-class
+  // members reliably burns turns on routing instead of work. We mutate the
+  // local config object in place — the caller's reference continues to point
+  // at the same object so any follow-up commands pick up the same model.
+  const OPUS_MODEL = "claude-opus-4-6" as const;
+  if (config.codexSubagents?.enabled && config.model !== OPUS_MODEL) {
+    console.warn(
+      `[orchestrator] codexSubagents.enabled=true: forcing outer model ` +
+      `from "${config.model}" to "${OPUS_MODEL}" (Opus is the team lead for ` +
+      `Codex-backed runs).`,
+    );
+    config.model = OPUS_MODEL;
+  }
+
+  // Phase 10: live-run self-improvement guard. Inline prompt evolution is only
+  // supposed to run in the `optimize` / `nightly` subcommands. If we're inside
+  // a live run and self-improvement is enabled, warn — the orchestrator never
+  // calls the optimizer directly, but operators should know the flag is a
+  // no-op here so they don't rely on it mutating prompts mid-run.
+  if (config.selfImprove?.enabled && !isNightlyRun()) {
+    console.warn(
+      "[orchestrator] Self-improvement is enabled but this is a live run. " +
+      "Inline prompt mutation is disabled — use `nightly` / `optimize` " +
+      "commands for offline optimization.",
+    );
+  }
+
   const { budgetUsd, dryRun, quickMode, confirmSpec } = config;
 
   // Event architecture
@@ -310,6 +344,38 @@ export async function runOrchestrator(
   }
 
   try {
+
+  // Phase 2 (narrowed): Codex preflight. If Codex-backed subagents are
+  // enabled, probe the binary before the run starts. On failure we record a
+  // ledger session tagged `unsupported_team_runtime` so the run report shows
+  // the real cause, then throw — we refuse to silently "fall back" to the
+  // proxy prompt with a non-functional Codex backend. Skipped in dry-run so
+  // a plan preview doesn't require a working Codex install.
+  if (config.codexSubagents?.enabled && !dryRun) {
+    try {
+      const preflight = await runCodexPreflight();
+      console.log(`[orchestrator] Codex preflight OK: ${preflight.version}`);
+    } catch (err) {
+      const message =
+        err instanceof UnsupportedTeamRuntimeError
+          ? err.message
+          : `unsupported_team_runtime: ${errMsg(err)}`;
+      const preflightSession = ledger.startSession({
+        phase: state.currentPhase,
+        role: "codex-preflight",
+        sessionType: "coordinator",
+        model: "codex",
+      });
+      ledger.recordFailure(
+        preflightSession.sessionId,
+        "unsupported_team_runtime",
+        message,
+      );
+      ledger.endSession(preflightSession.sessionId, { success: false });
+      console.error(`[orchestrator] ${message}`);
+      throw err instanceof Error ? err : new Error(message);
+    }
+  }
 
   // Validate resume session ID if provided
   if (resumeSessionId) {

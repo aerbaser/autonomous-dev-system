@@ -233,6 +233,30 @@ describe("RunLedger", () => {
       expect(byRole.get("team-lead-opus")).toBe("team_lead");
     });
 
+    it("infers Codex-backed subagents as child_agent", () => {
+      const ledger = new RunLedger();
+      const bus = new EventBus();
+      ledger.attachEventBus(bus);
+
+      for (const agent of ["codex-dev-abc123", "codex", "my-codex-worker"]) {
+        bus.emit("agent.query.start", { phase: "development", agentName: agent, model: "claude-sonnet-4-6", promptLength: 0 });
+        bus.emit("agent.query.end", {
+          phase: "development",
+          agentName: agent,
+          inputTokens: 0,
+          outputTokens: 0,
+          costUsd: 0,
+          durationMs: 1,
+          success: true,
+        });
+      }
+
+      const byRole = new Map(ledger.listSessions().map((s) => [s.role, s.sessionType]));
+      expect(byRole.get("codex-dev-abc123")).toBe("child_agent");
+      expect(byRole.get("codex")).toBe("child_agent");
+      expect(byRole.get("my-codex-worker")).toBe("child_agent");
+    });
+
     it("attachEventBus returns an unsubscribe function", () => {
       const ledger = new RunLedger();
       const bus = new EventBus();
