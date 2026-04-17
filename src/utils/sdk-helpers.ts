@@ -9,6 +9,19 @@ export interface QueryResult {
   cost: number;
   turns: number;
   structuredOutput?: unknown;
+  /**
+   * Per-model token usage from SDKResultSuccess.modelUsage. Keys are model
+   * IDs (e.g. "claude-opus-4-6", "claude-sonnet-4-6"). When a lead Opus
+   * agent delegates to Sonnet subagents via the Agent tool, both entries
+   * appear here so cost can be attributed per model.
+   */
+  modelUsage?: Record<string, {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadInputTokens: number;
+    cacheCreationInputTokens: number;
+    costUSD: number;
+  }>;
 }
 
 export class QueryExecutionError extends Error {
@@ -162,20 +175,29 @@ export async function consumeQuery(
 
     if (message.type === "result") {
       if (message.subtype === "success") {
+        const usage = (message as unknown as {
+          usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
+          modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number; costUSD?: number }>;
+        }).usage;
+        const modelUsage = (message as unknown as {
+          modelUsage?: Record<string, { inputTokens: number; outputTokens: number; cacheReadInputTokens: number; cacheCreationInputTokens: number; costUSD: number }>;
+        }).modelUsage;
+
         const result: QueryResult = {
           result: message.result,
           sessionId: message.session_id,
           cost: message.total_cost_usd,
           turns: message.num_turns,
           structuredOutput: message.structured_output,
+          ...(modelUsage ? { modelUsage } : {}),
         };
 
         if (eventBus && phase && agentName) {
           eventBus.emit("agent.query.end", {
             phase,
             agentName,
-            inputTokens: 0,
-            outputTokens: 0,
+            inputTokens: usage?.input_tokens ?? 0,
+            outputTokens: usage?.output_tokens ?? 0,
             costUsd: message.total_cost_usd,
             durationMs: Date.now() - startMs,
             success: true,
