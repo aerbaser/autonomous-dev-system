@@ -428,3 +428,21 @@ export const RubricResultSchema = z.object({
 // --- Memory store schemas ---
 
 export { MemoryDocumentSchema, MemoryIndexSchema, MemoryHistoryEntrySchema, MemoryLearningSchema, MemoryLearningsArraySchema } from "../state/memory-types.js";
+
+// --- Task receipt schemas (Phase 6) ---
+
+export {
+  TaskReceiptSchema,
+  TaskReceiptEnvelopeSchema,
+  TaskReceiptStatusSchema,
+  VerificationCommandResultSchema,
+  FailureReasonCodeSchema,
+  receiptIsSuccess,
+} from "./task-receipt.js";
+export type {
+  TaskReceipt,
+  TaskReceiptEnvelope,
+  TaskReceiptStatus,
+  VerificationCommandResult,
+  FailureReasonCode,
+} from "./task-receipt.js";

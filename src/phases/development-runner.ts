@@ -28,11 +28,17 @@ import {
 } from "../state/project-state.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join, dirname } from "node:path";
 
 const execFileAsync = promisify(execFile);
-import { TaskResultsSchema } from "../types/llm-schemas.js";
+import {
+  TaskReceiptSchema,
+  TaskReceiptEnvelopeSchema,
+} from "../types/llm-schemas.js";
+import type { TaskReceipt } from "../types/task-receipt.js";
 import { getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
-import { isApiRetry, wrapUserInput, extractFirstJson } from "../utils/shared.js";
+import { isApiRetry, wrapUserInput, extractFirstJson, errMsg } from "../utils/shared.js";
 import { TaskDecompositionSchema } from "../types/llm-schemas.js";
 import { getBaseAgentNames } from "../agents/base-blueprints.js";
 import { progress } from "../utils/progress.js";
@@ -165,16 +171,24 @@ export async function runDevelopment(
 
     progress.emit("batch:end", { index: batchIdx, success: batchResult.taskResults.every((r) => r.success) });
 
-    // Update task statuses and save state after each individual task result
+    // Update task statuses and save state after each individual task result.
+    // Phase 6: a task is only "completed" when backed by a receipt whose
+    // status is exactly "success". Blocked/partial/failed receipts persist
+    // as "failed" — they can never be mistaken for completed work.
     for (const taskResult of batchResult.taskResults) {
+      const receiptStatus = taskResult.receipt?.status;
+      const isComplete = taskResult.success && receiptStatus === "success";
       updatedState = updateTask(updatedState, taskResult.taskId, {
-        status: taskResult.success ? "completed" : "failed",
+        status: isComplete ? "completed" : "failed",
         ...(taskResult.result !== undefined ? { result: taskResult.result } : {}),
         ...(taskResult.error !== undefined ? { error: taskResult.error } : {}),
-        ...(taskResult.success ? { completedAt: new Date().toISOString() } : {}),
+        ...(isComplete ? { completedAt: new Date().toISOString() } : {}),
       });
       // Persist after each task so interruption loses at most one task
       saveState(config.stateDir, updatedState);
+      if (taskResult.receipt) {
+        persistReceipt(config.stateDir, "development", taskResult.receipt);
+      }
     }
 
     // Save checkpoint after each batch
@@ -527,54 +541,207 @@ Report what you implemented and any decisions you made.`;
 }
 
 /**
- * Parse task results from agent output. Prefers structured JSON blocks,
- * falls back to text heuristic for backward compatibility.
+ * Extract every balanced top-level JSON object from `text`.
+ * Used to harvest multiple per-task TaskReceipt blocks a batch may emit.
+ * Skips content inside string literals so braces in strings don't throw off
+ * the brace counter.
  */
-function parseTaskResults(output: string, tasks: Task[]): TaskResult[] {
-  // Try to find a JSON block with a "tasks" array in the output
-  const jsonStr = extractFirstJson(output);
-  if (jsonStr) {
-    try {
-      const parseResult = TaskResultsSchema.safeParse(JSON.parse(jsonStr));
-      if (parseResult.success) {
-        const parsed = parseResult.data;
-        return tasks.map((task) => {
-          const match = parsed.tasks.find((t) =>
-            t.title.toLowerCase().includes(task.title.toLowerCase())
-          );
-          const hasFail = match?.status === "failed";
-          return {
-            taskId: task.id,
-            success: match ? !hasFail : false,
-            output,
-            ...(output.length > 0 ? { result: "Implemented as part of batch" } : {}),
-            ...(hasFail ? { error: `Task "${task.title}" reported as failed` } : {}),
-          };
-        });
+export function extractAllJsonObjects(text: string): string[] {
+  const out: string[] = [];
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === "\\" && inString) {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+
+    if (ch === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        const candidate = text.slice(start, i + 1);
+        try {
+          JSON.parse(candidate);
+          out.push(candidate);
+        } catch {
+          /* skip unbalanced / malformed candidate */
+        }
+        start = -1;
+      } else if (depth < 0) {
+        depth = 0;
+        start = -1;
       }
-    } catch {
-      /* fall through to heuristic */
     }
   }
 
-  // Fallback: heuristic (existing behavior)
-  console.log(
-    "[dev] Warning: no structured output found, using text heuristic"
+  return out;
+}
+
+/**
+ * Harvest structured TaskReceipt blocks from agent output.
+ *
+ * Accepts either:
+ *   - envelope shape `{ "receipts": [<TaskReceipt>...] }`
+ *   - one or more bare TaskReceipt objects sprinkled in the output
+ *
+ * Returns only receipts that pass `TaskReceiptSchema.safeParse`. Anything that
+ * looks like a receipt but fails validation is discarded — the owning task
+ * will be reported as `invalid_structured_output` downstream.
+ */
+export function harvestReceipts(output: string): TaskReceipt[] {
+  const receipts: TaskReceipt[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of extractAllJsonObjects(output)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(candidate);
+    } catch {
+      continue;
+    }
+
+    const envelope = TaskReceiptEnvelopeSchema.safeParse(parsed);
+    if (envelope.success) {
+      for (const r of envelope.data.receipts) {
+        if (!seen.has(r.taskId)) {
+          seen.add(r.taskId);
+          receipts.push(r);
+        }
+      }
+      continue;
+    }
+
+    const single = TaskReceiptSchema.safeParse(parsed);
+    if (single.success && !seen.has(single.data.taskId)) {
+      seen.add(single.data.taskId);
+      receipts.push(single.data);
+    }
+  }
+
+  return receipts;
+}
+
+/**
+ * Parse task results from agent output — strictly receipt-based (Phase 6).
+ *
+ * Rules:
+ *   - Primary path: harvest TaskReceipt JSON blocks, match by taskId (or title
+ *     fallback), validate via Zod.
+ *   - A task with a receipt whose `status === "success"` is the ONLY way to
+ *     land `TaskResult.success === true`.
+ *   - `status === "blocked" | "partial" | "failed"` → `success = false`.
+ *   - Invalid / missing receipts → `status = "failed"` with reason
+ *     `invalid_structured_output`. No text-heuristic promotion to success.
+ *   - Freeform output is captured only as `freeformNotes` for debug.
+ */
+export function parseTaskResults(output: string, tasks: Task[]): TaskResult[] {
+  const receipts = harvestReceipts(output);
+  const byId = new Map(receipts.map((r) => [r.taskId, r]));
+  const byTitle = new Map(
+    receipts.map((r) => [r.taskTitle.trim().toLowerCase(), r]),
   );
-  return tasks.map((task) => {
-    const titleLower = task.title.toLowerCase();
-    const outputLower = output.toLowerCase();
-    const hasFail =
-      outputLower.includes(titleLower) &&
-      (outputLower.includes("failure") || outputLower.includes("failed"));
+
+  const freeformNotes = output.trim().length > 0 ? output : undefined;
+
+  return tasks.map((task): TaskResult => {
+    // Prefer exact id match; fall back to title match.
+    let receipt = byId.get(task.id);
+    if (!receipt) receipt = byTitle.get(task.title.trim().toLowerCase());
+
+    if (!receipt) {
+      // No valid structured receipt → never success, regardless of freeform
+      // text. This is the core Phase-6 guarantee.
+      const fallback: TaskReceipt = {
+        taskId: task.id,
+        taskTitle: task.title,
+        teamMemberId: "unknown",
+        agentRole: "unknown",
+        model: "unknown",
+        sessionIds: [],
+        changedFiles: [],
+        verificationCommands: [],
+        status: "failed",
+        failureReasonCode: "invalid_structured_output",
+        ...(freeformNotes ? { freeformNotes } : {}),
+        startedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      };
+      return {
+        taskId: task.id,
+        success: false,
+        ...(freeformNotes ? { output: freeformNotes } : {}),
+        error: `Task "${task.title}" has no valid structured receipt (invalid_structured_output)`,
+        receipt: fallback,
+      };
+    }
+
+    const isSuccess = receipt.status === "success";
+    const resultText =
+      isSuccess
+        ? receipt.changedFiles.length > 0
+          ? `Changed: ${receipt.changedFiles.join(", ")}`
+          : "Receipt reported success"
+        : undefined;
+    const errorText = isSuccess
+      ? undefined
+      : `Task "${task.title}" receipt status=${receipt.status}` +
+        (receipt.failureReasonCode ? ` (${receipt.failureReasonCode})` : "");
+
     return {
       taskId: task.id,
-      success: !hasFail && output.length > 0,
-      output,
-      ...(output.length > 0 ? { result: "Implemented as part of batch" } : {}),
-      ...(hasFail ? { error: `Task "${task.title}" reported as failed` } : {}),
+      success: isSuccess,
+      ...(freeformNotes ? { output: freeformNotes } : {}),
+      ...(resultText ? { result: resultText } : {}),
+      ...(errorText ? { error: errorText } : {}),
+      receipt,
     };
   });
+}
+
+/**
+ * Persist a task receipt to `<stateDir>/receipts/<phaseId>/<taskId>.json` so
+ * audit logs can answer which agent changed which files for each task.
+ * Best-effort: on I/O errors we log and continue — a persistence failure must
+ * not mask the actual task outcome.
+ */
+export function persistReceipt(
+  stateDir: string,
+  phaseId: string,
+  receipt: TaskReceipt,
+): string | null {
+  try {
+    const filePath = join(
+      stateDir,
+      "receipts",
+      phaseId,
+      `${receipt.taskId}.json`,
+    );
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, JSON.stringify(receipt, null, 2), "utf8");
+    return filePath;
+  } catch (err) {
+    console.warn(
+      `[dev] Failed to persist receipt for ${receipt.taskId}: ${errMsg(err)}`,
+    );
+    return null;
+  }
 }
 
 async function executeBatch(
@@ -592,6 +759,94 @@ async function executeBatch(
   const taskAgentNames = Object.keys(agentDefs).filter(
     (name) => !BASE_AGENT_NAMES.has(name)
   );
+
+  // Single-task batch: skip the lead-agent wrapper and dispatch the task's
+  // subagent directly. Saves one full turn of lead-agent reasoning plus the
+  // Agent-tool invocation overhead (the lead agent's only job would be to
+  // delegate to this one subagent).
+  if (batch.length === 1 && taskAgentNames.length === 1) {
+    const task = batch[0]!;
+    const agentName = taskAgentNames[0]!;
+    const def = agentDefs[agentName]!;
+
+    const singlePrompt = `Implement the task described in your system prompt. When done, you MUST emit a single structured TaskReceipt JSON block. Freeform text will NOT count as success — only a valid receipt can.
+
+Required receipt shape (all fields mandatory unless marked optional):
+\`\`\`json
+{
+  "taskId": "${task.id}",
+  "taskTitle": "${task.title.replace(/"/g, '\\"')}",
+  "teamMemberId": "<your agent name>",
+  "agentRole": "<your role>",
+  "model": "<the model you are running on>",
+  "sessionIds": ["<session id(s)>"],
+  "branchName": "<feature branch, optional>",
+  "commitSha": "<commit sha if created, optional>",
+  "changedFiles": ["<relative path>", "..."],
+  "verificationCommands": [
+    { "command": "npx tsc --noEmit", "success": true, "exitCode": 0, "stdoutSnippet": "..." }
+  ],
+  "status": "success" | "failed" | "blocked" | "partial",
+  "failureReasonCode": "provider_limit | verification_failed | invalid_structured_output | blocked_filesystem | ...",
+  "freeformNotes": "<optional debug only>",
+  "startedAt": "<ISO-8601>",
+  "completedAt": "<ISO-8601>"
+}
+\`\`\`
+
+Rules:
+- Use "blocked" when you could not proceed (missing deps, permission denied, etc.).
+- Use "partial" when some acceptance criteria are unmet but progress was made.
+- Use "success" only when the task is fully done AND verification passed.
+- Omit the receipt or ship malformed JSON → task WILL be marked failed.
+
+After the JSON block, you may add a brief text summary.`;
+
+    let resultText = "";
+    let sessionId: string | undefined;
+    let costUsd = 0;
+
+    // Preserve the subagent's tool set; intentionally omit "Agent".
+    const allowedTools = def.tools ?? ["Read", "Write", "Edit", "Bash", "Glob", "Grep"];
+
+    for await (const message of query({
+      prompt: singlePrompt,
+      options: {
+        systemPrompt: def.prompt,
+        allowedTools,
+        hooks: {
+          PostToolUse: [{ matcher: "Edit|Write", hooks: [auditLoggerHook] }],
+        },
+        mcpServers,
+        model: config.subagentModel,
+        maxTurns: getMaxTurns(config, "default"),
+        ...getQueryPermissions(config),
+      },
+    })) {
+      if (message.type === "result") {
+        if (message.subtype === "success") {
+          resultText = message.result;
+          sessionId = message.session_id;
+          costUsd = message.total_cost_usd;
+        } else {
+          console.error(
+            `[development] Single-task execution ended with error: ${message.subtype}`,
+            message.errors
+          );
+          costUsd = message.total_cost_usd;
+        }
+      }
+
+      if (isApiRetry(message)) {
+        console.warn(
+          `[development] API retry attempt ${message.attempt}, waiting ${message.retry_delay_ms}ms`
+        );
+      }
+    }
+
+    const taskResults = parseTaskResults(resultText, batch);
+    return { taskResults, costUsd, ...(sessionId !== undefined ? { sessionId } : {}) };
+  }
 
   const prompt = `You are the lead developer orchestrating implementation of ${batch.length} task(s).
 
@@ -611,11 +866,38 @@ ${taskAgentNames.map((name) => `- Use the "${name}" agent for its corresponding 
 5. Create a git branch \`feature/<task-title-slug>\` for each task's work
 6. Report the final status of each task
 
-For each task, report as structured JSON:
+For each task, the assigned subagent MUST emit a structured TaskReceipt. Aggregate them into a single envelope at the end of the lead message:
 \`\`\`json
-{ "tasks": [{ "title": "<task title>", "status": "success" | "failed" }] }
+{
+  "receipts": [
+    {
+      "taskId": "<task id from the list above>",
+      "taskTitle": "<task title>",
+      "teamMemberId": "<subagent name>",
+      "agentRole": "<role>",
+      "model": "<model>",
+      "sessionIds": ["<session ids if available>"],
+      "branchName": "<feature branch, optional>",
+      "commitSha": "<commit sha, optional>",
+      "changedFiles": ["path/to/file.ts"],
+      "verificationCommands": [
+        { "command": "npx tsc --noEmit", "success": true, "exitCode": 0 },
+        { "command": "npm test", "success": true, "exitCode": 0 }
+      ],
+      "status": "success" | "failed" | "blocked" | "partial",
+      "failureReasonCode": "<omit for success, otherwise a reason code>",
+      "freeformNotes": "<debug only, optional>",
+      "startedAt": "<ISO-8601>",
+      "completedAt": "<ISO-8601>"
+    }
+  ]
+}
 \`\`\`
-Also include a brief text summary for each task.`;
+
+Rules:
+- A task without a valid receipt will be marked failed regardless of text output.
+- "blocked" / "partial" / "failed" are NOT success — only "success" counts.
+- Verification commands MUST include the commands you actually ran and their outcomes.`;
 
   let resultText = "";
   let sessionId: string | undefined;

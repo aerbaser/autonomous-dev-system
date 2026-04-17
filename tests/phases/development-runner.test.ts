@@ -2,6 +2,15 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import { createInitialState } from "../../src/state/project-state.js";
 import type { ProjectState } from "../../src/state/project-state.js";
 import type { Config } from "../../src/utils/config.js";
+import {
+  parseTaskResults,
+  harvestReceipts,
+  persistReceipt,
+  extractAllJsonObjects,
+} from "../../src/phases/development-runner.js";
+import { readFileSync, existsSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -280,7 +289,7 @@ describe("Development Runner", () => {
     expect(result.success).toBe(false);
   });
 
-  it("handles malformed JSON response gracefully via heuristic fallback", async () => {
+  it("freeform text output NEVER counts as success (Phase 6: no heuristic)", async () => {
     const state = makeStateWithSpecAndArch();
 
     const decompositionOutput = {
@@ -289,16 +298,19 @@ describe("Development Runner", () => {
       ],
     };
 
-    // Invalid JSON that fails parse — falls back to heuristic
+    // Freeform text without a valid TaskReceipt — under Phase 6 this MUST be
+    // treated as failed (invalid_structured_output), never as success.
     mockedQuery
       .mockReturnValueOnce(makeQueryStream("", decompositionOutput))
       .mockReturnValue(makeQueryStream("Task successfully completed without JSON", undefined));
 
     const result = await runDevelopment(state, makeConfig());
 
-    // Heuristic: non-empty output without failure keywords → success
-    expect(result.success).toBe(true);
-    expect(result.nextPhase).toBe("testing");
+    expect(result.success).toBe(false);
+    const failed = result.state.tasks.filter((t) => t.status === "failed");
+    expect(failed.length).toBeGreaterThan(0);
+    // Error must reference the structured-receipt rejection
+    expect(failed[0]!.error).toMatch(/structured receipt|invalid_structured_output/);
   });
 
   // ── Batch size limiting ───────────────────────────────────────────────────
@@ -421,5 +433,247 @@ describe("Development Runner", () => {
 
     // 2 query calls: one for decomposition, one for batch execution
     expect(mockedQuery).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ── parseTaskResults / harvestReceipts / persistReceipt (Phase 6) ──────────
+
+function baseReceipt(overrides: Record<string, unknown> = {}) {
+  return {
+    taskId: "task-001",
+    taskTitle: "Create task",
+    teamMemberId: "dev-alpha",
+    agentRole: "developer",
+    model: "claude-sonnet-4-6",
+    sessionIds: ["s1"],
+    changedFiles: ["src/foo.ts"],
+    verificationCommands: [
+      { command: "npx tsc --noEmit", success: true, exitCode: 0 },
+    ],
+    status: "success",
+    startedAt: "2026-04-17T10:00:00.000Z",
+    completedAt: "2026-04-17T10:05:00.000Z",
+    ...overrides,
+  };
+}
+
+function makeTaskStub(id: string, title: string): Task {
+  return {
+    id,
+    title,
+    description: "",
+    status: "pending",
+    createdAt: new Date().toISOString(),
+  } as Task;
+}
+
+describe("extractAllJsonObjects", () => {
+  it("extracts multiple balanced JSON objects", () => {
+    const text = `prefix ${JSON.stringify({ a: 1 })} middle ${JSON.stringify({
+      b: 2,
+    })} suffix`;
+    const found = extractAllJsonObjects(text);
+    expect(found.length).toBe(2);
+    expect(JSON.parse(found[0]!)).toEqual({ a: 1 });
+    expect(JSON.parse(found[1]!)).toEqual({ b: 2 });
+  });
+
+  it("ignores braces inside strings", () => {
+    const text = `note: "{not json}" ${JSON.stringify({ ok: true })}`;
+    const found = extractAllJsonObjects(text);
+    expect(found.length).toBe(1);
+    expect(JSON.parse(found[0]!)).toEqual({ ok: true });
+  });
+
+  it("returns [] when no JSON object present", () => {
+    expect(extractAllJsonObjects("plain text only")).toEqual([]);
+  });
+});
+
+describe("harvestReceipts", () => {
+  it("harvests a valid single receipt", () => {
+    const out = `\n\`\`\`json\n${JSON.stringify(baseReceipt())}\n\`\`\``;
+    const receipts = harvestReceipts(out);
+    expect(receipts.length).toBe(1);
+    expect(receipts[0]!.taskId).toBe("task-001");
+  });
+
+  it("harvests receipts from an envelope", () => {
+    const envelope = {
+      receipts: [
+        baseReceipt(),
+        baseReceipt({ taskId: "task-002", taskTitle: "Another" }),
+      ],
+    };
+    const out = `Summary\n${JSON.stringify(envelope)}\nEnd.`;
+    const receipts = harvestReceipts(out);
+    expect(receipts.length).toBe(2);
+  });
+
+  it("drops malformed receipts", () => {
+    const bad = { ...baseReceipt(), status: "unknown-value" };
+    const out = JSON.stringify(bad);
+    expect(harvestReceipts(out)).toEqual([]);
+  });
+
+  it("dedupes receipts by taskId", () => {
+    const out = `${JSON.stringify(baseReceipt())} ${JSON.stringify(
+      baseReceipt(),
+    )}`;
+    expect(harvestReceipts(out).length).toBe(1);
+  });
+
+  it("returns [] for freeform text", () => {
+    expect(harvestReceipts("Task done. All good!")).toEqual([]);
+  });
+});
+
+describe("parseTaskResults (Phase 6 — receipt-based)", () => {
+  it("freeform text → status failed, no success (no heuristic)", () => {
+    const tasks = [makeTaskStub("task-001", "Create task")];
+    const results = parseTaskResults("All tasks completed successfully!", tasks);
+    expect(results.length).toBe(1);
+    expect(results[0]!.success).toBe(false);
+    expect(results[0]!.receipt?.status).toBe("failed");
+    expect(results[0]!.receipt?.failureReasonCode).toBe(
+      "invalid_structured_output",
+    );
+  });
+
+  it("valid success receipt → TaskResult.success = true", () => {
+    const tasks = [makeTaskStub("task-001", "Create task")];
+    const out = JSON.stringify(baseReceipt());
+    const results = parseTaskResults(out, tasks);
+    expect(results[0]!.success).toBe(true);
+    expect(results[0]!.receipt?.status).toBe("success");
+  });
+
+  it("blocked receipt → TaskResult.success = false", () => {
+    const tasks = [makeTaskStub("task-001", "Create task")];
+    const out = JSON.stringify(
+      baseReceipt({ status: "blocked", failureReasonCode: "blocked_filesystem" }),
+    );
+    const results = parseTaskResults(out, tasks);
+    expect(results[0]!.success).toBe(false);
+    expect(results[0]!.receipt?.status).toBe("blocked");
+  });
+
+  it("partial receipt → TaskResult.success = false", () => {
+    const tasks = [makeTaskStub("task-001", "Create task")];
+    const out = JSON.stringify(baseReceipt({ status: "partial" }));
+    const results = parseTaskResults(out, tasks);
+    expect(results[0]!.success).toBe(false);
+    expect(results[0]!.receipt?.status).toBe("partial");
+  });
+
+  it("missing required field in receipt → invalid_structured_output", () => {
+    const tasks = [makeTaskStub("task-001", "Create task")];
+    const { teamMemberId: _tm, ...broken } = baseReceipt();
+    void _tm;
+    const out = JSON.stringify(broken);
+    const results = parseTaskResults(out, tasks);
+    expect(results[0]!.success).toBe(false);
+    expect(results[0]!.receipt?.failureReasonCode).toBe(
+      "invalid_structured_output",
+    );
+  });
+
+  it("falls back to title match when taskId does not match", () => {
+    const tasks = [makeTaskStub("orig-id", "Create task")];
+    // Receipt taskId doesn't match the project task.id, but title does
+    const out = JSON.stringify(baseReceipt({ taskId: "mismatched" }));
+    const results = parseTaskResults(out, tasks);
+    expect(results[0]!.success).toBe(true);
+  });
+
+  it("one success + one missing receipt in the same output → only first is success", () => {
+    const tasks = [
+      makeTaskStub("task-001", "Create task"),
+      makeTaskStub("task-002", "Delete task"),
+    ];
+    const out = JSON.stringify(baseReceipt());
+    const results = parseTaskResults(out, tasks);
+    expect(results[0]!.success).toBe(true);
+    expect(results[1]!.success).toBe(false);
+    expect(results[1]!.receipt?.failureReasonCode).toBe(
+      "invalid_structured_output",
+    );
+  });
+
+  it("envelope with both success and blocked receipts is parsed correctly", () => {
+    const tasks = [
+      makeTaskStub("task-001", "Create task"),
+      makeTaskStub("task-002", "Delete task"),
+    ];
+    const envelope = {
+      receipts: [
+        baseReceipt(),
+        baseReceipt({
+          taskId: "task-002",
+          taskTitle: "Delete task",
+          status: "blocked",
+          failureReasonCode: "permission_denied",
+        }),
+      ],
+    };
+    const out = JSON.stringify(envelope);
+    const results = parseTaskResults(out, tasks);
+    expect(results[0]!.success).toBe(true);
+    expect(results[1]!.success).toBe(false);
+    expect(results[1]!.receipt?.status).toBe("blocked");
+  });
+});
+
+describe("persistReceipt", () => {
+  it("writes receipt JSON to <stateDir>/receipts/<phaseId>/<taskId>.json", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "ads-receipts-"));
+    const receipt = baseReceipt();
+    const path = persistReceipt(tmp, "development", receipt as any);
+    expect(path).not.toBeNull();
+    expect(existsSync(path!)).toBe(true);
+    const written = JSON.parse(readFileSync(path!, "utf8"));
+    expect(written.taskId).toBe("task-001");
+    expect(written.status).toBe("success");
+  });
+});
+
+describe("runDevelopment — blocked task never persists as completed", () => {
+  it("blocked receipt marks state.tasks[].status = 'failed', not 'completed'", async () => {
+    const archTasks = [
+      {
+        id: "arch-block",
+        title: "Risky change",
+        description: "touch src/x.ts",
+        estimatedComplexity: "low" as const,
+        dependencies: [],
+        acceptanceCriteria: ["done"],
+      },
+    ];
+    const base = makeStateWithSpecAndArch();
+    const state: ProjectState = {
+      ...base,
+      tasks: [],
+      architecture: {
+        ...base.architecture!,
+        taskDecomposition: { tasks: archTasks },
+      },
+    };
+
+    const receipt = baseReceipt({
+      taskId: "arch-block",
+      taskTitle: "Risky change",
+      status: "blocked",
+      failureReasonCode: "blocked_filesystem",
+    });
+    mockedQuery.mockReturnValue(makeQueryStream(JSON.stringify(receipt)));
+
+    const result = await runDevelopment(state, makeConfig());
+
+    expect(result.success).toBe(false);
+    const tasks = result.state.tasks;
+    const blocked = tasks.find((t) => t.title === "Risky change");
+    expect(blocked).toBeDefined();
+    expect(blocked!.status).toBe("failed");
+    expect(blocked!.status).not.toBe("completed");
   });
 });
