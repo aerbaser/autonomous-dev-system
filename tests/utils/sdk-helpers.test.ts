@@ -218,7 +218,9 @@ describe("getQueryPermissions", () => {
   it("returns bypass permissions when config is undefined", () => {
     const perms = getQueryPermissions(undefined);
     expect(perms.permissionMode).toBe("bypassPermissions");
-    expect(perms.allowDangerouslySkipPermissions).toBe(true);
+    // bypassPermissions alone suffices; the extra --dangerously-skip flag
+    // is redundant AND the CLI refuses it under root, blocking container use.
+    expect(perms.allowDangerouslySkipPermissions).toBe(false);
   });
 
   it("returns bypass permissions when autonomousMode is true", () => {

@@ -273,7 +273,12 @@ export interface QueryPermissions {
   allowDangerouslySkipPermissions: boolean;
 }
 
-const BYPASS_PERMISSIONS: QueryPermissions = { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: true };
+// permissionMode: "bypassPermissions" already skips prompts. Adding the
+// separate --dangerously-skip-permissions flag is redundant AND the Claude
+// Code CLI refuses it when running as root (sandboxed environments,
+// containers), making the system unusable there. Keep the typed option on
+// QueryPermissions for API compatibility but don't set it true.
+const BYPASS_PERMISSIONS: QueryPermissions = { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: false };
 const DEFAULT_PERMISSIONS: QueryPermissions = { permissionMode: "default", allowDangerouslySkipPermissions: false };
 
 export function getQueryPermissions(config?: Config): QueryPermissions {
