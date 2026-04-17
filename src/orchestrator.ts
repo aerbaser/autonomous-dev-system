@@ -34,6 +34,7 @@ import { EventLogger } from "./events/event-logger.js";
 import { Interrupter } from "./events/interrupter.js";
 import { generateDashboard } from "./dashboard/generate.js";
 import { MemoryStore } from "./state/memory-store.js";
+import { RunLedger, setActiveLedger } from "./state/run-ledger.js";
 import { capturePhaseMemories } from "./hooks/memory-capture.js";
 import { errMsg } from "./utils/shared.js";
 import { randomUUID } from "node:crypto";
@@ -230,6 +231,13 @@ export async function runOrchestrator(
       console.error(`[event-logger] Failed to write event: ${err}`);
     });
   });
+
+  // Run ledger — observational topology + spend forensics (Phase 1). Bridges
+  // AgentQueryStart/End into per-session records so post-run analysis doesn't
+  // need to re-parse the event log.
+  const ledger = new RunLedger(runId);
+  setActiveLedger(ledger);
+  const unsubLedger = ledger.attachEventBus(eventBus);
 
   // Memory store (persistent cross-session knowledge)
   const memoryStore = config.memory?.enabled
@@ -512,6 +520,19 @@ export async function runOrchestrator(
 
   } finally {
     process.removeListener("SIGINT", sigintHandler);
+    try {
+      unsubLedger();
+    } catch {
+      // ignore
+    }
+    try {
+      const ledgerPath = ledger.persist(config.stateDir);
+      console.log(`[run-ledger] Saved: ${ledgerPath}`);
+    } catch (err) {
+      console.warn(`[run-ledger] Failed to persist ledger: ${errMsg(err)}`);
+    }
+    ledger.dispose();
+    setActiveLedger(null);
     await flushRunArtifacts();
     console.log(`[event-logger] Run events saved: ${eventLogger.getLogPath()}`);
   }
