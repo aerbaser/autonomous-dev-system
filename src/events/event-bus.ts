@@ -30,6 +30,29 @@ export interface AgentQueryEndData {
   agentName: string;
   inputTokens: number;
   outputTokens: number;
+  /**
+   * Tokens served from Anthropic's prompt cache on this call. A high ratio
+   * of cacheReadInputTokens to (inputTokens + cacheReadInputTokens) means the
+   * Stream 1 prompt-caching strategy is working.
+   */
+  cacheReadInputTokens?: number;
+  /**
+   * Tokens that were written into the prompt cache on this call (first-hit
+   * cost). These get reused as cache reads on subsequent identical prefixes.
+   */
+  cacheCreationInputTokens?: number;
+  /**
+   * Per-model usage breakdown from SDKResultSuccess.modelUsage. Keys are
+   * model IDs (e.g. "claude-opus-4-6", "claude-sonnet-4-6"). Present when a
+   * single query exercises multiple models (lead Opus + Sonnet subagents).
+   */
+  modelUsage?: Record<string, {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadInputTokens: number;
+    cacheCreationInputTokens: number;
+    costUSD: number;
+  }>;
   costUsd: number;
   durationMs: number;
   success: boolean;

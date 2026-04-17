@@ -177,7 +177,6 @@ export async function consumeQuery(
       if (message.subtype === "success") {
         const usage = (message as unknown as {
           usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
-          modelUsage?: Record<string, { inputTokens?: number; outputTokens?: number; cacheReadInputTokens?: number; cacheCreationInputTokens?: number; costUSD?: number }>;
         }).usage;
         const modelUsage = (message as unknown as {
           modelUsage?: Record<string, { inputTokens: number; outputTokens: number; cacheReadInputTokens: number; cacheCreationInputTokens: number; costUSD: number }>;
@@ -198,6 +197,9 @@ export async function consumeQuery(
             agentName,
             inputTokens: usage?.input_tokens ?? 0,
             outputTokens: usage?.output_tokens ?? 0,
+            ...(usage?.cache_read_input_tokens !== undefined ? { cacheReadInputTokens: usage.cache_read_input_tokens } : {}),
+            ...(usage?.cache_creation_input_tokens !== undefined ? { cacheCreationInputTokens: usage.cache_creation_input_tokens } : {}),
+            ...(modelUsage ? { modelUsage } : {}),
             costUsd: message.total_cost_usd,
             durationMs: Date.now() - startMs,
             success: true,
