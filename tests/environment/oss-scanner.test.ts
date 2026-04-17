@@ -112,7 +112,11 @@ describe("scanOpenSource", () => {
     expect(tools).toEqual([]);
   });
 
-  it("filters invalid tool types to 'pattern'", async () => {
+  it("rejects arrays with invalid tool types (strict at LLM boundary)", async () => {
+    // Strict-at-LLM-boundary (Stream 2): the previous `.catch("pattern")` on
+    // the `type` field silently coerced bad values. That was removed, so a
+    // single invalid entry now fails the whole-array safeParse and the scanner
+    // surfaces the rejection via a warning and returns [].
     const json = JSON.stringify([
       {
         name: "weird-tool",
@@ -122,11 +126,14 @@ describe("scanOpenSource", () => {
       },
     ]);
     mockedQuery.mockReturnValue(makeRawQueryStream(json));
-
-    const tools = await scanOpenSource(makeArch(), makeDomain(), makeConfig());
-
-    expect(tools).toHaveLength(1);
-    expect(tools[0]!.type).toBe("pattern");
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      const tools = await scanOpenSource(makeArch(), makeDomain(), makeConfig());
+      expect(tools).toEqual([]);
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it("returns empty array on malformed JSON", async () => {

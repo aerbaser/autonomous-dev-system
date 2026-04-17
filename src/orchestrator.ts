@@ -10,6 +10,7 @@ import {
   getLatestCheckpoint,
   transitionPhase,
   canTransition,
+  withStateLock,
 } from "./state/project-state.js";
 import {
   loadSessions,
@@ -226,7 +227,9 @@ export async function runOrchestrator(
     console.log(`[orchestrator] Running single phase: ${singlePhase}`);
     const singlePhaseResult = await executePhaseSafe(singlePhase, state, config, eventBus);
     if (singlePhaseResult) {
-      saveState(config.stateDir, singlePhaseResult.state);
+      await withStateLock(config.stateDir, () =>
+        saveState(config.stateDir, singlePhaseResult.state)
+      );
     }
     unsubLogger();
     await eventLogger.close();
@@ -247,7 +250,7 @@ export async function runOrchestrator(
       });
       progress.emit("shutdown", { phase: state.currentPhase });
       console.log(`[shutdown] Graceful shutdown (${reason}). State saved at phase: ${state.currentPhase}`);
-      saveState(config.stateDir, state);
+      await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
       break;
     }
 
@@ -274,7 +277,7 @@ export async function runOrchestrator(
       if (nextPhase !== undefined) {
         if (canTransition(phase, nextPhase)) {
           state = transitionPhase(state, nextPhase);
-          saveState(config.stateDir, state);
+          await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
           console.log(`[orchestrator] Transition: ${phase} -> ${nextPhase}`);
           continue;
         }
@@ -287,7 +290,7 @@ export async function runOrchestrator(
     const handler = PHASE_HANDLERS[phase];
     if (!handler) {
       console.error(`[error] No handler for phase: ${phase}. This is a fatal error.`);
-      saveState(config.stateDir, state);
+      await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
       break;
     }
 
@@ -377,7 +380,7 @@ export async function runOrchestrator(
 
     if (budgetUsd !== undefined && totalCostUsd > budgetUsd) {
       console.log(`[budget] Budget exceeded ($${totalCostUsd.toFixed(4)}/$${budgetUsd.toFixed(4)}). Stopping.`);
-      saveState(config.stateDir, state);
+      await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
       break;
     }
 
@@ -434,7 +437,7 @@ export async function runOrchestrator(
 
     if (result.nextPhase && canTransition(phase, result.nextPhase)) {
       state = transitionPhase(state, result.nextPhase);
-      saveState(config.stateDir, state);
+      await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
       console.log(`[orchestrator] Transition: ${phase} -> ${result.nextPhase}`);
     } else if (phase === "monitoring") {
       console.log("[orchestrator] In monitoring loop. Waiting for next trigger...");
@@ -475,7 +478,7 @@ async function executePhaseSafe(
   const handler = PHASE_HANDLERS[phase];
   if (!handler) {
     console.error(`[error] No handler for phase: ${phase}`);
-    saveState(config.stateDir, state);
+    await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
     return null;
   }
 
@@ -498,7 +501,7 @@ async function executePhaseSafe(
     const result = await withRetry(
       async () => {
         // Save state before each attempt (crash safety)
-        saveState(config.stateDir, state);
+        await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
 
         const context: PhaseContext | undefined = memoryContext ? { memoryContext } : undefined;
         const execCtx: PhaseExecutionContext = {
@@ -663,7 +666,7 @@ async function executePhaseSafe(
     }
 
     // Save state with error details
-    saveState(config.stateDir, state);
+    await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
 
     return {
       success: false,

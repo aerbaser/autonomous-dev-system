@@ -73,11 +73,13 @@ export const ArchTaskSchema = z.object({
 
 export const ArchDesignSchema = z.object({
   techStack: z.record(z.string(), z.string()),
+  // Strict at LLM-output boundary: invalid components must surface as a ZodError
+  // so phase handlers fail loudly instead of silently falling back to [].
   components: z.array(z.object({
     name: z.string(),
     description: z.string(),
     dependencies: z.array(z.string()).default([]),
-  })).catch([]),
+  })),
   apiContracts: z.string(),
   databaseSchema: z.string(),
   fileStructure: z.string(),
@@ -121,7 +123,9 @@ export const TaskDecompositionSchema = z.object({
 export const OssToolArraySchema = z.array(z.object({
   name: z.string(),
   repo: z.string(),
-  type: z.enum(["agent", "skill", "hook", "mcp-server", "pattern"]).catch("pattern"),
+  // Strict at LLM-output boundary: unknown tool types must surface as a ZodError
+  // rather than being silently coerced to "pattern".
+  type: z.enum(["agent", "skill", "hook", "mcp-server", "pattern"]),
   integrationPlan: z.string(),
 }));
 
