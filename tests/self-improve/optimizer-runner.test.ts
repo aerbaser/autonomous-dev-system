@@ -272,4 +272,146 @@ describe("runOptimizerImpl", () => {
     expect(mockRunAllBenchmarks).toHaveBeenCalledTimes(1);
     expect(mockGenerateMutations).not.toHaveBeenCalled();
   });
+
+  // ── Hybrid weighted acceptance (0.7 agent + 0.3 overall) ─────────────────
+
+  function mutationFor(name: string): Mutation {
+    return {
+      id: `mut-${name}`,
+      targetName: name,
+      type: "agent_prompt",
+      description: "tweak prompt",
+      apply: () => ({ ...mockAgents[0]!, name, systemPrompt: "Mutated" }),
+      rollback: () => mockAgents[0]!,
+    };
+  }
+
+  it("hybrid acceptance: agent improves, overall flat → accept", async () => {
+    // baseline overall 0.5; post-mutation overall 0.5 (flat), agent-score 0.8
+    // → weighted new = 0.7*0.8 + 0.3*0.5 = 0.71
+    //   weighted baseline = 0.7*0.5 + 0.3*0.5 = 0.50
+    benchmarkCallCount = 0;
+    benchmarkScores = [];
+    mockRunAllBenchmarks.mockReset();
+    mockRunAllBenchmarks
+      .mockResolvedValueOnce({
+        totalScore: 0.5,
+        results: [
+          { benchmarkId: "code-quality", score: 0.5, details: {}, timestamp: "t", costUsd: 0 },
+        ] satisfies BenchmarkResult[],
+        totalCostUsd: 0,
+      })
+      .mockResolvedValueOnce({
+        totalScore: 0.5,
+        results: [
+          { benchmarkId: "code-quality", score: 0.8, details: {}, timestamp: "t", costUsd: 0 },
+        ] satisfies BenchmarkResult[],
+        totalCostUsd: 0,
+      });
+    mockGenerateMutations.mockResolvedValueOnce([mutationFor("developer")]);
+
+    const state = makeState();
+    await runOptimizerImpl(state, makeConfig(), { maxIterations: 1 });
+
+    expect(mockedSaveState).toHaveBeenCalled();
+    const [, finalState] = mockedSaveState.mock.calls.at(-1)!;
+    expect(finalState.evolution).toHaveLength(1);
+    expect(finalState.evolution[0]!.accepted).toBe(true);
+  });
+
+  it("hybrid acceptance: agent flat, overall improves → accept", async () => {
+    // baseline overall 0.5; post-mutation overall 0.7, agent-score 0.5
+    // → weighted new = 0.7*0.5 + 0.3*0.7 = 0.56
+    //   weighted baseline = 0.7*0.5 + 0.3*0.5 = 0.50
+    benchmarkCallCount = 0;
+    mockRunAllBenchmarks.mockReset();
+    mockRunAllBenchmarks
+      .mockResolvedValueOnce({
+        totalScore: 0.5,
+        results: [
+          { benchmarkId: "code-quality", score: 0.5, details: {}, timestamp: "t", costUsd: 0 },
+        ] satisfies BenchmarkResult[],
+        totalCostUsd: 0,
+      })
+      .mockResolvedValueOnce({
+        totalScore: 0.7,
+        results: [
+          { benchmarkId: "code-quality", score: 0.5, details: {}, timestamp: "t", costUsd: 0 },
+        ] satisfies BenchmarkResult[],
+        totalCostUsd: 0,
+      });
+    mockGenerateMutations.mockResolvedValueOnce([mutationFor("developer")]);
+
+    await runOptimizerImpl(makeState(), makeConfig(), { maxIterations: 1 });
+
+    const [, finalState] = mockedSaveState.mock.calls.at(-1)!;
+    expect(finalState.evolution).toHaveLength(1);
+    expect(finalState.evolution[0]!.accepted).toBe(true);
+  });
+
+  it("hybrid acceptance: agent degrades, overall improves slightly → reject", async () => {
+    // baseline overall 0.5; post-mutation overall 0.55, agent-score 0.2
+    // → weighted new = 0.7*0.2 + 0.3*0.55 = 0.305
+    //   weighted baseline = 0.7*0.5 + 0.3*0.5 = 0.50 → REJECT
+    benchmarkCallCount = 0;
+    mockRunAllBenchmarks.mockReset();
+    mockRunAllBenchmarks
+      .mockResolvedValueOnce({
+        totalScore: 0.5,
+        results: [
+          { benchmarkId: "code-quality", score: 0.5, details: {}, timestamp: "t", costUsd: 0 },
+        ] satisfies BenchmarkResult[],
+        totalCostUsd: 0,
+      })
+      .mockResolvedValueOnce({
+        totalScore: 0.55,
+        results: [
+          { benchmarkId: "code-quality", score: 0.2, details: {}, timestamp: "t", costUsd: 0 },
+        ] satisfies BenchmarkResult[],
+        totalCostUsd: 0,
+      });
+    mockGenerateMutations.mockResolvedValueOnce([mutationFor("developer")]);
+
+    await runOptimizerImpl(makeState(), makeConfig(), { maxIterations: 1 });
+
+    const [, finalState] = mockedSaveState.mock.calls.at(-1)!;
+    expect(finalState.evolution).toHaveLength(1);
+    expect(finalState.evolution[0]!.accepted).toBe(false);
+  });
+
+  it("agentBaselines update on accept only (baselineScore stays put on reject)", async () => {
+    // First iteration: accept (agent=0.9, overall=0.5)
+    // Second iteration: reject (agent=0.1, overall=0.5)
+    benchmarkCallCount = 0;
+    mockRunAllBenchmarks.mockReset();
+    mockRunAllBenchmarks
+      // baseline
+      .mockResolvedValueOnce({
+        totalScore: 0.5,
+        results: [{ benchmarkId: "cq", score: 0.5, details: {}, timestamp: "t", costUsd: 0 }],
+        totalCostUsd: 0,
+      })
+      // mutation 1 — strong agent-specific improvement → accept
+      .mockResolvedValueOnce({
+        totalScore: 0.5,
+        results: [{ benchmarkId: "cq", score: 0.9, details: {}, timestamp: "t", costUsd: 0 }],
+        totalCostUsd: 0,
+      })
+      // mutation 2 — agent regression → reject (weighted < prior agent baseline 0.9)
+      .mockResolvedValueOnce({
+        totalScore: 0.5,
+        results: [{ benchmarkId: "cq", score: 0.1, details: {}, timestamp: "t", costUsd: 0 }],
+        totalCostUsd: 0,
+      });
+    mockGenerateMutations
+      .mockResolvedValueOnce([mutationFor("developer")])
+      .mockResolvedValueOnce([mutationFor("developer")]);
+
+    await runOptimizerImpl(makeState(), makeConfig(), { maxIterations: 2 });
+
+    const [, finalState] = mockedSaveState.mock.calls.at(-1)!;
+    expect(finalState.evolution).toHaveLength(2);
+    expect(finalState.evolution[0]!.accepted).toBe(true);
+    expect(finalState.evolution[1]!.accepted).toBe(false);
+  });
 });

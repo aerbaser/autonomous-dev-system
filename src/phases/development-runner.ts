@@ -135,8 +135,27 @@ export async function runDevelopment(
   let totalCost = 0;
   const batchSessionIds: string[] = [];
 
-  for (let batchIdx = 0; batchIdx < taskBatches.length; batchIdx++) {
+  // --- Parallel batch scheduler ---------------------------------------------
+  //
+  // Batches are eligible to run concurrently when their estimated file globs
+  // are disjoint (no two batches touch the same file). Up to
+  // `config.maxParallelBatches` batches run at a time. An in-memory mutex
+  // (stateMutex) serializes the state-update/save section so concurrent
+  // batches can't clobber each other's persisted state.
+  const maxParallel = Math.max(1, config.maxParallelBatches ?? 3);
+  const batchGlobs: string[][] = taskBatches.map((b) => estimateBatchFileGlobs(b));
+
+  const stateMutex = createMutex();
+  const results = new Map<number, BatchResult>();
+  const running = new Map<number, Promise<void>>();
+  const runningGlobs = new Map<number, string[]>();
+  let nextIdx = 0;
+
+  const scheduleBatch = (batchIdx: number): Promise<void> => {
     const batch = taskBatches[batchIdx]!;
+    const globs = batchGlobs[batchIdx]!;
+    runningGlobs.set(batchIdx, globs);
+
     progress.emit("batch:start", { index: batchIdx, total: taskBatches.length, taskCount: batch.length });
     console.log(
       `[development] Batch ${batchIdx + 1}/${taskBatches.length}: ` +
@@ -151,65 +170,100 @@ export async function runDevelopment(
       registry
     );
 
-    const batchResult = await executeBatch(
-      batch,
-      batchAgentDefs,
-      updatedState,
-      config,
-      mcpServers
-    );
-
-    totalCost += batchResult.costUsd;
-    if (batchResult.sessionId) batchSessionIds.push(batchResult.sessionId);
-
-    progress.emit("batch:end", { index: batchIdx, success: batchResult.taskResults.every((r) => r.success) });
-
-    // Update task statuses and save state after each individual task result
-    for (const taskResult of batchResult.taskResults) {
-      updatedState = updateTask(updatedState, taskResult.taskId, {
-        status: taskResult.success ? "completed" : "failed",
-        ...(taskResult.result !== undefined ? { result: taskResult.result } : {}),
-        ...(taskResult.error !== undefined ? { error: taskResult.error } : {}),
-        ...(taskResult.success ? { completedAt: new Date().toISOString() } : {}),
-      });
-      // Persist after each task so interruption loses at most one task
-      saveState(config.stateDir, updatedState);
-    }
-
-    // Save checkpoint after each batch
-    const batchCheckpoint: PhaseCheckpoint = {
-      phase: "development",
-      completedTasks: updatedState.tasks
-        .filter((t) => t.status === "completed")
-        .map((t) => t.id),
-      pendingTasks: updatedState.tasks
-        .filter((t) => t.status === "pending" || t.status === "in_progress")
-        .map((t) => t.id),
-      timestamp: new Date().toISOString(),
-      metadata: { batchIndex: batchIdx, totalCost, sessionIds: batchSessionIds },
-    };
-    updatedState = saveCheckpointState(updatedState, batchCheckpoint);
-    saveState(config.stateDir, updatedState);
-
-    console.log(
-      `[development] Batch ${batchIdx + 1} complete. ` +
-        `Cost so far: $${totalCost.toFixed(4)}`
-    );
-
-    // Step 5: Quality gate after each batch
-    const qualityOk = await runQualityChecks();
-    if (!qualityOk) {
-      console.warn("[development] Quality checks failed after batch. Attempting auto-fix...");
-      const fixResult = await autoFixQualityIssues(
+    const p = (async () => {
+      const batchResult = await executeBatch(
+        batch,
+        batchAgentDefs,
         updatedState,
         config,
-        baseAgentDefs,
         mcpServers
       );
-      totalCost += fixResult.costUsd;
-      if (!fixResult.fixed) {
-        console.error("[development] Auto-fix failed. Continuing to next batch.");
+      results.set(batchIdx, batchResult);
+
+      // Serialize the state mutation + persistence section so concurrent
+      // batches can't clobber each other.
+      await stateMutex.run(async () => {
+        totalCost += batchResult.costUsd;
+        if (batchResult.sessionId) batchSessionIds.push(batchResult.sessionId);
+
+        progress.emit("batch:end", { index: batchIdx, success: batchResult.taskResults.every((r) => r.success) });
+
+        for (const taskResult of batchResult.taskResults) {
+          updatedState = updateTask(updatedState, taskResult.taskId, {
+            status: taskResult.success ? "completed" : "failed",
+            ...(taskResult.result !== undefined ? { result: taskResult.result } : {}),
+            ...(taskResult.error !== undefined ? { error: taskResult.error } : {}),
+            ...(taskResult.success ? { completedAt: new Date().toISOString() } : {}),
+          });
+          saveState(config.stateDir, updatedState);
+        }
+
+        const batchCheckpoint: PhaseCheckpoint = {
+          phase: "development",
+          completedTasks: updatedState.tasks
+            .filter((t) => t.status === "completed")
+            .map((t) => t.id),
+          pendingTasks: updatedState.tasks
+            .filter((t) => t.status === "pending" || t.status === "in_progress")
+            .map((t) => t.id),
+          timestamp: new Date().toISOString(),
+          metadata: { batchIndex: batchIdx, totalCost, sessionIds: batchSessionIds },
+        };
+        updatedState = saveCheckpointState(updatedState, batchCheckpoint);
+        saveState(config.stateDir, updatedState);
+
+        console.log(
+          `[development] Batch ${batchIdx + 1} complete. ` +
+            `Cost so far: $${totalCost.toFixed(4)}`
+        );
+      });
+
+      // Quality gate after each batch (serialized so only one runs at a time)
+      await stateMutex.run(async () => {
+        const qualityOk = await runQualityChecks();
+        if (!qualityOk) {
+          console.warn("[development] Quality checks failed after batch. Attempting auto-fix...");
+          const fixResult = await autoFixQualityIssues(
+            updatedState,
+            config,
+            baseAgentDefs,
+            mcpServers
+          );
+          totalCost += fixResult.costUsd;
+          if (!fixResult.fixed) {
+            console.error("[development] Auto-fix failed. Continuing to next batch.");
+          }
+        }
+      });
+    })();
+
+    return p;
+  };
+
+  while (nextIdx < taskBatches.length || running.size > 0) {
+    // Start as many non-conflicting batches as we can
+    while (nextIdx < taskBatches.length && running.size < maxParallel) {
+      const idx = nextIdx;
+      const globs = batchGlobs[idx]!;
+      let hasConflict = false;
+      for (const activeGlobs of runningGlobs.values()) {
+        if (globsConflict(globs, activeGlobs)) {
+          hasConflict = true;
+          break;
+        }
       }
+      if (hasConflict) break; // wait for a running batch to drain
+
+      const promise = scheduleBatch(idx).finally(() => {
+        running.delete(idx);
+        runningGlobs.delete(idx);
+      });
+      running.set(idx, promise);
+      nextIdx++;
+    }
+
+    if (running.size > 0) {
+      await Promise.race(running.values());
     }
   }
 
@@ -601,7 +655,7 @@ ${taskAgentNames.map((name) => `- Use the "${name}" agent for its corresponding 
 
 ## Instructions
 1. For each task, delegate to the corresponding subagent
-2. ${batch.length > 1 ? "Tasks in this batch are independent — you can delegate them in parallel" : "Focus on this single task"}
+2. ${batch.length > 1 ? "Tasks in this batch are independent. You MUST invoke all subagents in a SINGLE assistant message (multiple Agent tool calls in parallel) to maximize throughput." : "Focus on this single task"}
 3. After each task completes, verify the implementation:
    - Run \`npx tsc --noEmit\` to check types
    - Run \`npm test\` to check tests
@@ -661,6 +715,103 @@ Also include a brief text summary for each task.`;
   const taskResults = parseTaskResults(resultText, batch);
 
   return { taskResults, costUsd, ...(sessionId !== undefined ? { sessionId } : {}) };
+}
+
+// --- Parallel scheduling helpers ---
+
+/**
+ * Static analysis of a task description/title to extract file path references.
+ * Heuristic extraction — conservative by design.
+ *
+ * Looks for:
+ *   - Paths with `/` or common source file extensions (.ts, .tsx, .js, .jsx,
+ *     .py, .go, .java, .rb, .rs, .cpp, .c, .h, .md, .json, .yaml, .yml, .html,
+ *     .css, .scss, .vue, .svelte)
+ *   - Capitalised component names following verbs like "Create", "Modify",
+ *     "Update", "Add", "Refactor", "Implement"
+ *
+ * Returns `["*"]` when nothing can be extracted so the scheduler treats the
+ * task as conflicting with everything (serial fallback).
+ */
+export function estimateTaskFileGlobs(task: { title: string; description: string }): string[] {
+  const text = `${task.title}\n${task.description}`;
+  const globs = new Set<string>();
+
+  // Match paths / filenames with an extension, optionally including `/`.
+  const pathRegex =
+    /\b(?:[\w.-]+\/)*[\w.-]+\.(?:ts|tsx|js|jsx|py|go|java|rb|rs|cpp|cc|c|h|hpp|md|json|ya?ml|html|css|scss|vue|svelte)\b/g;
+  for (const match of text.matchAll(pathRegex)) {
+    globs.add(match[0]);
+  }
+
+  // Match explicit paths with `/` even without an extension.
+  const slashRegex = /\b(?:src|tests?|lib|app|pkg|cmd|internal|packages)\/[\w./-]+/g;
+  for (const match of text.matchAll(slashRegex)) {
+    globs.add(match[0]);
+  }
+
+  // Component names following verbs (Create X, Update Y, etc.). Used as a
+  // fallback logical identifier — we normalise them to lowercase to act as
+  // keys in the conflict graph.
+  const componentRegex =
+    /\b(?:Create|Modify|Update|Add|Refactor|Implement|Build|Delete|Remove|Fix)\s+(?:the\s+|a\s+|an\s+)?([A-Z][A-Za-z0-9]+(?:\s+[A-Z][A-Za-z0-9]+)?)/g;
+  for (const match of text.matchAll(componentRegex)) {
+    const name = match[1];
+    if (name) globs.add(`component:${name.toLowerCase().replace(/\s+/g, "-")}`);
+  }
+
+  if (globs.size === 0) return ["*"];
+  return [...globs];
+}
+
+/** Union of estimated globs for every task in a batch. */
+function estimateBatchFileGlobs(batch: Task[]): string[] {
+  const all = new Set<string>();
+  for (const t of batch) {
+    for (const g of estimateTaskFileGlobs(t)) all.add(g);
+  }
+  return [...all];
+}
+
+/**
+ * Conservative overlap check between two glob sets. Treats `*` as "matches
+ * everything" and uses prefix matching as a cheap approximation otherwise.
+ */
+function globsConflict(a: string[], b: string[]): boolean {
+  if (a.includes("*") || b.includes("*")) return true;
+  for (const ga of a) {
+    for (const gb of b) {
+      if (ga === gb) return true;
+      // Prefix match: `src/foo` overlaps with `src/foo/bar.ts`.
+      if (ga.includes("/") && gb.startsWith(ga + "/")) return true;
+      if (gb.includes("/") && ga.startsWith(gb + "/")) return true;
+    }
+  }
+  return false;
+}
+
+/** True when two batches share any estimated file glob. */
+export function batchesConflict(batchA: Task[], batchB: Task[]): boolean {
+  return globsConflict(estimateBatchFileGlobs(batchA), estimateBatchFileGlobs(batchB));
+}
+
+/**
+ * Tiny async mutex — serialises work through `run()`. Used to protect the
+ * state-update section of the concurrent batch loop.
+ */
+interface Mutex {
+  run<T>(task: () => Promise<T>): Promise<T>;
+}
+
+function createMutex(): Mutex {
+  let tail: Promise<unknown> = Promise.resolve();
+  return {
+    run<T>(task: () => Promise<T>): Promise<T> {
+      const result = tail.then(task, task);
+      tail = result.catch(() => undefined);
+      return result;
+    },
+  };
 }
 
 // --- Helpers ---
