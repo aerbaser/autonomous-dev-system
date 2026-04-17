@@ -243,6 +243,43 @@ describe("RunLedger", () => {
     });
   });
 
+  describe("coordinationVsImplementation (Phase 3)", () => {
+    it("splits spend into coordination / implementation / auxiliary buckets", () => {
+      const ledger = new RunLedger();
+      // coordination bucket
+      ledger.startSession({ sessionId: "c1", phase: "development", role: "lead", sessionType: "team_lead" });
+      ledger.endSession("c1", { success: true, spend: { costUsd: 0.5, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } });
+      ledger.startSession({ sessionId: "c2", phase: "development", role: "orch", sessionType: "coordinator" });
+      ledger.endSession("c2", { success: true, spend: { costUsd: 0.25, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } });
+      // implementation bucket
+      ledger.startSession({ sessionId: "i1", phase: "development", role: "dev", sessionType: "child_agent" });
+      ledger.endSession("i1", { success: true, spend: { costUsd: 1.5, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } });
+      ledger.startSession({ sessionId: "i2", phase: "development", role: "sub", sessionType: "subagent" });
+      ledger.endSession("i2", { success: true, spend: { costUsd: 0.75, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } });
+      // auxiliary bucket
+      ledger.startSession({ sessionId: "a1", phase: "development", role: "grader", sessionType: "rubric" });
+      ledger.endSession("a1", { success: true, spend: { costUsd: 0.1, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } });
+      ledger.startSession({ sessionId: "a2", phase: "development", role: "mem", sessionType: "memory" });
+      ledger.endSession("a2", { success: true, spend: { costUsd: 0.05, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 } });
+
+      const split = ledger.coordinationVsImplementation();
+      expect(split.coordinationUsd).toBeCloseTo(0.75, 6);
+      expect(split.implementationUsd).toBeCloseTo(2.25, 6);
+      expect(split.auxiliaryUsd).toBeCloseTo(0.15, 6);
+      // ratio ignores auxiliary noise: 0.75 / (0.75 + 2.25) = 0.25
+      expect(split.ratio).toBeCloseTo(0.25, 6);
+    });
+
+    it("returns zero ratio on empty ledger", () => {
+      const ledger = new RunLedger();
+      const split = ledger.coordinationVsImplementation();
+      expect(split.coordinationUsd).toBe(0);
+      expect(split.implementationUsd).toBe(0);
+      expect(split.auxiliaryUsd).toBe(0);
+      expect(split.ratio).toBe(0);
+    });
+  });
+
   describe("active ledger singleton", () => {
     it("setActiveLedger / getActiveLedger round-trip", () => {
       const ledger = new RunLedger();

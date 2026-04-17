@@ -95,6 +95,28 @@ const retryPolicySchema = z.object({
 });
 export type RetryPolicy = z.infer<typeof retryPolicySchema>;
 
+// Phase 3: explicit opt-in for the legacy "lead developer" prompt wrapper that
+// orchestrates subagent delegation. Default path dispatches each task directly
+// to its subagent (no second coordination loop). Enable only when you need a
+// supervising lead across heterogeneous subagents.
+const developmentCoordinatorSchema = z.object({
+  enabled: z.boolean().default(false),
+});
+export type DevelopmentCoordinatorConfig = z.infer<
+  typeof developmentCoordinatorSchema
+>;
+
+// Phase 8: auxiliary-loop profile gating.
+//   minimal — skip rubric, per-task memory capture, quality-fix retries.
+//             Phase-end memory capture still runs so cross-run learnings
+//             persist. This is the default (production) path.
+//   debug   — all auxiliary loops on, verbose.
+//   nightly — rubric+memory on, but no interactive observers.
+const auxiliaryProfileSchema = z
+  .enum(["minimal", "debug", "nightly"])
+  .default("minimal");
+export type AuxiliaryProfile = z.infer<typeof auxiliaryProfileSchema>;
+
 export const ConfigSchema = z.object({
   model: z
     .enum(["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"])
@@ -125,11 +147,17 @@ export const ConfigSchema = z.object({
     maxDocumentSizeKb: 100,
   } satisfies z.input<typeof memorySchema>),
   codexSubagents: codexSubagentsSchema.optional(),
+  // Rubric evaluation is a debug tier: useful for offline grading of phase
+  // output but it doubles the cost of every phase (handler re-run on
+  // `needs_revision` + grader model call). Default is OFF; opt in via config
+  // override, CLI flag (`--enable-rubrics`), or the `debug` / `nightly`
+  // auxiliary profile. Leaving it on for production runs is an easy way to
+  // burn budget without tangible product gain.
   rubrics: z.object({
-    enabled: z.boolean().default(true),
+    enabled: z.boolean().default(false),
     maxIterations: z.number().default(3),
     graderModel: z.string().optional(),
-  }).default({ enabled: true, maxIterations: 3 }),
+  }).default({ enabled: false, maxIterations: 3 }),
   maxParallelBatches: z.number().default(3),
   roles: z.record(z.string(), roleBudgetSchema).default({}),
   retryPolicy: retryPolicySchema.default({
@@ -137,6 +165,15 @@ export const ConfigSchema = z.object({
     verification_failed: { maxAttempts: 2 },
     identical_failure_abort: true,
   } satisfies z.input<typeof retryPolicySchema>),
+  // Phase 3: opt-in lead-developer coordinator prompt wrapper. Default OFF —
+  // each task dispatches directly to its subagent. See schema comment above.
+  developmentCoordinator: developmentCoordinatorSchema.default({
+    enabled: false,
+  } satisfies z.input<typeof developmentCoordinatorSchema>),
+  // Phase 8: auxiliary loop profile — controls whether rubric, memory capture,
+  // and quality-fix retries run. Default `minimal` for production cost
+  // discipline; switch to `debug` / `nightly` for offline analysis runs.
+  auxiliaryProfile: auxiliaryProfileSchema,
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -146,6 +183,52 @@ export function getCodexSubagentsConfig(config?: Config): CodexSubagentsConfig {
   return {
     ...DEFAULT_CODEX_SUBAGENTS,
     ...(config?.codexSubagents ?? {}),
+  };
+}
+
+/**
+ * Phase 8: resolve the effective auxiliary-loop feature flags given the
+ * configured profile. Call this at call sites that would otherwise fire
+ * rubric/memory/quality-fix loops — returns a flat boolean surface so each
+ * site stays readable.
+ *
+ * - `rubric`: run the post-phase rubric grader + re-execution loop
+ * - `memoryCapturePerTask`: capture learnings per-task (debug only; phase-end
+ *   capture is controlled separately and always runs when `config.memory.enabled`)
+ * - `qualityFixRetry`: trigger the auto-fix agent when a batch fails quality
+ * - `verbose`: emit extra diagnostics for auxiliary loops
+ */
+export function resolveAuxiliaryFlags(config: Pick<Config, "auxiliaryProfile" | "rubrics">): {
+  rubric: boolean;
+  memoryCapturePerTask: boolean;
+  qualityFixRetry: boolean;
+  verbose: boolean;
+} {
+  const profile = config.auxiliaryProfile;
+  if (profile === "minimal") {
+    return {
+      rubric: false,
+      memoryCapturePerTask: false,
+      qualityFixRetry: false,
+      verbose: false,
+    };
+  }
+  if (profile === "nightly") {
+    return {
+      // Nightly runs opt back into rubric/memory regardless of the rubrics
+      // top-level flag so offline analysis has full signal.
+      rubric: true,
+      memoryCapturePerTask: false,
+      qualityFixRetry: true,
+      verbose: false,
+    };
+  }
+  // debug: everything on
+  return {
+    rubric: config.rubrics?.enabled !== false,
+    memoryCapturePerTask: true,
+    qualityFixRetry: true,
+    verbose: true,
   };
 }
 

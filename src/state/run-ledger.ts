@@ -340,6 +340,56 @@ export class RunLedger {
     }
     if (activeLedger === this) activeLedger = null;
   }
+
+  /**
+   * Phase 3: split run spend into coordination (supervisory agents that only
+   * delegate) vs. implementation (agents that actually change code / produce
+   * artifacts). Useful for run reports to expose how much budget was burned
+   * on orchestration overhead — the exact thing the execution-plan wants to
+   * squeeze out of the default dev path.
+   *
+   * Classification is derived from `SessionType`:
+   *   coordination  = coordinator | team_lead | retry
+   *   implementation = child_agent | subagent
+   * `rubric` / `memory` are observational/auxiliary and counted as neither —
+   * they have their own buckets in `byType` so run reports can surface them
+   * separately without double-counting.
+   */
+  coordinationVsImplementation(): {
+    coordinationUsd: number;
+    implementationUsd: number;
+    auxiliaryUsd: number;
+    ratio: number;
+  } {
+    let coord = 0;
+    let impl = 0;
+    let aux = 0;
+    for (const s of this.sessions.values()) {
+      const cost = s.spend.costUsd;
+      if (cost <= 0) continue;
+      switch (s.sessionType) {
+        case "coordinator":
+        case "team_lead":
+        case "retry":
+          coord += cost;
+          break;
+        case "child_agent":
+        case "subagent":
+          impl += cost;
+          break;
+        case "rubric":
+        case "memory":
+          aux += cost;
+          break;
+      }
+    }
+    // Ratio expresses coordination cost as a fraction of coordination +
+    // implementation (ignoring auxiliary so rubric/memory noise doesn't
+    // dilute the signal). Falls back to 0 on empty runs.
+    const denom = coord + impl;
+    const ratio = denom > 0 ? coord / denom : 0;
+    return { coordinationUsd: coord, implementationUsd: impl, auxiliaryUsd: aux, ratio };
+  }
 }
 
 export function loadLedger(stateDir: string, runId: string): RunLedgerSnapshot | null {

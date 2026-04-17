@@ -111,6 +111,14 @@ program
   .option("--quick", "Skip optional phases (env-setup, review, ab-testing, monitoring)")
   .option("--confirm-spec", "Pause for user confirmation after spec generation")
   .option("--verbose", "Show detailed progress output")
+  .option(
+    "--enable-rubrics",
+    "Enable rubric evaluation loop (default: off; debug/offline use only)",
+  )
+  .option(
+    "--auxiliary-profile <profile>",
+    "Auxiliary loop profile: minimal (default), debug, nightly",
+  )
   .action(async (opts: {
     idea: string;
     config?: string;
@@ -120,12 +128,31 @@ program
     quick?: boolean;
     confirmSpec?: boolean;
     verbose?: boolean;
+    enableRubrics?: boolean;
+    auxiliaryProfile?: string;
   }) => {
     const config = loadConfig(opts.config);
     config.budgetUsd  = opts.budget;
     config.dryRun     = opts.dryRun ?? false;
     config.quickMode  = opts.quick ?? false;
     config.confirmSpec = opts.confirmSpec ?? false;
+    if (opts.enableRubrics) {
+      config.rubrics = { ...config.rubrics, enabled: true };
+    }
+    if (opts.auxiliaryProfile) {
+      if (
+        opts.auxiliaryProfile !== "minimal" &&
+        opts.auxiliaryProfile !== "debug" &&
+        opts.auxiliaryProfile !== "nightly"
+      ) {
+        console.error(
+          `\n${C.red}[ERROR]${C.reset} Invalid --auxiliary-profile "${opts.auxiliaryProfile}". ` +
+          `Expected: minimal | debug | nightly.`,
+        );
+        process.exit(1);
+      }
+      config.auxiliaryProfile = opts.auxiliaryProfile;
+    }
     const stateDir = config.stateDir;
 
     const { state: existingState, unreadable } = loadPersistedState(stateDir);

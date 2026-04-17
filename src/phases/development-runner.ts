@@ -20,6 +20,7 @@ import { buildAgentTeam, getAgentDefinitions } from "../agents/factory.js";
 import { getMcpServerConfigs } from "../environment/mcp-manager.js";
 import { qualityGateHook } from "../hooks/quality-gate.js";
 import { auditLoggerHook } from "../hooks/audit-logger.js";
+import { resolveAuxiliaryFlags } from "../utils/config.js";
 import {
   addTask,
   updateTask,
@@ -146,6 +147,10 @@ export async function runDevelopment(
   let totalCost = 0;
   const batchSessionIds: string[] = [];
 
+  // Phase 8: resolve auxiliary flags once per phase so inner loops don't
+  // re-read the profile on every batch.
+  const auxFlags = resolveAuxiliaryFlags(config);
+
   for (let batchIdx = 0; batchIdx < taskBatches.length; batchIdx++) {
     const batch = taskBatches[batchIdx]!;
     progress.emit("batch:start", { index: batchIdx, total: taskBatches.length, taskCount: batch.length });
@@ -216,19 +221,29 @@ export async function runDevelopment(
         `Cost so far: $${totalCost.toFixed(4)}`
     );
 
-    // Step 5: Quality gate after each batch
+    // Step 5: Quality gate after each batch. The auto-fix retry loop is
+    // Phase 8-gated — under the `minimal` profile we only report failures
+    // and keep going, leaving expensive fix attempts to the `debug` /
+    // `nightly` profiles. This keeps core runs bounded.
     const qualityOk = await runQualityChecks();
     if (!qualityOk) {
-      console.warn("[development] Quality checks failed after batch. Attempting auto-fix...");
-      const fixResult = await autoFixQualityIssues(
-        updatedState,
-        config,
-        baseAgentDefs,
-        mcpServers
-      );
-      totalCost += fixResult.costUsd;
-      if (!fixResult.fixed) {
-        console.error("[development] Auto-fix failed. Continuing to next batch.");
+      if (auxFlags.qualityFixRetry) {
+        console.warn("[development] Quality checks failed after batch. Attempting auto-fix...");
+        const fixResult = await autoFixQualityIssues(
+          updatedState,
+          config,
+          baseAgentDefs,
+          mcpServers
+        );
+        totalCost += fixResult.costUsd;
+        if (!fixResult.fixed) {
+          console.error("[development] Auto-fix failed. Continuing to next batch.");
+        }
+      } else {
+        console.warn(
+          "[development] Quality checks failed — auto-fix retry disabled by auxiliary profile " +
+          `(${config.auxiliaryProfile}). Continuing to next batch.`,
+        );
       }
     }
   }
@@ -795,39 +810,36 @@ export function persistReceipt(
   }
 }
 
-async function executeBatch(
-  batch: Task[],
-  agentDefs: Record<string, AgentDefinition>,
-  state: ProjectState,
+interface DirectDispatchResult {
+  taskId: string;
+  resultText: string;
+  sessionId: string | undefined;
+  costUsd: number;
+}
+
+/**
+ * Phase 3: dispatch a single task directly to its owning subagent, skipping
+ * the "lead developer" wrapper entirely. This is the default execution path —
+ * the lead wrapper is gated behind `config.developmentCoordinator.enabled`.
+ *
+ * The SDK `query()` uses the subagent's prompt as `systemPrompt` and omits the
+ * Agent tool, so there is no second coordination loop around this call.
+ */
+async function dispatchTaskDirect(
+  task: Task,
+  agentName: string,
+  def: AgentDefinition,
   config: Config,
-  mcpServers: Record<string, McpServerConfig>
-): Promise<BatchResult> {
-  const taskList = batch
-    .map((t, i) => `${i + 1}. **${t.title}**: ${t.description}`)
-    .join("\n\n");
-
-  // Derive task agent names from the agentDefs (excludes base agents like developer, qa-engineer)
-  const taskAgentNames = Object.keys(agentDefs).filter(
-    (name) => !BASE_AGENT_NAMES.has(name)
-  );
-
-  // Single-task batch: skip the lead-agent wrapper and dispatch the task's
-  // subagent directly. Saves one full turn of lead-agent reasoning plus the
-  // Agent-tool invocation overhead (the lead agent's only job would be to
-  // delegate to this one subagent).
-  if (batch.length === 1 && taskAgentNames.length === 1) {
-    const task = batch[0]!;
-    const agentName = taskAgentNames[0]!;
-    const def = agentDefs[agentName]!;
-
-    const singlePrompt = `Implement the task described in your system prompt. When done, you MUST emit a single structured TaskReceipt JSON block. Freeform text will NOT count as success — only a valid receipt can.
+  mcpServers: Record<string, McpServerConfig>,
+): Promise<DirectDispatchResult> {
+  const prompt = `Implement the task described in your system prompt. When done, you MUST emit a single structured TaskReceipt JSON block. Freeform text will NOT count as success — only a valid receipt can.
 
 Required receipt shape (all fields mandatory unless marked optional):
 \`\`\`json
 {
   "taskId": "${task.id}",
   "taskTitle": "${task.title.replace(/"/g, '\\"')}",
-  "teamMemberId": "<your agent name>",
+  "teamMemberId": "${agentName}",
   "agentRole": "<your role>",
   "model": "<the model you are running on>",
   "sessionIds": ["<session id(s)>"],
@@ -853,52 +865,150 @@ Rules:
 
 After the JSON block, you may add a brief text summary.`;
 
-    let resultText = "";
-    let sessionId: string | undefined;
-    let costUsd = 0;
+  let resultText = "";
+  let sessionId: string | undefined;
+  let costUsd = 0;
 
-    // Preserve the subagent's tool set; intentionally omit "Agent".
-    const allowedTools = def.tools ?? ["Read", "Write", "Edit", "Bash", "Glob", "Grep"];
+  // Preserve the subagent's tool set; intentionally omit "Agent" so there is
+  // no way for the subagent to spawn its own coordinator.
+  const allowedTools = def.tools ?? ["Read", "Write", "Edit", "Bash", "Glob", "Grep"];
 
-    for await (const message of query({
-      prompt: singlePrompt,
-      options: {
-        systemPrompt: def.prompt,
-        allowedTools,
-        hooks: {
-          PostToolUse: [{ matcher: "Edit|Write", hooks: [auditLoggerHook] }],
-        },
-        mcpServers,
-        model: config.subagentModel,
-        maxTurns: getMaxTurns(config, "default"),
-        ...getQueryPermissions(config),
+  for await (const message of query({
+    prompt,
+    options: {
+      systemPrompt: def.prompt,
+      allowedTools,
+      hooks: {
+        PostToolUse: [{ matcher: "Edit|Write", hooks: [auditLoggerHook] }],
       },
-    })) {
-      if (message.type === "result") {
-        if (message.subtype === "success") {
-          resultText = message.result;
-          sessionId = message.session_id;
-          costUsd = message.total_cost_usd;
-        } else {
-          console.error(
-            `[development] Single-task execution ended with error: ${message.subtype}`,
-            message.errors
-          );
-          costUsd = message.total_cost_usd;
-        }
-      }
-
-      if (isApiRetry(message)) {
-        console.warn(
-          `[development] API retry attempt ${message.attempt}, waiting ${message.retry_delay_ms}ms`
+      mcpServers,
+      model: config.subagentModel,
+      maxTurns: getMaxTurns(config, "default"),
+      ...getQueryPermissions(config),
+    },
+  })) {
+    if (message.type === "result") {
+      if (message.subtype === "success") {
+        resultText = message.result;
+        sessionId = message.session_id;
+        costUsd = message.total_cost_usd;
+      } else {
+        console.error(
+          `[development] Direct-dispatch task "${task.title}" ended with error: ${message.subtype}`,
+          message.errors,
         );
+        costUsd = message.total_cost_usd;
       }
     }
 
+    if (isApiRetry(message)) {
+      console.warn(
+        `[development] API retry attempt ${message.attempt}, waiting ${message.retry_delay_ms}ms`,
+      );
+    }
+  }
+
+  return { taskId: task.id, resultText, sessionId, costUsd };
+}
+
+async function executeBatch(
+  batch: Task[],
+  agentDefs: Record<string, AgentDefinition>,
+  state: ProjectState,
+  config: Config,
+  mcpServers: Record<string, McpServerConfig>
+): Promise<BatchResult> {
+  const taskList = batch
+    .map((t, i) => `${i + 1}. **${t.title}**: ${t.description}`)
+    .join("\n\n");
+
+  // Derive task agent names from the agentDefs (excludes base agents like developer, qa-engineer)
+  const taskAgentNames = Object.keys(agentDefs).filter(
+    (name) => !BASE_AGENT_NAMES.has(name)
+  );
+
+  // Phase 3 — Direct-dispatch fast path (default execution mode).
+  //
+  // When every task has exactly one owning subagent (batch.length === taskAgentNames.length)
+  // AND the lead-developer coordinator is not explicitly enabled, we dispatch
+  // each task straight to its subagent in parallel. This removes the legacy
+  // "lead developer" prompt wrapper that used to orchestrate delegation on top
+  // of native subagents — pure double coordination, per the Phase 3 plan.
+  //
+  // The legacy lead wrapper is retained below as an opt-in debug path via
+  // `config.developmentCoordinator.enabled === true`.
+  const coordinatorEnabled = config.developmentCoordinator?.enabled === true;
+  const canDirectDispatch =
+    !coordinatorEnabled &&
+    batch.length > 0 &&
+    batch.length === taskAgentNames.length;
+
+  if (canDirectDispatch) {
+    // Build 1:1 assignment from task to its owning subagent. Naming convention
+    // in `buildBatchAgents`: generic tasks get `dev-<taskIdPrefix>`; domain
+    // tasks get the domain agent name. We reconstruct the mapping by matching
+    // task.id against the `dev-` suffix and falling back to arbitrary pairing
+    // for domain agents (they already live 1:1 with the batch member).
+    const assignments: Array<{ task: Task; agentName: string }> = [];
+    const claimed = new Set<string>();
+    for (const task of batch) {
+      const devName = `dev-${task.id.slice(0, 8)}`;
+      let agentName: string | undefined;
+      if (taskAgentNames.includes(devName) && !claimed.has(devName)) {
+        agentName = devName;
+      } else {
+        // Fallback: pick the next unused non-base agent. This mirrors the
+        // assignment order used by `buildBatchAgents` for domain agents.
+        agentName = taskAgentNames.find((n) => !claimed.has(n));
+      }
+      if (!agentName) break;
+      claimed.add(agentName);
+      assignments.push({ task, agentName });
+    }
+
+    if (assignments.length === batch.length) {
+      console.log(
+        `[development] Direct-dispatch fast path: ${batch.length} task(s) → ` +
+          `${assignments.length} subagent(s), no lead wrapper`,
+      );
+
+      const settled = await Promise.all(
+        assignments.map(({ task, agentName }) =>
+          dispatchTaskDirect(task, agentName, agentDefs[agentName]!, config, mcpServers),
+        ),
+      );
+
+      const combinedOutput = settled.map((r) => r.resultText).join("\n");
+      const taskResults = parseTaskResults(combinedOutput, batch);
+      const costUsd = settled.reduce((sum, r) => sum + r.costUsd, 0);
+      // Use the first non-empty session id as the batch-level pointer.
+      const sessionId = settled.find((r) => r.sessionId)?.sessionId;
+      return { taskResults, costUsd, ...(sessionId !== undefined ? { sessionId } : {}) };
+    }
+  }
+
+  // Back-compat: preserve the single-task direct-dispatch fast path even when
+  // the coordinator flag is enabled, since a single task has literally
+  // nothing for a lead to coordinate.
+  if (batch.length === 1 && taskAgentNames.length === 1) {
+    const task = batch[0]!;
+    const agentName = taskAgentNames[0]!;
+    const def = agentDefs[agentName]!;
+    const { resultText, sessionId, costUsd } = await dispatchTaskDirect(
+      task,
+      agentName,
+      def,
+      config,
+      mcpServers,
+    );
     const taskResults = parseTaskResults(resultText, batch);
     return { taskResults, costUsd, ...(sessionId !== undefined ? { sessionId } : {}) };
   }
 
+  // Legacy / opt-in: lead-developer coordinator wraps native subagents in a
+  // second orchestration loop. Gated behind `developmentCoordinator.enabled`
+  // because it's pure overhead when tasks have 1:1 owners — that case is
+  // handled by the direct-dispatch fast path above.
   const prompt = `You are the lead developer orchestrating implementation of ${batch.length} task(s).
 
 ## Tasks to implement

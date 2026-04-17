@@ -1,4 +1,4 @@
-import type { Config } from "./utils/config.js";
+import { resolveAuxiliaryFlags, type Config } from "./utils/config.js";
 import { progress } from "./utils/progress.js";
 import {
   type ProjectState,
@@ -653,7 +653,14 @@ async function executePhaseSafe(
     // Rubric evaluation: if enabled and phase has a rubric, grade the result.
     // Uses result.state (post-phase) and injects gap feedback into PhaseContext
     // for each retry so the handler can address gaps on the next iteration.
-    if (config.rubrics?.enabled && result.success) {
+    //
+    // Phase 8: the auxiliary-profile gate short-circuits this block entirely
+    // for `minimal` runs. `debug` / `nightly` profiles, or an explicit
+    // `config.rubrics.enabled === true` override (set by `--enable-rubrics`),
+    // re-enable grading.
+    const auxFlags = resolveAuxiliaryFlags(config);
+    const rubricEnabled = auxFlags.rubric || config.rubrics?.enabled === true;
+    if (rubricEnabled && result.success) {
       const rubric = getPhaseRubric(phase);
       if (rubric) {
         console.log(`[rubric] Evaluating phase "${phase}" against rubric "${rubric.name}"`);

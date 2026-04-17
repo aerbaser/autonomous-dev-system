@@ -316,7 +316,9 @@ describe("Development Runner", () => {
   // ── Batch size limiting ───────────────────────────────────────────────────
 
   it("splits batches larger than MAX_BATCH_SIZE=6 into sub-batches", async () => {
-    // 7 independent arch tasks → groupIntoBatches produces [6, 1] → 2 executeBatch calls
+    // 7 independent arch tasks → groupIntoBatches produces [6, 1].
+    // Phase 3: direct-dispatch fast path runs each task's subagent in its
+    // own query() call (no lead wrapper), so 6 + 1 = 7 query invocations.
     const archTasks = Array.from({ length: 7 }, (_, i) => ({
       id: `arch-${i + 1}`,
       title: `Task ${i + 1}`,
@@ -340,8 +342,42 @@ describe("Development Runner", () => {
 
     await runDevelopment(state, makeConfig());
 
-    // Each independent batch triggers one query call — expect exactly 2 batches
-    expect(mockedQuery).toHaveBeenCalledTimes(2);
+    // Direct-dispatch: one query() per task — 7 tasks split into [6, 1]
+    // batches = 7 total calls.
+    expect(mockedQuery).toHaveBeenCalledTimes(7);
+  });
+
+  it("legacy lead-developer coordinator wraps the batch in ONE query call when enabled", async () => {
+    // Opt-in debug path: developmentCoordinator.enabled === true re-enables
+    // the legacy lead wrapper, which bundles the whole batch into a single
+    // query() call with Agent-tool delegation.
+    const archTasks = Array.from({ length: 3 }, (_, i) => ({
+      id: `arch-${i + 1}`,
+      title: `Task ${i + 1}`,
+      description: `Desc ${i + 1}`,
+      estimatedComplexity: "medium" as const,
+      dependencies: [],
+      acceptanceCriteria: [],
+    }));
+    const base = makeStateWithSpecAndArch();
+    const state: ProjectState = {
+      ...base,
+      tasks: [],
+      architecture: {
+        ...base.architecture!,
+        taskDecomposition: { tasks: archTasks },
+      },
+    };
+
+    mockedQuery.mockReturnValue(makeQueryStream("Lead wrapper output"));
+
+    const config = makeConfig();
+    config.developmentCoordinator = { enabled: true };
+
+    await runDevelopment(state, config);
+
+    // Legacy path: one query() for the whole batch, not one per task.
+    expect(mockedQuery).toHaveBeenCalledTimes(1);
   });
 
   it("saves state after each task completion (not just after each batch)", async () => {
