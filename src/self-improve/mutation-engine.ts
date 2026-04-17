@@ -377,7 +377,7 @@ Suggest updated execution parameters.`,
 async function generateQualityThresholdMutation(
   blueprint: AgentBlueprint,
   benchmarkResults: BenchmarkResult[],
-  history: EvolutionEntry[]
+  _history: EvolutionEntry[]
 ): Promise<Mutation[]> {
   // Quality threshold mutations adjust the evaluation criteria weights
   // by analyzing which criteria the agent consistently fails on.

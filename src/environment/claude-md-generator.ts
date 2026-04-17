@@ -1,4 +1,4 @@
-import { writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { writeFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ArchDesign, DomainAnalysis, StackEnvironment } from "../state/project-state.js";
 

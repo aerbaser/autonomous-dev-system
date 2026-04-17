@@ -46,7 +46,6 @@ export async function runNightlyMaintenance(
   }
 
   const steps: NightlyStepResult[] = [];
-  let failed = false;
   const dashboardPath = `${config.stateDir}/dashboard.html`;
 
   if (options.skipOptimize) {
@@ -78,7 +77,6 @@ export async function runNightlyMaintenance(
         detail: "Nightly optimization completed.",
       });
     } catch (err) {
-      failed = true;
       steps.push({
         name: "optimize",
         status: "failed",
@@ -102,7 +100,6 @@ export async function runNightlyMaintenance(
         detail: `Dashboard generated at ${dashboardPath}.`,
       });
     } catch (err) {
-      failed = true;
       steps.push({
         name: "dashboard",
         status: "failed",

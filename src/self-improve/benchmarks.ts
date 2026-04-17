@@ -9,11 +9,7 @@ import {
   createLlmVerifier,
 } from "./verifiers.js";
 import type { Verifier } from "./verifiers.js";
-import type {
-  BenchmarkTask,
-  Benchmark,
-  BenchmarkResult,
-} from "./benchmark-types.js";
+import type { Benchmark, BenchmarkResult } from "./benchmark-types.js";
 import { getDefaultBenchmarks } from "./benchmark-defaults.js";
 
 // Re-exports for backwards compatibility

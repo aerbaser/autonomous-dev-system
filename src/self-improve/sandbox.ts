@@ -78,7 +78,7 @@ export async function runCommandInSandbox(
   }
 
   return new Promise<SandboxResult>((res) => {
-    const child = execFile(
+    execFile(
       executable,
       args,
       {
