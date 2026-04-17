@@ -75,6 +75,26 @@ const deployTargetSchema = z.object({
   config: z.record(z.string(), z.string()).default({}),
 });
 
+// Phase 4: per-role spend ceilings & concurrency caps.
+const roleBudgetSchema = z.object({
+  budgetUsd: z.number().positive().optional(),
+  maxConcurrency: z.number().int().positive().optional(),
+  maxRetries: z.number().int().min(0).optional(),
+});
+export type RoleBudget = z.infer<typeof roleBudgetSchema>;
+
+// Phase 4: retry/escalation policy per failure class.
+const retryPolicySchema = z.object({
+  provider_limit: z
+    .enum(["checkpoint", "downgrade", "stop"])
+    .default("checkpoint"),
+  verification_failed: z
+    .object({ maxAttempts: z.number().int().min(1).default(2) })
+    .default({ maxAttempts: 2 }),
+  identical_failure_abort: z.boolean().default(true),
+});
+export type RetryPolicy = z.infer<typeof retryPolicySchema>;
+
 export const ConfigSchema = z.object({
   model: z
     .enum(["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"])
@@ -110,6 +130,13 @@ export const ConfigSchema = z.object({
     maxIterations: z.number().default(3),
     graderModel: z.string().optional(),
   }).default({ enabled: true, maxIterations: 3 }),
+  maxParallelBatches: z.number().default(3),
+  roles: z.record(z.string(), roleBudgetSchema).default({}),
+  retryPolicy: retryPolicySchema.default({
+    provider_limit: "checkpoint",
+    verification_failed: { maxAttempts: 2 },
+    identical_failure_abort: true,
+  } satisfies z.input<typeof retryPolicySchema>),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
