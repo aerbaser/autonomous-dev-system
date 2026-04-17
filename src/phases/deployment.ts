@@ -4,7 +4,7 @@ import type { ProjectState, Deployment } from "../state/project-state.js";
 import type { PhaseResult, PhaseExecutionContext } from "./types.js";
 import { randomUUID } from "node:crypto";
 import { consumeQuery, getQueryPermissions, getMaxTurns, QueryAbortedError } from "../utils/sdk-helpers.js";
-import { errMsg } from "../utils/shared.js";
+import { errMsg, extractFirstJson } from "../utils/shared.js";
 import { DeploymentResultSchema } from "../types/llm-schemas.js";
 
 export async function runDeployment(
@@ -72,16 +72,29 @@ or
     return { success: false, state: newState, error: "Deployment query failed" };
   }
 
-  // Try structured output first, fall back to text parsing
+  // Prefer native structured output, fall back to JSON extracted from the text
+  // body. Only drop to the DEPLOYED:/FAILED: line heuristic when both fail —
+  // and warn when we do, because that path can misread free-form URLs.
   let deployed = false;
   let deployUrl: string | undefined;
 
-  const parsed = structuredOutput != null ? DeploymentResultSchema.safeParse(structuredOutput) : null;
+  let parsed = structuredOutput != null ? DeploymentResultSchema.safeParse(structuredOutput) : null;
+  if (!parsed?.success) {
+    const jsonStr = extractFirstJson(resultText);
+    if (jsonStr) {
+      try {
+        parsed = DeploymentResultSchema.safeParse(JSON.parse(jsonStr));
+      } catch {
+        parsed = null;
+      }
+    }
+  }
+
   if (parsed?.success) {
     deployed = parsed.data.status === "deployed";
     deployUrl = parsed.data.url;
   } else {
-    // Fallback: text parsing
+    console.warn("[deploy] text fallback used — no structured JSON found in output");
     const deployLine = resultText
       .split("\n")
       .find((l) => l.startsWith("DEPLOYED:") || l.startsWith("FAILED:"));

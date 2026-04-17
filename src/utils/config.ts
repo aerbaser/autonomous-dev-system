@@ -27,6 +27,8 @@ const maxTurnsSchema = z.object({
   stackResearch: z.number().default(15),
   domainAnalysis: z.number().default(5),
   ossScan: z.number().default(10),
+  specification: z.number().default(10),
+  analysis: z.number().default(10),
 });
 
 export const MAX_TURNS_DEFAULTS = {
@@ -44,6 +46,8 @@ export const MAX_TURNS_DEFAULTS = {
   stackResearch: 15,
   domainAnalysis: 5,
   ossScan: 10,
+  specification: 10,
+  analysis: 10,
 } satisfies z.input<typeof maxTurnsSchema>;
 
 const memorySchema = z.object({

@@ -58,6 +58,26 @@ export const ProductSpecWithoutDomainSchema = z.object({
 
 export const ProductSpecSchema = ProductSpecWithoutDomainSchema.extend({
   domain: DomainAnalysisSchema,
+  // Populated by the specification phase after ideation — refined user stories,
+  // concrete NFR thresholds, out-of-scope list, and integration boundaries.
+  // Optional because ideation runs first and doesn't produce this yet.
+  detailed: z.object({
+    refinedUserStories: z.array(z.object({
+      id: z.string(),
+      title: z.string(),
+      acceptanceCriteria: z.array(z.string()),
+    })),
+    refinedNonFunctionalRequirements: z.array(z.object({
+      category: z.string(),
+      requirement: z.string(),
+      threshold: z.string(),
+    })),
+    outOfScope: z.array(z.string()),
+    integrationBoundaries: z.array(z.object({
+      name: z.string(),
+      description: z.string(),
+    })),
+  }).optional(),
 });
 
 export const ArchTaskSchema = z.object({
@@ -357,6 +377,15 @@ export const PhaseResultSummarySchema = z.object({
   timestamp: z.string(),
 });
 
+const AnalysisStateSchema = z.object({
+  winningVariant: z.string().optional(),
+  statisticalConfidence: z.number().optional(),
+  recommendedAction: z.enum(["ship", "rollback", "extend", "proceed"]),
+  metricsSummary: z.string(),
+  rationale: z.string(),
+  timestamp: z.string(),
+});
+
 // Re-export ProjectState schema for loadState validation
 export const ProjectStateSchema = z.object({
   id: z.string(),
@@ -373,6 +402,7 @@ export const ProjectStateSchema = z.object({
   abTests: z.array(ABTestStateSchema).catch([]),
   evolution: z.array(EvolutionEntrySchema).catch([]),
   checkpoints: z.array(PhaseCheckpointSchema).catch([]),
+  analysis: AnalysisStateSchema.optional(),
   baselineScore: z.number(),
   totalCostUsd: z.number().catch(0),
   createdAt: z.string(),
@@ -403,6 +433,50 @@ export const ReviewResultSchema = z.object({
   status: z.enum(["approved", "requested_changes"]),
   summary: z.string().optional(),
 });
+
+// --- Specification expansion (detailed spec) ---
+
+/**
+ * Output of the specification phase — an expanded, implementation-ready spec.
+ * Produced by refining the initial ProductSpec from ideation with tighter
+ * acceptance criteria, concrete NFR thresholds, explicit out-of-scope, and
+ * integration boundaries.
+ */
+export const DetailedSpecSchema = z.object({
+  refinedUserStories: z.array(z.object({
+    id: z.string(),
+    title: z.string(),
+    acceptanceCriteria: z.array(z.string()),
+  })),
+  refinedNonFunctionalRequirements: z.array(z.object({
+    category: z.string(),
+    requirement: z.string(),
+    threshold: z.string(),
+  })),
+  outOfScope: z.array(z.string()),
+  integrationBoundaries: z.array(z.object({
+    name: z.string(),
+    description: z.string(),
+  })),
+});
+
+export type DetailedSpec = z.infer<typeof DetailedSpecSchema>;
+
+// --- Analysis phase ---
+
+/**
+ * Output of the analysis phase — condenses deployment + A/B test results into
+ * an actionable recommendation (ship/rollback/extend).
+ */
+export const AnalysisResultSchema = z.object({
+  winningVariant: z.string().optional(),
+  statisticalConfidence: z.number().optional(),
+  recommendedAction: z.enum(["ship", "rollback", "extend", "proceed"]),
+  metricsSummary: z.string(),
+  rationale: z.string(),
+});
+
+export type AnalysisResult = z.infer<typeof AnalysisResultSchema>;
 
 // --- Rubric evaluation schemas ---
 

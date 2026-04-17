@@ -21,6 +21,7 @@ import {
 } from "./state/session-store.js";
 import { withRetry, isRetryableError } from "./utils/retry.js";
 import { runIdeation } from "./phases/ideation.js";
+import { runSpecification } from "./phases/specification.js";
 import { runArchitecture } from "./phases/architecture.js";
 import { runEnvironmentSetup } from "./phases/environment-setup.js";
 import { runDevelopment } from "./phases/development.js";
@@ -28,6 +29,7 @@ import { runTesting } from "./phases/testing.js";
 import { runReview } from "./phases/review.js";
 import { runDeployment } from "./phases/deployment.js";
 import { runABTesting } from "./phases/ab-testing.js";
+import { runAnalysis } from "./phases/analysis.js";
 import { runMonitoring } from "./phases/monitoring.js";
 import type { PhaseResult, PhaseHandler, PhaseContext, PhaseExecutionContext } from "./phases/types.js";
 import { EventBus } from "./events/event-bus.js";
@@ -55,12 +57,7 @@ export function getInterrupter(): Interrupter {
 
 const PHASE_HANDLERS: Record<Phase, PhaseHandler> = {
   ideation: runIdeation,
-  // specification is merged into ideation: the ideation phase already produces the spec.
-  // This pass-through preserves the phase in the lifecycle without duplicating logic.
-  specification: async (state, _config) => {
-    console.log("[specification] Specification merged into ideation — passing through to architecture.");
-    return { success: true, nextPhase: "architecture", state };
-  },
+  specification: runSpecification,
   architecture: runArchitecture,
   "environment-setup": runEnvironmentSetup,
   development: runDevelopment,
@@ -68,11 +65,7 @@ const PHASE_HANDLERS: Record<Phase, PhaseHandler> = {
   review: runReview,
   staging: runDeployment,
   "ab-testing": runABTesting,
-  analysis: async (state, _config) => ({
-    success: true,
-    nextPhase: "production",
-    state,
-  }),
+  analysis: runAnalysis,
   production: runDeployment,
   monitoring: runMonitoring,
 };
@@ -92,9 +85,9 @@ const PHASE_DRY_RUN_PLANS: Record<Phase, { description: string; agents: number; 
     tools: ["WebSearch", "WebFetch"],
   },
   specification: {
-    description: "Pass-through: specification is merged into ideation phase.",
-    agents: 0,
-    turns: 0,
+    description: "Expand the ideation spec into implementation-ready detail: refined Given/When/Then acceptance criteria, concrete NFR thresholds, explicit out-of-scope, integration boundaries.",
+    agents: 1,
+    turns: 6,
     tools: [],
   },
   architecture: {

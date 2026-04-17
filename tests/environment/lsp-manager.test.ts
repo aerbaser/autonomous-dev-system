@@ -7,7 +7,7 @@ vi.mock("node:child_process", () => ({
 
 const mockedExecFile = vi.mocked(execFile);
 
-const { installLspServers } = await import("../../src/environment/lsp-manager.js");
+const { installLspServers, parseLspCommand } = await import("../../src/environment/lsp-manager.js");
 
 import type { LspConfig } from "../../src/state/project-state.js";
 
@@ -118,6 +118,55 @@ describe("LSP Manager", () => {
       const results = await installLspServers(servers);
       expect(results[0]!.installed).toBe(true);
       expect(results[1]!.installed).toBe(false);
+    });
+  });
+
+  describe("parseLspCommand", () => {
+    it("parses a simple command into bin and args", () => {
+      const { bin, args } = parseLspCommand("typescript-language-server --stdio");
+      expect(bin).toBe("typescript-language-server");
+      expect(args).toEqual(["--stdio"]);
+    });
+
+    it("handles double-quoted args with spaces", () => {
+      const { bin, args } = parseLspCommand('npx "some package"/bin --flag');
+      expect(bin).toBe("npx");
+      expect(args).toEqual(["some package/bin", "--flag"]);
+    });
+
+    it("handles single-quoted args with spaces", () => {
+      const { bin, args } = parseLspCommand("npx 'my path'/lsp-server");
+      expect(bin).toBe("npx");
+      expect(args).toEqual(["my path/lsp-server"]);
+    });
+
+    it("supports backslash escapes inside quoted strings", () => {
+      const { args } = parseLspCommand('cmd "he said \\"hi\\""');
+      expect(args).toEqual(['he said "hi"']);
+    });
+
+    it("rejects shell pipe metacharacter", () => {
+      expect(() => parseLspCommand("cmd | grep foo")).toThrow(/forbidden shell metacharacter/);
+    });
+
+    it("rejects shell redirect metacharacter", () => {
+      expect(() => parseLspCommand("cmd > out.txt")).toThrow(/forbidden shell metacharacter/);
+    });
+
+    it("rejects command substitution $(...)", () => {
+      expect(() => parseLspCommand("cmd $(whoami)")).toThrow(/command substitution/);
+    });
+
+    it("rejects backtick substitution", () => {
+      expect(() => parseLspCommand("cmd `whoami`")).toThrow(/forbidden shell metacharacter/);
+    });
+
+    it("throws on unterminated quote", () => {
+      expect(() => parseLspCommand('cmd "unterminated')).toThrow(/unterminated/);
+    });
+
+    it("throws on empty command", () => {
+      expect(() => parseLspCommand("   ")).toThrow(/empty command/);
     });
   });
 });
