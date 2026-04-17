@@ -6,6 +6,7 @@ import { analyzeDomain } from "../agents/domain-analyzer.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns, QueryAbortedError } from "../utils/sdk-helpers.js";
 import { extractFirstJson, errMsg, wrapUserInput } from "../utils/shared.js";
 import { ProductSpecWithoutDomainSchema, ProductSpecSchema } from "../types/llm-schemas.js";
+import { promptUser } from "../runtime/ask-user.js";
 
 const SPEC_PROMPT = `You are a Senior Product Manager creating a complete, investor-ready product specification.
 
@@ -311,7 +312,33 @@ export async function runIdeation(
     domain = DEFAULT_DOMAIN;
   }
 
-  const spec = ProductSpecSchema.parse({ ...specData, domain });
+  let spec = ProductSpecSchema.parse({ ...specData, domain });
+
+  // Phase C: optional mid-phase clarification. Only trigger on an ambiguity
+  // signal (fewer than 2 user stories). The call is a no-op when the flag is
+  // off: `promptUser` returns default + source="default" without touching stdin.
+  const userStoryCount = spec.userStories.length;
+  if (userStoryCount < 2) {
+    const result = await promptUser(
+      "Ideation produced too few user stories. Provide additional context or press enter to skip:",
+      { defaultValue: "" },
+      {
+        allowAskUser: config.interactive?.allowAskUser ?? false,
+        stateDir: config.stateDir,
+      },
+    );
+    console.log(
+      `[ask-user] Consulted user on ideation ambiguity; source=${result.source}`,
+    );
+    if (result.answer.trim()) {
+      // Non-invasive annotation: append the clarification to the spec summary
+      // so downstream phases see it without a re-feed into the LLM.
+      spec = {
+        ...spec,
+        summary: `${spec.summary}\n\n[user clarification] ${result.answer.trim()}`,
+      };
+    }
+  }
 
   console.log(`[ideation] Spec generated: ${spec.userStories.length} user stories`);
   console.log(`[ideation] Domain: ${domain.classification}`);

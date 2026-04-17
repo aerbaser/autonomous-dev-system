@@ -47,6 +47,9 @@ import {
   type ExecutionEnvelope,
   renderEnvelopeBlock,
 } from "../runtime/execution-envelope.js";
+import { MemoryStore } from "../state/memory-store.js";
+import { SkillStore, extractSignature } from "../memory/skills.js";
+import type { SkillPlaybook } from "../types/skills.js";
 
 // --- Main entry point ---
 
@@ -144,6 +147,20 @@ export async function runDevelopment(
     ? getMcpServerConfigs(state.environment.mcpServers)
     : {};
 
+  // Phase A — Skill crystallization. Instantiate the skill store from the
+  // state dir when layered memory is enabled. We keep this local to the
+  // runner (rather than plumbing through PhaseExecutionContext) because skill
+  // reuse is a development-phase concern; other phases don't need it.
+  const skillStore =
+    config.memory?.enabled && config.memory.layers?.enabled
+      ? new SkillStore(
+          new MemoryStore(config.stateDir, {
+            maxDocuments: config.memory.maxDocuments,
+            maxDocumentSizeKb: config.memory.maxDocumentSizeKb,
+          }),
+        )
+      : null;
+
   let totalCost = 0;
   const batchSessionIds: string[] = [];
 
@@ -159,13 +176,22 @@ export async function runDevelopment(
         `${batch.length} task(s) — ${batch.map((t) => t.title).join(", ")}`
     );
 
+    // Phase A: resolve one playbook per task (if any) before building agents
+    // so the prompt suffix is included in `buildBatchAgents`.
+    const taskSkills = new Map<string, SkillPlaybook>();
+    for (const task of batch) {
+      const skill = await resolveSkillForTask(task, "development", skillStore);
+      if (skill) taskSkills.set(task.id, skill);
+    }
+
     const batchAgentDefs = buildBatchAgents(
       batch,
       updatedState,
       baseAgentDefs,
       config,
       registry,
-      ctx?.envelope
+      ctx?.envelope,
+      taskSkills,
     );
 
     const batchResult = await executeBatch(
@@ -198,6 +224,18 @@ export async function runDevelopment(
       saveState(config.stateDir, updatedState);
       if (taskResult.receipt) {
         persistReceipt(config.stateDir, "development", taskResult.receipt);
+        if (skillStore && taskResult.receipt.status === "success") {
+          try {
+            await skillStore.crystallize(taskResult.receipt, {
+              domain: "generic",
+              phase: "development",
+            });
+          } catch (err) {
+            console.warn(
+              `[skill-store] Failed to crystallize receipt for ${taskResult.receipt.taskId}: ${errMsg(err)}`,
+            );
+          }
+        }
       }
     }
 
@@ -517,7 +555,8 @@ export function buildBatchAgents(
   baseAgentDefs: Record<string, AgentDefinition>,
   config: Config,
   registry: AgentRegistry,
-  envelope?: ExecutionEnvelope
+  envelope?: ExecutionEnvelope,
+  taskSkills?: Map<string, SkillPlaybook>,
 ): Record<string, AgentDefinition> {
   const agents: Record<string, AgentDefinition> = {};
   // Build the architecture + file-structure + generic instructions block ONCE
@@ -549,13 +588,19 @@ export function buildBatchAgents(
         titleLower.includes(bp.role.toLowerCase())
     );
 
+    const skill = taskSkills?.get(task.id);
+    const skillSuffix = skill ? `\n\n${renderSkillBlock(skill)}` : "";
+
     if (matchingDomain) {
       const agentName = matchingDomain.name;
       const def = registry.toAgentDefinition(agentName, config);
       console.log(`[dev] Using domain agent: ${agentName}`);
       agents[agentName] = {
         ...def,
-        prompt: def.prompt + `\n\n${wrapUserInput("current-task", `**${task.title}**\n${task.description}`)}`,
+        prompt:
+          def.prompt +
+          `\n\n${wrapUserInput("current-task", `**${task.title}**\n${task.description}`)}` +
+          skillSuffix,
         model: config.subagentModel,
         maxTurns: getMaxTurns(config, "default"),
       };
@@ -565,7 +610,7 @@ export function buildBatchAgents(
       const def = buildRunnableAgentDefinition({
         name: agentName,
         role: "Software Developer",
-        systemPrompt: buildTaskPrompt(task, sharedContext, envelope),
+        systemPrompt: buildTaskPrompt(task, sharedContext, envelope, skill),
         tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
       }, config);
       agents[agentName] = {
@@ -577,6 +622,27 @@ export function buildBatchAgents(
   }
 
   return agents;
+}
+
+/**
+ * Render a SkillPlaybook as a `<prior-successful-approach>` block suitable for
+ * appending to a task prompt. Kept as a pure function so tests can assert the
+ * exact shape of the injected text without booting the full runner.
+ */
+export function renderSkillBlock(skill: SkillPlaybook): string {
+  const files =
+    skill.changedFiles.length > 0
+      ? skill.changedFiles.join(", ")
+      : "(none recorded)";
+  const verification =
+    skill.verificationCommands.length > 0
+      ? skill.verificationCommands.join("; ")
+      : "(none recorded)";
+  return `<prior-successful-approach>
+Previously-successful approach for similar task "${skill.taskTitle}" (used ${skill.useCount}x):
+Files typically changed: ${files}
+Verification: ${verification}
+</prior-successful-approach>`;
 }
 
 /**
@@ -592,18 +658,44 @@ export function buildBatchAgents(
  * subagent's attention while runtime assumptions remain visible and machine-
  * readable. Callers that already embed the envelope in `sharedContext` via
  * `buildSharedTaskContext` can omit it here.
+ *
+ * The optional `skill` argument appends a `<prior-successful-approach>` block
+ * summarizing a matching playbook (Phase A — skill crystallization). It goes
+ * after the envelope so the current task still leads attention.
  */
 export function buildTaskPrompt(
   task: Task,
   sharedContext: string,
   envelope?: ExecutionEnvelope,
+  skill?: SkillPlaybook,
 ): string {
   const taskBlock = wrapUserInput(
     "current-task",
     `**${task.title}**\n${task.description}`,
   );
   const envelopeSuffix = envelope ? `\n\n${renderEnvelopeBlock(envelope)}` : "";
-  return `${sharedContext}\n\n${taskBlock}${envelopeSuffix}`;
+  const skillSuffix = skill ? `\n\n${renderSkillBlock(skill)}` : "";
+  return `${sharedContext}\n\n${taskBlock}${envelopeSuffix}${skillSuffix}`;
+}
+
+/**
+ * Resolve the best matching skill playbook for a task, if any, and log
+ * injection for observability. Returns undefined when skill injection is
+ * disabled, no store is available, or there is no matching playbook.
+ */
+export async function resolveSkillForTask(
+  task: Task,
+  phase: string,
+  skillStore: SkillStore | null,
+): Promise<SkillPlaybook | undefined> {
+  if (!skillStore) return undefined;
+  const signature = extractSignature(task.title, "generic", phase);
+  const matches = await skillStore.findMatching(signature, 1);
+  const skill = matches[0];
+  if (!skill) return undefined;
+  console.log(`[skill-store] Injected skill ${skill.id} (useCount=${skill.useCount})`);
+  await skillStore.recordUse(skill.id);
+  return skill;
 }
 
 /**
