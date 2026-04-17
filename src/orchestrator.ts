@@ -37,6 +37,7 @@ import { EventLogger } from "./events/event-logger.js";
 import { Interrupter } from "./events/interrupter.js";
 import { generateDashboard } from "./dashboard/generate.js";
 import { MemoryStore } from "./state/memory-store.js";
+import { LayeredMemory } from "./memory/layers.js";
 import { RunLedger, setActiveLedger } from "./state/run-ledger.js";
 import { capturePhaseMemories } from "./hooks/memory-capture.js";
 import { errMsg } from "./utils/shared.js";
@@ -309,6 +310,24 @@ export async function runOrchestrator(
       console.log(`[dashboard] Generated ${dashboardPath}`);
     } catch (err) {
       console.error(`[dashboard] Failed to generate dashboard: ${errMsg(err)}`);
+    }
+
+    // Phase B — L4 session archive. Append one JSONL line per run so offline
+    // analysis can replay run outcomes without re-reading per-phase event
+    // logs. Best-effort: archive failures must not mask the actual run result.
+    try {
+      if (memoryStore && config.memory?.layers?.enabled !== false) {
+        const layered = new LayeredMemory(memoryStore, config.stateDir);
+        const phases = Object.keys(state.phaseResults ?? {});
+        await layered.l4.archiveSession({
+          runId,
+          phases,
+          totalCostUsd,
+          completedAt: new Date().toISOString(),
+        });
+      }
+    } catch (err) {
+      console.error(`[memory-l4] Failed to archive session: ${errMsg(err)}`);
     }
   };
 

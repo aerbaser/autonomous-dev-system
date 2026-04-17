@@ -50,12 +50,30 @@ export const MAX_TURNS_DEFAULTS = {
   analysis: 10,
 } satisfies z.input<typeof maxTurnsSchema>;
 
+const memoryLayersSchema = z.object({
+  enabled: z.boolean().default(true),
+});
+
 const memorySchema = z.object({
   enabled: z.boolean().default(true),
   maxDocuments: z.number().default(500),
   maxDocumentSizeKb: z.number().default(100),
   captureModel: z.string().optional(),
+  layers: memoryLayersSchema.default({ enabled: true }),
 });
+
+// Mid-phase user-clarification gate. Default OFF — the orchestrator runs fully
+// autonomous and only journals questions to `{stateDir}/pending-questions.jsonl`
+// when the flag is off. Flip on (via config override or CLI flag) to let
+// phases prompt on a real TTY.
+const interactiveSchema = z.object({
+  allowAskUser: z.boolean().default(false),
+});
+export type InteractiveConfig = z.infer<typeof interactiveSchema>;
+
+export const DEFAULT_INTERACTIVE = {
+  allowAskUser: false,
+} satisfies z.input<typeof interactiveSchema>;
 
 const codexSubagentsSchema = z.object({
   enabled: z.boolean().default(false),
@@ -152,6 +170,7 @@ export const ConfigSchema = z.object({
     enabled: true,
     maxDocuments: 500,
     maxDocumentSizeKb: 100,
+    layers: { enabled: true },
   } satisfies z.input<typeof memorySchema>),
   codexSubagents: codexSubagentsSchema.optional(),
   // Rubric evaluation is a debug tier: useful for offline grading of phase
@@ -181,6 +200,9 @@ export const ConfigSchema = z.object({
   // and quality-fix retries run. Default `minimal` for production cost
   // discipline; switch to `debug` / `nightly` for offline analysis runs.
   auxiliaryProfile: auxiliaryProfileSchema,
+  // Phase C: optional mid-phase user clarification. Default OFF — autonomous
+  // behavior is preserved. Flip on to let phases prompt on a real TTY.
+  interactive: interactiveSchema.default(DEFAULT_INTERACTIVE),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

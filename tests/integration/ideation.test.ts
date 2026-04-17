@@ -1,4 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { mkdirSync, rmSync, existsSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { createInitialState } from "../../src/state/project-state.js";
 import type { Config } from "../../src/utils/config.js";
 
@@ -214,5 +217,108 @@ describe("Ideation Phase", () => {
     expect(result.success).toBe(false);
     expect(mockedQuery).toHaveBeenCalledTimes(2);
     expect(result.error).toContain("Invalid spec JSON");
+  });
+
+  it("ask-user: happy path (>=2 stories) does NOT log ambiguity consultation", async () => {
+    const specJson = JSON.stringify({
+      summary: "A task management app for teams with real-time collaboration",
+      userStories: [
+        {
+          id: "US-001",
+          title: "Create task",
+          description: "As a user, I want to create tasks so I can track work",
+          acceptanceCriteria: [
+            "Given the dashboard, When I click 'New Task', Then a task form appears",
+          ],
+          priority: "must",
+        },
+        {
+          id: "US-002",
+          title: "Assign task",
+          description: "As a team lead, I want to assign tasks to team members",
+          acceptanceCriteria: [
+            "Given a task, When I select an assignee, Then the task shows the assignee",
+          ],
+          priority: "must",
+        },
+      ],
+      nonFunctionalRequirements: ["Performance: page load under 2s"],
+    });
+
+    mockedQuery.mockReturnValue(makeMockQueryIterator(specJson) as any);
+    mockedAnalyzeDomain.mockResolvedValue({
+      classification: "web-application",
+      specializations: [],
+      requiredRoles: [],
+      requiredMcpServers: [],
+      techStack: ["typescript"],
+    });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const state = createInitialState("Build a task app");
+    const result = await runIdeation(state, makeConfig());
+
+    expect(result.success).toBe(true);
+    const askUserLogs = logSpy.mock.calls.filter((args) =>
+      typeof args[0] === "string" && args[0].startsWith("[ask-user]"),
+    );
+    expect(askUserLogs).toHaveLength(0);
+
+    logSpy.mockRestore();
+  });
+
+  it("ask-user: ambiguity branch (< 2 stories) logs exactly once even with flag off", async () => {
+    // Spec with exactly 1 user story → triggers the ambiguity branch.
+    const specJson = JSON.stringify({
+      summary: "A minimal app",
+      userStories: [
+        {
+          id: "US-001",
+          title: "Do one thing",
+          description: "As a user, I want to do one thing so I can try it",
+          acceptanceCriteria: [
+            "Given the app, When I click do, Then it does",
+          ],
+          priority: "must",
+        },
+      ],
+      nonFunctionalRequirements: ["Performance: fast enough"],
+    });
+
+    mockedQuery.mockReturnValue(makeMockQueryIterator(specJson) as any);
+    mockedAnalyzeDomain.mockResolvedValue({
+      classification: "web-application",
+      specializations: [],
+      requiredRoles: [],
+      requiredMcpServers: [],
+      techStack: ["typescript"],
+    });
+
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    const state = createInitialState("Build something minimal");
+    // Default config has interactive.allowAskUser = false → promptUser returns
+    // default without touching stdin, and ideation logs [ask-user] once.
+    // Route the JSONL journal into a tmpdir so the repo's .autonomous-dev
+    // directory isn't touched.
+    const tmpStateDir = join(tmpdir(), `ads-ideation-askuser-${process.pid}-${Date.now()}`);
+    mkdirSync(tmpStateDir, { recursive: true });
+    const cfg = { ...makeConfig(), stateDir: tmpStateDir };
+    let result;
+    try {
+      result = await runIdeation(state, cfg);
+    } finally {
+      if (existsSync(tmpStateDir)) rmSync(tmpStateDir, { recursive: true });
+    }
+
+    expect(result.success).toBe(true);
+    const askUserLogs = logSpy.mock.calls.filter((args) =>
+      typeof args[0] === "string" && args[0].startsWith("[ask-user]"),
+    );
+    expect(askUserLogs).toHaveLength(1);
+    expect(askUserLogs[0]?.[0]).toContain("source=default");
+
+    logSpy.mockRestore();
   });
 });

@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "rules": [
+    { "id": "r1", "rule": "Always validate external input with Zod .safeParse()" },
+    { "id": "r2", "rule": "Phase handlers must return PhaseResult from phases/types.ts" },
+    { "id": "r3", "rule": "Use execFile (promisified), not execFileSync" },
+    { "id": "r4", "rule": "All LLM cost must flow through consumeQuery().cost" },
+    { "id": "r5", "rule": "Wrap user-derived content with wrapUserInput()" }
+  ]
+}
