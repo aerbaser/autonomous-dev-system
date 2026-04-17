@@ -157,6 +157,98 @@ describe("Architecture Phase", () => {
     const result = await runArchitecture(state, makeConfig());
 
     expect(result.success).toBe(false);
-    expect(result.error).toContain("no valid JSON");
+    expect(result.error).toContain("Invalid architecture JSON");
+  });
+
+  it("normalizes object-shaped contract fields into strings", async () => {
+    const archJson = JSON.stringify({
+      techStack: {
+        language: "TypeScript",
+        framework: "Next.js 15",
+      },
+      components: [
+        { name: "API server", description: "Handles app requests", dependencies: [] },
+      ],
+      apiContracts: {
+        format: "OpenAPI 3.1",
+        endpoints: ["/alerts", "/symbols"],
+      },
+      databaseSchema: {
+        tables: ["alerts", "symbols"],
+        indexes: ["idx_alerts_symbol"],
+      },
+      fileStructure: {
+        root: "src/",
+        api: "src/app/api",
+      },
+    });
+
+    mockedQuery.mockReturnValue(makeMockQueryIterator(archJson) as any);
+
+    const state = makeStateWithSpec();
+    const result = await runArchitecture(state, makeConfig());
+
+    expect(result.success).toBe(true);
+    expect(result.state.architecture?.apiContracts).toContain("OpenAPI 3.1");
+    expect(result.state.architecture?.databaseSchema).toContain("alerts");
+    expect(result.state.architecture?.fileStructure).toContain("src/");
+  });
+
+  it("repairs a schema-invalid architecture response before failing the phase", async () => {
+    const invalidArchJson = JSON.stringify({
+      techStack: {
+        language: "TypeScript",
+        framework: "Next.js 15",
+      },
+      components: [
+        { name: "API server", description: "Handles alert API requests", dependencies: [] },
+      ],
+      apiContracts: "REST API with alert endpoints",
+      databaseSchema: "CREATE TABLE alerts (...);",
+    });
+
+    const repairedArchJson = JSON.stringify({
+      techStack: {
+        language: "TypeScript",
+        framework: "Next.js 15",
+      },
+      components: [
+        { name: "API server", description: "Handles alert API requests", dependencies: [] },
+      ],
+      apiContracts: "REST API with alert endpoints",
+      databaseSchema: "CREATE TABLE alerts (...);",
+      fileStructure: "src/",
+    });
+
+    mockedQuery
+      .mockReturnValueOnce(makeMockQueryIterator(invalidArchJson) as any)
+      .mockReturnValueOnce(makeMockQueryIterator(repairedArchJson) as any);
+
+    const state = makeStateWithSpec();
+    const result = await runArchitecture(state, makeConfig());
+
+    expect(result.success).toBe(true);
+    expect(mockedQuery).toHaveBeenCalledTimes(2);
+    expect(result.state.architecture?.components[0]?.description).toContain("alert API");
+  });
+
+  it("returns failure when the parsed architecture is incomplete", async () => {
+    const archJson = JSON.stringify({
+      techStack: {
+        language: "TypeScript",
+      },
+      components: [],
+      apiContracts: "",
+      databaseSchema: "",
+      fileStructure: "",
+    });
+
+    mockedQuery.mockReturnValue(makeMockQueryIterator(archJson) as any);
+
+    const state = makeStateWithSpec();
+    const result = await runArchitecture(state, makeConfig());
+
+    expect(result.success).toBe(false);
+    expect(result.error).toContain("Architecture incomplete");
   });
 });

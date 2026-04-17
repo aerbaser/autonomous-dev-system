@@ -1,4 +1,4 @@
-import type { Config } from "./utils/config.js";
+import { resolveAuxiliaryFlags, type Config } from "./utils/config.js";
 import { progress } from "./utils/progress.js";
 import {
   type ProjectState,
@@ -35,13 +35,22 @@ import type { PhaseResult, PhaseHandler, PhaseContext, PhaseExecutionContext } f
 import { EventBus } from "./events/event-bus.js";
 import { EventLogger } from "./events/event-logger.js";
 import { Interrupter } from "./events/interrupter.js";
+import { generateDashboard } from "./dashboard/generate.js";
 import { MemoryStore } from "./state/memory-store.js";
+import { RunLedger, setActiveLedger } from "./state/run-ledger.js";
 import { capturePhaseMemories } from "./hooks/memory-capture.js";
 import { errMsg } from "./utils/shared.js";
 import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
 import { getPhaseRubric } from "./evaluation/phase-rubrics.js";
 import { gradePhaseOutput } from "./evaluation/grader.js";
 import type { RubricResult } from "./evaluation/rubric.js";
+import { buildEnvelope, type ExecutionEnvelope } from "./runtime/execution-envelope.js";
+import {
+  runCodexPreflight,
+  UnsupportedTeamRuntimeError,
+  isNightlyRun,
+} from "./runtime/codex-preflight.js";
 
 export type { PhaseResult, PhaseHandler } from "./phases/types.js";
 
@@ -160,6 +169,39 @@ function buildProgressBar(current: number, total: number): string {
   return `${bar} ${pct}%`;
 }
 
+function appendUniquePhase(phases: Phase[], phase: Phase): Phase[] {
+  return phases.includes(phase) ? phases : [...phases, phase];
+}
+
+function recordPhaseResult(
+  previousState: ProjectState,
+  nextState: ProjectState,
+  phase: Phase,
+  result: PhaseResult,
+  totalCostUsd: number,
+): ProjectState {
+  const phaseResult = {
+    success: result.success,
+    ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
+    ...(result.error !== undefined ? { error: result.error } : {}),
+    timestamp: new Date().toISOString(),
+  };
+
+  return {
+    ...previousState,
+    ...nextState,
+    totalCostUsd,
+    phaseResults: {
+      ...(previousState.phaseResults ?? {}),
+      ...(nextState.phaseResults ?? {}),
+      [phase]: phaseResult,
+    },
+    completedPhases: result.success
+      ? appendUniquePhase(previousState.completedPhases ?? [], phase)
+      : (previousState.completedPhases ?? []),
+  };
+}
+
 export async function runOrchestrator(
   initialState: ProjectState,
   config: Config,
@@ -177,17 +219,54 @@ export async function runOrchestrator(
 
   let state = structuredClone(initialState);
 
+  // Phase 2 (narrowed): when Codex-backed subagents are enabled, force the
+  // outer orchestration model to Opus. Opus is the designated team lead for
+  // Codex-backed coding teams; running a weaker coordinator over GPT-class
+  // members reliably burns turns on routing instead of work. We mutate the
+  // local config object in place — the caller's reference continues to point
+  // at the same object so any follow-up commands pick up the same model.
+  const OPUS_MODEL = "claude-opus-4-6" as const;
+  if (config.codexSubagents?.enabled && config.model !== OPUS_MODEL) {
+    console.warn(
+      `[orchestrator] codexSubagents.enabled=true: forcing outer model ` +
+      `from "${config.model}" to "${OPUS_MODEL}" (Opus is the team lead for ` +
+      `Codex-backed runs).`,
+    );
+    config.model = OPUS_MODEL;
+  }
+
+  // Phase 10: live-run self-improvement guard. Inline prompt evolution is only
+  // supposed to run in the `optimize` / `nightly` subcommands. If we're inside
+  // a live run and self-improvement is enabled, warn — the orchestrator never
+  // calls the optimizer directly, but operators should know the flag is a
+  // no-op here so they don't rely on it mutating prompts mid-run.
+  if (config.selfImprove?.enabled && !isNightlyRun()) {
+    console.warn(
+      "[orchestrator] Self-improvement is enabled but this is a live run. " +
+      "Inline prompt mutation is disabled — use `nightly` / `optimize` " +
+      "commands for offline optimization.",
+    );
+  }
+
   const { budgetUsd, dryRun, quickMode, confirmSpec } = config;
 
   // Event architecture
   const eventBus = new EventBus();
   const runId = randomUUID();
   const eventLogger = new EventLogger(config.stateDir, runId);
+  const dashboardPath = resolve(config.stateDir, "dashboard.html");
   const unsubLogger = eventBus.onAll((record) => {
     eventLogger.log(record).catch((err) => {
       console.error(`[event-logger] Failed to write event: ${err}`);
     });
   });
+
+  // Run ledger — observational topology + spend forensics (Phase 1). Bridges
+  // AgentQueryStart/End into per-session records so post-run analysis doesn't
+  // need to re-parse the event log.
+  const ledger = new RunLedger(runId);
+  setActiveLedger(ledger);
+  const unsubLedger = ledger.attachEventBus(eventBus);
 
   // Memory store (persistent cross-session knowledge)
   const memoryStore = config.memory?.enabled
@@ -199,12 +278,98 @@ export async function runOrchestrator(
 
   let totalCostUsd = 0;
 
+  const flushRunArtifacts = async (): Promise<void> => {
+    try {
+      saveState(config.stateDir, state);
+    } catch (err) {
+      console.error(`[orchestrator] Failed to save final state: ${errMsg(err)}`);
+    }
+
+    try {
+      unsubLogger();
+    } catch {
+      // ignore unsubscribe failures during shutdown
+    }
+
+    try {
+      await eventLogger.close();
+    } catch (err) {
+      console.error(`[event-logger] Failed to close event log: ${errMsg(err)}`);
+    }
+
+    try {
+      const summaryPath = await eventLogger.persistRunSummary();
+      console.log(`[event-logger] Run summary saved: ${summaryPath}`);
+    } catch (err) {
+      console.error(`[event-logger] Failed to persist run summary: ${errMsg(err)}`);
+    }
+
+    try {
+      await generateDashboard(config.stateDir, dashboardPath);
+      console.log(`[dashboard] Generated ${dashboardPath}`);
+    } catch (err) {
+      console.error(`[dashboard] Failed to generate dashboard: ${errMsg(err)}`);
+    }
+  };
+
   // Clean up stale sessions on startup
   let sessionStore = loadSessions(config.stateDir);
   sessionStore = cleanStaleSessions(sessionStore);
   saveSessions(config.stateDir, sessionStore);
 
+  // Build the execution envelope once per run — validated project root,
+  // current branch, package manager, and verification whitelist are shared
+  // across every phase so delegated agents don't spend tokens self-correcting
+  // paths or environment assumptions. On failure we log and proceed without
+  // an envelope (dry-run or fresh scaffolds shouldn't hard-fail here).
+  let envelope: ExecutionEnvelope | undefined;
   try {
+    envelope = await buildEnvelope(config.projectDir);
+    console.log(
+      `[orchestrator] Envelope: root=${envelope.projectRoot}, ` +
+      `branch=${envelope.branch ?? "(none)"}, ` +
+      `pm=${envelope.environment.packageManager}`,
+    );
+  } catch (err) {
+    console.warn(
+      `[orchestrator] Failed to build execution envelope: ${errMsg(err)}. ` +
+      `Phases will run without validated runtime context.`,
+    );
+  }
+
+  try {
+
+  // Phase 2 (narrowed): Codex preflight. If Codex-backed subagents are
+  // enabled, probe the binary before the run starts. On failure we record a
+  // ledger session tagged `unsupported_team_runtime` so the run report shows
+  // the real cause, then throw — we refuse to silently "fall back" to the
+  // proxy prompt with a non-functional Codex backend. Skipped in dry-run so
+  // a plan preview doesn't require a working Codex install.
+  if (config.codexSubagents?.enabled && !dryRun) {
+    try {
+      const preflight = await runCodexPreflight();
+      console.log(`[orchestrator] Codex preflight OK: ${preflight.version}`);
+    } catch (err) {
+      const message =
+        err instanceof UnsupportedTeamRuntimeError
+          ? err.message
+          : `unsupported_team_runtime: ${errMsg(err)}`;
+      const preflightSession = ledger.startSession({
+        phase: state.currentPhase,
+        role: "codex-preflight",
+        sessionType: "coordinator",
+        model: "codex",
+      });
+      ledger.recordFailure(
+        preflightSession.sessionId,
+        "unsupported_team_runtime",
+        message,
+      );
+      ledger.endSession(preflightSession.sessionId, { success: false });
+      console.error(`[orchestrator] ${message}`);
+      throw err instanceof Error ? err : new Error(message);
+    }
+  }
 
   // Validate resume session ID if provided
   if (resumeSessionId) {
@@ -218,14 +383,17 @@ export async function runOrchestrator(
 
   if (singlePhase) {
     console.log(`[orchestrator] Running single phase: ${singlePhase}`);
-    const singlePhaseResult = await executePhaseSafe(singlePhase, state, config, eventBus, undefined, interrupter);
+    eventBus.emit("session.state", { phase: singlePhase, state: "running" });
+    const singlePhaseResult = await executePhaseSafe(singlePhase, state, config, eventBus, undefined, interrupter, envelope);
     if (singlePhaseResult) {
+      if (singlePhaseResult.costUsd !== undefined) {
+        totalCostUsd += singlePhaseResult.costUsd;
+      }
+      state = recordPhaseResult(state, singlePhaseResult.state, singlePhase, singlePhaseResult, totalCostUsd);
       await withStateLock(config.stateDir, () =>
-        saveState(config.stateDir, singlePhaseResult.state)
+        saveState(config.stateDir, state)
       );
     }
-    unsubLogger();
-    await eventLogger.close();
     return;
   }
 
@@ -259,6 +427,7 @@ export async function runOrchestrator(
 
     progress.emit("phase:start", { phase, index: phaseIndex, total: totalPhases });
     eventBus.emit("orchestrator.phase.start", { phase });
+    eventBus.emit("session.state", { phase, state: "running" });
     console.log(`[orchestrator] Phase ${iterations}: ${phase}`);
 
     // Quick mode: skip optional phases
@@ -328,7 +497,7 @@ export async function runOrchestrator(
         state,
       };
     } else {
-      result = await executePhaseSafe(phase, state, config, eventBus, memoryContext, interrupter);
+      result = await executePhaseSafe(phase, state, config, eventBus, memoryContext, interrupter, envelope);
     }
 
     const elapsedMs = Date.now() - phaseStart;
@@ -341,6 +510,7 @@ export async function runOrchestrator(
       costUsd: result?.costUsd,
       durationMs: elapsedMs,
     });
+    eventBus.emit("session.state", { phase, state: phaseSuccess ? "idle" : "terminated" });
     console.log(`[progress] ${phase} completed in ${elapsed}s`);
 
     if (!result) {
@@ -348,28 +518,13 @@ export async function runOrchestrator(
       break;
     }
 
-    if (result.costUsd) {
+    if (result.costUsd !== undefined) {
       totalCostUsd += result.costUsd;
       console.log(`[budget] Phase cost: $${result.costUsd.toFixed(4)}, total: $${totalCostUsd.toFixed(4)}`);
     }
 
-    // Persist running cost total into state so it survives checkpoints/resume
-    state = { ...result.state, totalCostUsd };
-
-    // Track completed phases and their results
-    state = {
-      ...state,
-      completedPhases: [...(state.completedPhases ?? []), phase],
-      phaseResults: {
-        ...(state.phaseResults ?? {}),
-        [phase]: {
-          success: result.success,
-          ...(result.costUsd !== undefined ? { costUsd: result.costUsd } : {}),
-          ...(result.error !== undefined ? { error: result.error } : {}),
-          timestamp: new Date().toISOString(),
-        },
-      },
-    };
+    // Persist running cost total and phase outcome into state so it survives checkpoints/resume.
+    state = recordPhaseResult(state, result.state, phase, result, totalCostUsd);
 
     if (budgetUsd !== undefined && totalCostUsd > budgetUsd) {
       console.log(`[budget] Budget exceeded ($${totalCostUsd.toFixed(4)}/$${budgetUsd.toFixed(4)}). Stopping.`);
@@ -447,13 +602,23 @@ export async function runOrchestrator(
 
   console.log(`\n[orchestrator] Finished. Final phase: ${state.currentPhase}, total cost: $${totalCostUsd.toFixed(2)}`);
 
-  // Clean up event logger
-  unsubLogger();
-  await eventLogger.close();
-  console.log(`[event-logger] Run events saved: ${eventLogger.getLogPath()}`);
-
   } finally {
     process.removeListener("SIGINT", sigintHandler);
+    try {
+      unsubLedger();
+    } catch {
+      // ignore
+    }
+    try {
+      const ledgerPath = ledger.persist(config.stateDir);
+      console.log(`[run-ledger] Saved: ${ledgerPath}`);
+    } catch (err) {
+      console.warn(`[run-ledger] Failed to persist ledger: ${errMsg(err)}`);
+    }
+    ledger.dispose();
+    setActiveLedger(null);
+    await flushRunArtifacts();
+    console.log(`[event-logger] Run events saved: ${eventLogger.getLogPath()}`);
   }
 }
 
@@ -468,6 +633,7 @@ async function executePhaseSafe(
   eventBus?: EventBus,
   memoryContext?: string,
   interrupter?: Interrupter,
+  envelope?: ExecutionEnvelope,
 ): Promise<PhaseResult | null> {
   const handler = PHASE_HANDLERS[phase];
   if (!handler) {
@@ -504,7 +670,9 @@ async function executePhaseSafe(
           ...(checkpoint ? { checkpoint } : {}),
           ...(sessionId ? { sessionId } : {}),
           ...(context ? { context } : {}),
+          ...(eventBus ? { eventBus } : {}),
           ...(interrupter ? { signal: interrupter.signal } : {}),
+          ...(envelope ? { envelope } : {}),
         };
         const phaseResult = await handler(state, config, execCtx);
 
@@ -550,7 +718,14 @@ async function executePhaseSafe(
     // Rubric evaluation: if enabled and phase has a rubric, grade the result.
     // Uses result.state (post-phase) and injects gap feedback into PhaseContext
     // for each retry so the handler can address gaps on the next iteration.
-    if (config.rubrics?.enabled && result.success) {
+    //
+    // Phase 8: the auxiliary-profile gate short-circuits this block entirely
+    // for `minimal` runs. `debug` / `nightly` profiles, or an explicit
+    // `config.rubrics.enabled === true` override (set by `--enable-rubrics`),
+    // re-enable grading.
+    const auxFlags = resolveAuxiliaryFlags(config);
+    const rubricEnabled = auxFlags.rubric || config.rubrics?.enabled === true;
+    if (rubricEnabled && result.success) {
       const rubric = getPhaseRubric(phase);
       if (rubric) {
         console.log(`[rubric] Evaluating phase "${phase}" against rubric "${rubric.name}"`);
@@ -584,7 +759,9 @@ async function executePhaseSafe(
             ...(checkpoint ? { checkpoint } : {}),
             ...(sessionId ? { sessionId } : {}),
             context: ctx,
+            ...(eventBus ? { eventBus } : {}),
             ...(interrupter ? { signal: interrupter.signal } : {}),
+            ...(envelope ? { envelope } : {}),
           };
           const iterResult =
             iter === 1 ? result : await handler(currentState, config, iterExecCtx);

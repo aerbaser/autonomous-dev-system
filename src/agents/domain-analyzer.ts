@@ -4,6 +4,8 @@ import { consumeQuery, getQueryPermissions, getMaxTurns, QueryAbortedError } fro
 import type { Config } from "../utils/config.js";
 import { DomainAnalysisSchema, DomainAgentArraySchema } from "../types/llm-schemas.js";
 import { extractFirstJson, wrapUserInput } from "../utils/shared.js";
+import type { EventBus } from "../events/event-bus.js";
+import type { Phase } from "../state/project-state.js";
 
 const DOMAIN_ANALYSIS_PROMPT = `You are a Domain Analyzer. Given a project idea, analyze what domain expertise
 and specialized roles are needed beyond the standard development team (PM, Dev, QA, DevOps, Reviewer).
@@ -35,10 +37,17 @@ Think through the domain analysis step by step, then provide your final answer a
 
 Be conservative: only add a role if it would change the implementation in a meaningful way.`;
 
+interface DomainQueryTelemetryOptions {
+  eventBus?: EventBus | undefined;
+  phase?: Phase | undefined;
+  model?: string | undefined;
+  signal?: AbortSignal | undefined;
+}
+
 export async function analyzeDomain(
   idea: string,
   config?: Config,
-  signal?: AbortSignal,
+  telemetry?: DomainQueryTelemetryOptions,
 ): Promise<DomainAnalysis> {
   let resultText: string;
 
@@ -52,7 +61,14 @@ export async function analyzeDomain(
           maxTurns: getMaxTurns(config, "domainAnalysis"),
         },
       }),
-      { label: "domain-analysis", ...(signal ? { signal } : {}) }
+      {
+        label: "domain-analysis",
+        eventBus: telemetry?.eventBus,
+        phase: telemetry?.phase,
+        agentName: "domain-analyzer",
+        model: telemetry?.model,
+        ...(telemetry?.signal ? { signal: telemetry.signal } : {}),
+      }
     );
     resultText = result;
   } catch (err) {
@@ -124,7 +140,7 @@ export async function generateDomainAgents(
   idea: string,
   domain: DomainAnalysis,
   config?: Config,
-  signal?: AbortSignal,
+  telemetry?: DomainQueryTelemetryOptions,
 ): Promise<AgentBlueprint[]> {
   if (domain.requiredRoles.length === 0) return [];
 
@@ -146,7 +162,14 @@ Generate blueprints for these roles: ${domain.requiredRoles.join(", ")}`,
           maxTurns: getMaxTurns(config, "domainAnalysis"),
         },
       }),
-      { label: "agent-generation", ...(signal ? { signal } : {}) }
+      {
+        label: "agent-generation",
+        eventBus: telemetry?.eventBus,
+        phase: telemetry?.phase,
+        agentName: "agent-generator",
+        model: telemetry?.model,
+        ...(telemetry?.signal ? { signal: telemetry.signal } : {}),
+      }
     );
     resultText = result;
   } catch (err) {

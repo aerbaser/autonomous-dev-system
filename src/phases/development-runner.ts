@@ -15,10 +15,12 @@ import type {
   TaskResult,
 } from "./development-types.js";
 import { AgentRegistry } from "../agents/registry.js";
+import { buildRunnableAgentDefinition } from "../agents/codex-proxy.js";
 import { buildAgentTeam, getAgentDefinitions } from "../agents/factory.js";
 import { getMcpServerConfigs } from "../environment/mcp-manager.js";
 import { qualityGateHook } from "../hooks/quality-gate.js";
 import { auditLoggerHook } from "../hooks/audit-logger.js";
+import { resolveAuxiliaryFlags } from "../utils/config.js";
 import {
   addTask,
   updateTask,
@@ -27,14 +29,24 @@ import {
 } from "../state/project-state.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join, dirname } from "node:path";
 
 const execFileAsync = promisify(execFile);
-import { TaskResultsSchema } from "../types/llm-schemas.js";
-import { getQueryPermissions, getMaxTurns, buildCachedSystemPrompt } from "../utils/sdk-helpers.js";
-import { isApiRetry, wrapUserInput, extractFirstJson } from "../utils/shared.js";
+import {
+  TaskReceiptSchema,
+  TaskReceiptEnvelopeSchema,
+} from "../types/llm-schemas.js";
+import type { TaskReceipt } from "../types/task-receipt.js";
+import { getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { isApiRetry, wrapUserInput, extractFirstJson, errMsg } from "../utils/shared.js";
 import { TaskDecompositionSchema } from "../types/llm-schemas.js";
 import { getBaseAgentNames } from "../agents/base-blueprints.js";
 import { progress } from "../utils/progress.js";
+import {
+  type ExecutionEnvelope,
+  renderEnvelopeBlock,
+} from "../runtime/execution-envelope.js";
 
 // --- Main entry point ---
 
@@ -48,7 +60,6 @@ export async function runDevelopment(
   }
 
   console.log("[development] Starting development phase");
-  const signal = ctx?.signal;
 
   // Step 1: Decompose user stories into implementation tasks
   let updatedState = { ...state };
@@ -128,7 +139,7 @@ export async function runDevelopment(
   // buildAgentTeam is idempotent: it skips generation if agents already exist.
   await buildAgentTeam(updatedState, config);
   const registry = new AgentRegistry(config.stateDir);
-  const baseAgentDefs = getAgentDefinitions(registry);
+  const baseAgentDefs = getAgentDefinitions(registry, config);
   const mcpServers = state.environment
     ? getMcpServerConfigs(state.environment.mcpServers)
     : {};
@@ -136,27 +147,12 @@ export async function runDevelopment(
   let totalCost = 0;
   const batchSessionIds: string[] = [];
 
-  // --- Parallel batch scheduler ---------------------------------------------
-  //
-  // Batches are eligible to run concurrently when their estimated file globs
-  // are disjoint (no two batches touch the same file). Up to
-  // `config.maxParallelBatches` batches run at a time. An in-memory mutex
-  // (stateMutex) serializes the state-update/save section so concurrent
-  // batches can't clobber each other's persisted state.
-  const maxParallel = Math.max(1, config.maxParallelBatches ?? 3);
-  const batchGlobs: string[][] = taskBatches.map((b) => estimateBatchFileGlobs(b));
+  // Phase 8: resolve auxiliary flags once per phase so inner loops don't
+  // re-read the profile on every batch.
+  const auxFlags = resolveAuxiliaryFlags(config);
 
-  const stateMutex = createMutex();
-  const results = new Map<number, BatchResult>();
-  const running = new Map<number, Promise<void>>();
-  const runningGlobs = new Map<number, string[]>();
-  let nextIdx = 0;
-
-  const scheduleBatch = (batchIdx: number): Promise<void> => {
+  for (let batchIdx = 0; batchIdx < taskBatches.length; batchIdx++) {
     const batch = taskBatches[batchIdx]!;
-    const globs = batchGlobs[batchIdx]!;
-    runningGlobs.set(batchIdx, globs);
-
     progress.emit("batch:start", { index: batchIdx, total: taskBatches.length, taskCount: batch.length });
     console.log(
       `[development] Batch ${batchIdx + 1}/${taskBatches.length}: ` +
@@ -168,109 +164,92 @@ export async function runDevelopment(
       updatedState,
       baseAgentDefs,
       config,
-      registry
+      registry,
+      ctx?.envelope
     );
 
-    const p = (async () => {
-      const batchResult = await executeBatch(
-        batch,
-        batchAgentDefs,
-        updatedState,
-        config,
-        mcpServers
-      );
-      results.set(batchIdx, batchResult);
+    const batchResult = await executeBatch(
+      batch,
+      batchAgentDefs,
+      updatedState,
+      config,
+      mcpServers
+    );
 
-      // Serialize the state mutation + persistence section so concurrent
-      // batches can't clobber each other.
-      await stateMutex.run(async () => {
-        totalCost += batchResult.costUsd;
-        if (batchResult.sessionId) batchSessionIds.push(batchResult.sessionId);
+    totalCost += batchResult.costUsd;
+    if (batchResult.sessionId) batchSessionIds.push(batchResult.sessionId);
 
-        progress.emit("batch:end", { index: batchIdx, success: batchResult.taskResults.every((r) => r.success) });
+    progress.emit("batch:end", { index: batchIdx, success: batchResult.taskResults.every((r) => r.success) });
 
-        for (const taskResult of batchResult.taskResults) {
-          updatedState = updateTask(updatedState, taskResult.taskId, {
-            status: taskResult.success ? "completed" : "failed",
-            ...(taskResult.result !== undefined ? { result: taskResult.result } : {}),
-            ...(taskResult.error !== undefined ? { error: taskResult.error } : {}),
-            ...(taskResult.success ? { completedAt: new Date().toISOString() } : {}),
-          });
-          saveState(config.stateDir, updatedState);
-        }
-
-        const batchCheckpoint: PhaseCheckpoint = {
-          phase: "development",
-          completedTasks: updatedState.tasks
-            .filter((t) => t.status === "completed")
-            .map((t) => t.id),
-          pendingTasks: updatedState.tasks
-            .filter((t) => t.status === "pending" || t.status === "in_progress")
-            .map((t) => t.id),
-          timestamp: new Date().toISOString(),
-          metadata: { batchIndex: batchIdx, totalCost, sessionIds: batchSessionIds },
-        };
-        updatedState = saveCheckpointState(updatedState, batchCheckpoint);
-        saveState(config.stateDir, updatedState);
-
-        console.log(
-          `[development] Batch ${batchIdx + 1} complete. ` +
-            `Cost so far: $${totalCost.toFixed(4)}`
-        );
+    // Update task statuses and save state after each individual task result.
+    // Phase 6: a task is only "completed" when backed by a receipt whose
+    // status is exactly "success". Blocked/partial/failed receipts persist
+    // as "failed" — they can never be mistaken for completed work.
+    for (const taskResult of batchResult.taskResults) {
+      const receiptStatus = taskResult.receipt?.status;
+      const isComplete = taskResult.success && receiptStatus === "success";
+      updatedState = updateTask(updatedState, taskResult.taskId, {
+        status: isComplete ? "completed" : "failed",
+        ...(taskResult.result !== undefined ? { result: taskResult.result } : {}),
+        ...(taskResult.error !== undefined ? { error: taskResult.error } : {}),
+        ...(isComplete ? { completedAt: new Date().toISOString() } : {}),
       });
-
-      // Quality gate after each batch (serialized so only one runs at a time)
-      await stateMutex.run(async () => {
-        const qualityOk = await runQualityChecks(signal);
-        if (!qualityOk) {
-          console.warn("[development] Quality checks failed after batch. Attempting auto-fix...");
-          const fixResult = await autoFixQualityIssues(
-            updatedState,
-            config,
-            baseAgentDefs,
-            mcpServers,
-            signal
-          );
-          totalCost += fixResult.costUsd;
-          if (!fixResult.fixed) {
-            console.error("[development] Auto-fix failed. Continuing to next batch.");
-          }
-        }
-      });
-    })();
-
-    return p;
-  };
-
-  while (nextIdx < taskBatches.length || running.size > 0) {
-    // Start as many non-conflicting batches as we can
-    while (nextIdx < taskBatches.length && running.size < maxParallel) {
-      const idx = nextIdx;
-      const globs = batchGlobs[idx]!;
-      let hasConflict = false;
-      for (const activeGlobs of runningGlobs.values()) {
-        if (globsConflict(globs, activeGlobs)) {
-          hasConflict = true;
-          break;
-        }
+      // Persist after each task so interruption loses at most one task
+      saveState(config.stateDir, updatedState);
+      if (taskResult.receipt) {
+        persistReceipt(config.stateDir, "development", taskResult.receipt);
       }
-      if (hasConflict) break; // wait for a running batch to drain
-
-      const promise = scheduleBatch(idx).finally(() => {
-        running.delete(idx);
-        runningGlobs.delete(idx);
-      });
-      running.set(idx, promise);
-      nextIdx++;
     }
 
-    if (running.size > 0) {
-      await Promise.race(running.values());
+    // Save checkpoint after each batch
+    const batchCheckpoint: PhaseCheckpoint = {
+      phase: "development",
+      completedTasks: updatedState.tasks
+        .filter((t) => t.status === "completed")
+        .map((t) => t.id),
+      pendingTasks: updatedState.tasks
+        .filter((t) => t.status === "pending" || t.status === "in_progress")
+        .map((t) => t.id),
+      timestamp: new Date().toISOString(),
+      metadata: { batchIndex: batchIdx, totalCost, sessionIds: batchSessionIds },
+    };
+    updatedState = saveCheckpointState(updatedState, batchCheckpoint);
+    saveState(config.stateDir, updatedState);
+
+    console.log(
+      `[development] Batch ${batchIdx + 1} complete. ` +
+        `Cost so far: $${totalCost.toFixed(4)}`
+    );
+
+    // Step 5: Quality gate after each batch. The auto-fix retry loop is
+    // Phase 8-gated — under the `minimal` profile we only report failures
+    // and keep going, leaving expensive fix attempts to the `debug` /
+    // `nightly` profiles. This keeps core runs bounded.
+    const qualityOk = await runQualityChecks();
+    if (!qualityOk) {
+      if (auxFlags.qualityFixRetry) {
+        console.warn("[development] Quality checks failed after batch. Attempting auto-fix...");
+        const fixResult = await autoFixQualityIssues(
+          updatedState,
+          config,
+          baseAgentDefs,
+          mcpServers
+        );
+        totalCost += fixResult.costUsd;
+        if (!fixResult.fixed) {
+          console.error("[development] Auto-fix failed. Continuing to next batch.");
+        }
+      } else {
+        console.warn(
+          "[development] Quality checks failed — auto-fix retry disabled by auxiliary profile " +
+          `(${config.auxiliaryProfile}). Continuing to next batch.`,
+        );
+      }
     }
   }
 
   // Step 6: Final quality check
-  const finalQuality = await runQualityChecks(signal);
+  const finalQuality = await runQualityChecks();
 
   const failedTasks = updatedState.tasks.filter((t) => t.status === "failed");
   const success = failedTasks.length === 0 && finalQuality;
@@ -495,9 +474,7 @@ function groupIntoBatches(projectTasks: Task[], devTasks: DevTask[]): Task[][] {
 
 const BASE_AGENT_NAMES = getBaseAgentNames();
 
-const GENERIC_DEV_INSTRUCTIONS = `You are an expert developer. Implement the task described below.
-
-## Instructions
+const GENERIC_DEV_INSTRUCTIONS = `## Instructions
 1. Read the existing codebase to understand current state
 2. Implement the task following the architecture exactly
 3. Write clean, well-structured code
@@ -517,35 +494,41 @@ Report what you implemented and any decisions you made.`;
  * `prompt` lets the SDK's ephemeral cache hit across subagent invocations,
  * eliminating the per-task duplication of the architecture blob.
  */
-export function buildSharedTaskContext(state: ProjectState): string {
+export function buildSharedTaskContext(
+  state: ProjectState,
+  envelope?: ExecutionEnvelope,
+): string {
   const archJson = JSON.stringify(state.architecture, null, 2);
   const fileStructure = state.architecture?.fileStructure ?? "Not specified";
-  const staticContext = `${wrapUserInput("architecture", archJson)}
+  const envelopeBlock = envelope ? `\n\n${renderEnvelopeBlock(envelope)}` : "";
+  return `You are an expert developer. Implement the task described below.
+
+${wrapUserInput("architecture", archJson)}
 
 ## File Structure
-${fileStructure}`;
-  return buildCachedSystemPrompt(staticContext, GENERIC_DEV_INSTRUCTIONS);
+${fileStructure}${envelopeBlock}
+
+${GENERIC_DEV_INSTRUCTIONS}`;
 }
 
 export function buildBatchAgents(
   batch: Task[],
   state: ProjectState,
-  baseAgentDefs: Record<string, { description: string; prompt: string; tools: string[] }>,
+  baseAgentDefs: Record<string, AgentDefinition>,
   config: Config,
-  registry: AgentRegistry
+  registry: AgentRegistry,
+  envelope?: ExecutionEnvelope
 ): Record<string, AgentDefinition> {
   const agents: Record<string, AgentDefinition> = {};
   // Build the architecture + file-structure + generic instructions block ONCE
   // per batch. Each task agent prompt prepends this so identical prefixes
   // across subagents are eligible for Anthropic prompt caching.
-  const sharedContext = buildSharedTaskContext(state);
+  const sharedContext = buildSharedTaskContext(state, envelope);
 
   // Include base agents (developer, qa-engineer, etc.)
   for (const [name, def] of Object.entries(baseAgentDefs)) {
     agents[name] = {
-      description: def.description,
-      prompt: def.prompt,
-      tools: def.tools,
+      ...def,
       model: config.subagentModel,
       maxTurns: getMaxTurns(config, "default"),
     };
@@ -566,31 +549,27 @@ export function buildBatchAgents(
         titleLower.includes(bp.role.toLowerCase())
     );
 
-    const taskBlock = wrapUserInput(
-      "current-task",
-      `**${task.title}**\n${task.description}`
-    );
-
     if (matchingDomain) {
       const agentName = matchingDomain.name;
-      const def = registry.toAgentDefinition(agentName);
+      const def = registry.toAgentDefinition(agentName, config);
       console.log(`[dev] Using domain agent: ${agentName}`);
-      // Domain specialization stays up top (cache-friendly across domain
-      // matches), shared architecture block follows, then the per-task suffix.
       agents[agentName] = {
-        description: def.description,
-        prompt: `${def.prompt}\n\n${sharedContext}\n\n${taskBlock}`,
-        tools: def.tools,
+        ...def,
+        prompt: def.prompt + `\n\n${wrapUserInput("current-task", `**${task.title}**\n${task.description}`)}`,
         model: config.subagentModel,
         maxTurns: getMaxTurns(config, "default"),
       };
     } else {
       const agentName = `dev-${task.id.slice(0, 8)}`;
       console.log(`[dev] Using generic agent for: ${task.title}`);
-      agents[agentName] = {
-        description: `Implement: ${task.title}`,
-        prompt: buildTaskPrompt(task, sharedContext),
+      const def = buildRunnableAgentDefinition({
+        name: agentName,
+        role: "Software Developer",
+        systemPrompt: buildTaskPrompt(task, sharedContext, envelope),
         tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
+      }, config);
+      agents[agentName] = {
+        ...def,
         model: config.subagentModel,
         maxTurns: getMaxTurns(config, "default"),
       };
@@ -605,60 +584,331 @@ export function buildBatchAgents(
  * the per-task suffix. The architecture JSON is NOT inlined here — it lives
  * in `sharedContext` which is built once per batch via
  * `buildSharedTaskContext`.
+ *
+ * The optional `envelope` argument appends a secondary structured block that
+ * carries validated runtime context (project root, branch, package manager,
+ * verification command whitelist, OS, Node version). The envelope is emitted
+ * AFTER the current-task block so task-specific content still dominates the
+ * subagent's attention while runtime assumptions remain visible and machine-
+ * readable. Callers that already embed the envelope in `sharedContext` via
+ * `buildSharedTaskContext` can omit it here.
  */
-export function buildTaskPrompt(task: Task, sharedContext: string): string {
-  return `${sharedContext}\n\n${wrapUserInput("current-task", `**${task.title}**\n${task.description}`)}`;
+export function buildTaskPrompt(
+  task: Task,
+  sharedContext: string,
+  envelope?: ExecutionEnvelope,
+): string {
+  const taskBlock = wrapUserInput(
+    "current-task",
+    `**${task.title}**\n${task.description}`,
+  );
+  const envelopeSuffix = envelope ? `\n\n${renderEnvelopeBlock(envelope)}` : "";
+  return `${sharedContext}\n\n${taskBlock}${envelopeSuffix}`;
 }
 
 /**
- * Parse task results from agent output. Prefers structured JSON blocks,
- * falls back to text heuristic for backward compatibility.
+ * Extract every balanced top-level JSON object from `text`.
+ * Used to harvest multiple per-task TaskReceipt blocks a batch may emit.
+ * Skips content inside string literals so braces in strings don't throw off
+ * the brace counter.
  */
-function parseTaskResults(output: string, tasks: Task[]): TaskResult[] {
-  // Try to find a JSON block with a "tasks" array in the output
-  const jsonStr = extractFirstJson(output);
-  if (jsonStr) {
-    try {
-      const parseResult = TaskResultsSchema.safeParse(JSON.parse(jsonStr));
-      if (parseResult.success) {
-        const parsed = parseResult.data;
-        return tasks.map((task) => {
-          const match = parsed.tasks.find((t) =>
-            t.title.toLowerCase().includes(task.title.toLowerCase())
-          );
-          const hasFail = match?.status === "failed";
-          return {
-            taskId: task.id,
-            success: match ? !hasFail : false,
-            output,
-            ...(output.length > 0 ? { result: "Implemented as part of batch" } : {}),
-            ...(hasFail ? { error: `Task "${task.title}" reported as failed` } : {}),
-          };
-        });
+export function extractAllJsonObjects(text: string): string[] {
+  const out: string[] = [];
+  let start = -1;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+
+    if (escape) {
+      escape = false;
+      continue;
+    }
+    if (ch === "\\" && inString) {
+      escape = true;
+      continue;
+    }
+    if (ch === '"') {
+      inString = !inString;
+      continue;
+    }
+    if (inString) continue;
+
+    if (ch === "{") {
+      if (depth === 0) start = i;
+      depth++;
+    } else if (ch === "}") {
+      depth--;
+      if (depth === 0 && start !== -1) {
+        const candidate = text.slice(start, i + 1);
+        try {
+          JSON.parse(candidate);
+          out.push(candidate);
+        } catch {
+          /* skip unbalanced / malformed candidate */
+        }
+        start = -1;
+      } else if (depth < 0) {
+        depth = 0;
+        start = -1;
       }
-    } catch {
-      /* fall through to heuristic */
     }
   }
 
-  // Fallback: heuristic (existing behavior)
-  console.log(
-    "[dev] Warning: no structured output found, using text heuristic"
+  return out;
+}
+
+/**
+ * Harvest structured TaskReceipt blocks from agent output.
+ *
+ * Accepts either:
+ *   - envelope shape `{ "receipts": [<TaskReceipt>...] }`
+ *   - one or more bare TaskReceipt objects sprinkled in the output
+ *
+ * Returns only receipts that pass `TaskReceiptSchema.safeParse`. Anything that
+ * looks like a receipt but fails validation is discarded — the owning task
+ * will be reported as `invalid_structured_output` downstream.
+ */
+export function harvestReceipts(output: string): TaskReceipt[] {
+  const receipts: TaskReceipt[] = [];
+  const seen = new Set<string>();
+
+  for (const candidate of extractAllJsonObjects(output)) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(candidate);
+    } catch {
+      continue;
+    }
+
+    const envelope = TaskReceiptEnvelopeSchema.safeParse(parsed);
+    if (envelope.success) {
+      for (const r of envelope.data.receipts) {
+        if (!seen.has(r.taskId)) {
+          seen.add(r.taskId);
+          receipts.push(r);
+        }
+      }
+      continue;
+    }
+
+    const single = TaskReceiptSchema.safeParse(parsed);
+    if (single.success && !seen.has(single.data.taskId)) {
+      seen.add(single.data.taskId);
+      receipts.push(single.data);
+    }
+  }
+
+  return receipts;
+}
+
+/**
+ * Parse task results from agent output — strictly receipt-based (Phase 6).
+ *
+ * Rules:
+ *   - Primary path: harvest TaskReceipt JSON blocks, match by taskId (or title
+ *     fallback), validate via Zod.
+ *   - A task with a receipt whose `status === "success"` is the ONLY way to
+ *     land `TaskResult.success === true`.
+ *   - `status === "blocked" | "partial" | "failed"` → `success = false`.
+ *   - Invalid / missing receipts → `status = "failed"` with reason
+ *     `invalid_structured_output`. No text-heuristic promotion to success.
+ *   - Freeform output is captured only as `freeformNotes` for debug.
+ */
+export function parseTaskResults(output: string, tasks: Task[]): TaskResult[] {
+  const receipts = harvestReceipts(output);
+  const byId = new Map(receipts.map((r) => [r.taskId, r]));
+  const byTitle = new Map(
+    receipts.map((r) => [r.taskTitle.trim().toLowerCase(), r]),
   );
-  return tasks.map((task) => {
-    const titleLower = task.title.toLowerCase();
-    const outputLower = output.toLowerCase();
-    const hasFail =
-      outputLower.includes(titleLower) &&
-      (outputLower.includes("failure") || outputLower.includes("failed"));
+
+  const freeformNotes = output.trim().length > 0 ? output : undefined;
+
+  return tasks.map((task): TaskResult => {
+    // Prefer exact id match; fall back to title match.
+    let receipt = byId.get(task.id);
+    if (!receipt) receipt = byTitle.get(task.title.trim().toLowerCase());
+
+    if (!receipt) {
+      // No valid structured receipt → never success, regardless of freeform
+      // text. This is the core Phase-6 guarantee.
+      const fallback: TaskReceipt = {
+        taskId: task.id,
+        taskTitle: task.title,
+        teamMemberId: "unknown",
+        agentRole: "unknown",
+        model: "unknown",
+        sessionIds: [],
+        changedFiles: [],
+        verificationCommands: [],
+        status: "failed",
+        failureReasonCode: "invalid_structured_output",
+        ...(freeformNotes ? { freeformNotes } : {}),
+        startedAt: new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      };
+      return {
+        taskId: task.id,
+        success: false,
+        ...(freeformNotes ? { output: freeformNotes } : {}),
+        error: `Task "${task.title}" has no valid structured receipt (invalid_structured_output)`,
+        receipt: fallback,
+      };
+    }
+
+    const isSuccess = receipt.status === "success";
+    const resultText =
+      isSuccess
+        ? receipt.changedFiles.length > 0
+          ? `Changed: ${receipt.changedFiles.join(", ")}`
+          : "Receipt reported success"
+        : undefined;
+    const errorText = isSuccess
+      ? undefined
+      : `Task "${task.title}" receipt status=${receipt.status}` +
+        (receipt.failureReasonCode ? ` (${receipt.failureReasonCode})` : "");
+
     return {
       taskId: task.id,
-      success: !hasFail && output.length > 0,
-      output,
-      ...(output.length > 0 ? { result: "Implemented as part of batch" } : {}),
-      ...(hasFail ? { error: `Task "${task.title}" reported as failed` } : {}),
+      success: isSuccess,
+      ...(freeformNotes ? { output: freeformNotes } : {}),
+      ...(resultText ? { result: resultText } : {}),
+      ...(errorText ? { error: errorText } : {}),
+      receipt,
     };
   });
+}
+
+/**
+ * Persist a task receipt to `<stateDir>/receipts/<phaseId>/<taskId>.json` so
+ * audit logs can answer which agent changed which files for each task.
+ * Best-effort: on I/O errors we log and continue — a persistence failure must
+ * not mask the actual task outcome.
+ */
+export function persistReceipt(
+  stateDir: string,
+  phaseId: string,
+  receipt: TaskReceipt,
+): string | null {
+  try {
+    const filePath = join(
+      stateDir,
+      "receipts",
+      phaseId,
+      `${receipt.taskId}.json`,
+    );
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, JSON.stringify(receipt, null, 2), "utf8");
+    return filePath;
+  } catch (err) {
+    console.warn(
+      `[dev] Failed to persist receipt for ${receipt.taskId}: ${errMsg(err)}`,
+    );
+    return null;
+  }
+}
+
+interface DirectDispatchResult {
+  taskId: string;
+  resultText: string;
+  sessionId: string | undefined;
+  costUsd: number;
+}
+
+/**
+ * Phase 3: dispatch a single task directly to its owning subagent, skipping
+ * the "lead developer" wrapper entirely. This is the default execution path —
+ * the lead wrapper is gated behind `config.developmentCoordinator.enabled`.
+ *
+ * The SDK `query()` uses the subagent's prompt as `systemPrompt` and omits the
+ * Agent tool, so there is no second coordination loop around this call.
+ */
+async function dispatchTaskDirect(
+  task: Task,
+  agentName: string,
+  def: AgentDefinition,
+  config: Config,
+  mcpServers: Record<string, McpServerConfig>,
+): Promise<DirectDispatchResult> {
+  const prompt = `Implement the task described in your system prompt. When done, you MUST emit a single structured TaskReceipt JSON block. Freeform text will NOT count as success — only a valid receipt can.
+
+Required receipt shape (all fields mandatory unless marked optional):
+\`\`\`json
+{
+  "taskId": "${task.id}",
+  "taskTitle": "${task.title.replace(/"/g, '\\"')}",
+  "teamMemberId": "${agentName}",
+  "agentRole": "<your role>",
+  "model": "<the model you are running on>",
+  "sessionIds": ["<session id(s)>"],
+  "branchName": "<feature branch, optional>",
+  "commitSha": "<commit sha if created, optional>",
+  "changedFiles": ["<relative path>", "..."],
+  "verificationCommands": [
+    { "command": "npx tsc --noEmit", "success": true, "exitCode": 0, "stdoutSnippet": "..." }
+  ],
+  "status": "success" | "failed" | "blocked" | "partial",
+  "failureReasonCode": "provider_limit | verification_failed | invalid_structured_output | blocked_filesystem | ...",
+  "freeformNotes": "<optional debug only>",
+  "startedAt": "<ISO-8601>",
+  "completedAt": "<ISO-8601>"
+}
+\`\`\`
+
+Rules:
+- Use "blocked" when you could not proceed (missing deps, permission denied, etc.).
+- Use "partial" when some acceptance criteria are unmet but progress was made.
+- Use "success" only when the task is fully done AND verification passed.
+- Omit the receipt or ship malformed JSON → task WILL be marked failed.
+
+After the JSON block, you may add a brief text summary.`;
+
+  let resultText = "";
+  let sessionId: string | undefined;
+  let costUsd = 0;
+
+  // Preserve the subagent's tool set; intentionally omit "Agent" so there is
+  // no way for the subagent to spawn its own coordinator.
+  const allowedTools = def.tools ?? ["Read", "Write", "Edit", "Bash", "Glob", "Grep"];
+
+  for await (const message of query({
+    prompt,
+    options: {
+      systemPrompt: def.prompt,
+      allowedTools,
+      hooks: {
+        PostToolUse: [{ matcher: "Edit|Write", hooks: [auditLoggerHook] }],
+      },
+      mcpServers,
+      model: config.subagentModel,
+      maxTurns: getMaxTurns(config, "default"),
+      ...getQueryPermissions(config),
+    },
+  })) {
+    if (message.type === "result") {
+      if (message.subtype === "success") {
+        resultText = message.result;
+        sessionId = message.session_id;
+        costUsd = message.total_cost_usd;
+      } else {
+        console.error(
+          `[development] Direct-dispatch task "${task.title}" ended with error: ${message.subtype}`,
+          message.errors,
+        );
+        costUsd = message.total_cost_usd;
+      }
+    }
+
+    if (isApiRetry(message)) {
+      console.warn(
+        `[development] API retry attempt ${message.attempt}, waiting ${message.retry_delay_ms}ms`,
+      );
+    }
+  }
+
+  return { taskId: task.id, resultText, sessionId, costUsd };
 }
 
 async function executeBatch(
@@ -668,76 +918,97 @@ async function executeBatch(
   config: Config,
   mcpServers: Record<string, McpServerConfig>
 ): Promise<BatchResult> {
+  const taskList = batch
+    .map((t, i) => `${i + 1}. **${t.title}**: ${t.description}`)
+    .join("\n\n");
+
   // Derive task agent names from the agentDefs (excludes base agents like developer, qa-engineer)
   const taskAgentNames = Object.keys(agentDefs).filter(
     (name) => !BASE_AGENT_NAMES.has(name)
   );
 
-  // Single-task batch: skip the lead-agent wrapper and dispatch the task's
-  // subagent directly. Saves one full turn of lead-agent reasoning plus the
-  // Agent-tool invocation overhead (the lead agent's only job would be to
-  // delegate to this one subagent).
+  // Phase 3 — Direct-dispatch fast path (default execution mode).
+  //
+  // When every task has exactly one owning subagent (batch.length === taskAgentNames.length)
+  // AND the lead-developer coordinator is not explicitly enabled, we dispatch
+  // each task straight to its subagent in parallel. This removes the legacy
+  // "lead developer" prompt wrapper that used to orchestrate delegation on top
+  // of native subagents — pure double coordination, per the Phase 3 plan.
+  //
+  // The legacy lead wrapper is retained below as an opt-in debug path via
+  // `config.developmentCoordinator.enabled === true`.
+  const coordinatorEnabled = config.developmentCoordinator?.enabled === true;
+  const canDirectDispatch =
+    !coordinatorEnabled &&
+    batch.length > 0 &&
+    batch.length === taskAgentNames.length;
+
+  if (canDirectDispatch) {
+    // Build 1:1 assignment from task to its owning subagent. Naming convention
+    // in `buildBatchAgents`: generic tasks get `dev-<taskIdPrefix>`; domain
+    // tasks get the domain agent name. We reconstruct the mapping by matching
+    // task.id against the `dev-` suffix and falling back to arbitrary pairing
+    // for domain agents (they already live 1:1 with the batch member).
+    const assignments: Array<{ task: Task; agentName: string }> = [];
+    const claimed = new Set<string>();
+    for (const task of batch) {
+      const devName = `dev-${task.id.slice(0, 8)}`;
+      let agentName: string | undefined;
+      if (taskAgentNames.includes(devName) && !claimed.has(devName)) {
+        agentName = devName;
+      } else {
+        // Fallback: pick the next unused non-base agent. This mirrors the
+        // assignment order used by `buildBatchAgents` for domain agents.
+        agentName = taskAgentNames.find((n) => !claimed.has(n));
+      }
+      if (!agentName) break;
+      claimed.add(agentName);
+      assignments.push({ task, agentName });
+    }
+
+    if (assignments.length === batch.length) {
+      console.log(
+        `[development] Direct-dispatch fast path: ${batch.length} task(s) → ` +
+          `${assignments.length} subagent(s), no lead wrapper`,
+      );
+
+      const settled = await Promise.all(
+        assignments.map(({ task, agentName }) =>
+          dispatchTaskDirect(task, agentName, agentDefs[agentName]!, config, mcpServers),
+        ),
+      );
+
+      const combinedOutput = settled.map((r) => r.resultText).join("\n");
+      const taskResults = parseTaskResults(combinedOutput, batch);
+      const costUsd = settled.reduce((sum, r) => sum + r.costUsd, 0);
+      // Use the first non-empty session id as the batch-level pointer.
+      const sessionId = settled.find((r) => r.sessionId)?.sessionId;
+      return { taskResults, costUsd, ...(sessionId !== undefined ? { sessionId } : {}) };
+    }
+  }
+
+  // Back-compat: preserve the single-task direct-dispatch fast path even when
+  // the coordinator flag is enabled, since a single task has literally
+  // nothing for a lead to coordinate.
   if (batch.length === 1 && taskAgentNames.length === 1) {
     const task = batch[0]!;
     const agentName = taskAgentNames[0]!;
     const def = agentDefs[agentName]!;
-
-    const singlePrompt = `Implement the task described in your system prompt. When done, report the result as structured JSON:
-\`\`\`json
-{ "tasks": [{ "title": "${task.title.replace(/"/g, '\\"')}", "status": "success" | "failed" }] }
-\`\`\`
-Follow with a brief text summary.`;
-
-    let resultText = "";
-    let sessionId: string | undefined;
-    let costUsd = 0;
-
-    // Preserve the subagent's tool set; intentionally omit "Agent".
-    const allowedTools = def.tools ?? ["Read", "Write", "Edit", "Bash", "Glob", "Grep"];
-
-    for await (const message of query({
-      prompt: singlePrompt,
-      options: {
-        systemPrompt: def.prompt,
-        allowedTools,
-        hooks: {
-          PostToolUse: [{ matcher: "Edit|Write", hooks: [auditLoggerHook] }],
-        },
-        mcpServers,
-        model: config.subagentModel,
-        maxTurns: getMaxTurns(config, "default"),
-        ...getQueryPermissions(config),
-      },
-    })) {
-      if (message.type === "result") {
-        if (message.subtype === "success") {
-          resultText = message.result;
-          sessionId = message.session_id;
-          costUsd = message.total_cost_usd;
-        } else {
-          console.error(
-            `[development] Single-task execution ended with error: ${message.subtype}`,
-            message.errors
-          );
-          costUsd = message.total_cost_usd;
-        }
-      }
-
-      if (isApiRetry(message)) {
-        console.warn(
-          `[development] API retry attempt ${message.attempt}, waiting ${message.retry_delay_ms}ms`
-        );
-      }
-    }
-
+    const { resultText, sessionId, costUsd } = await dispatchTaskDirect(
+      task,
+      agentName,
+      def,
+      config,
+      mcpServers,
+    );
     const taskResults = parseTaskResults(resultText, batch);
     return { taskResults, costUsd, ...(sessionId !== undefined ? { sessionId } : {}) };
   }
 
-  const taskList = batch
-    .map((t, i) => `${i + 1}. **${t.title}**: ${t.description}`)
-    .join("\n\n");
-
+  // Legacy / opt-in: lead-developer coordinator wraps native subagents in a
+  // second orchestration loop. Gated behind `developmentCoordinator.enabled`
+  // because it's pure overhead when tasks have 1:1 owners — that case is
+  // handled by the direct-dispatch fast path above.
   const prompt = `You are the lead developer orchestrating implementation of ${batch.length} task(s).
 
 ## Tasks to implement
@@ -748,7 +1019,7 @@ ${taskAgentNames.map((name) => `- Use the "${name}" agent for its corresponding 
 
 ## Instructions
 1. For each task, delegate to the corresponding subagent
-2. Tasks in this batch are independent. You MUST invoke all subagents in a SINGLE assistant message (multiple Agent tool calls in parallel) to maximize throughput.
+2. ${batch.length > 1 ? "Tasks in this batch are independent — you can delegate them in parallel" : "Focus on this single task"}
 3. After each task completes, verify the implementation:
    - Run \`npx tsc --noEmit\` to check types
    - Run \`npm test\` to check tests
@@ -756,11 +1027,38 @@ ${taskAgentNames.map((name) => `- Use the "${name}" agent for its corresponding 
 5. Create a git branch \`feature/<task-title-slug>\` for each task's work
 6. Report the final status of each task
 
-For each task, report as structured JSON:
+For each task, the assigned subagent MUST emit a structured TaskReceipt. Aggregate them into a single envelope at the end of the lead message:
 \`\`\`json
-{ "tasks": [{ "title": "<task title>", "status": "success" | "failed" }] }
+{
+  "receipts": [
+    {
+      "taskId": "<task id from the list above>",
+      "taskTitle": "<task title>",
+      "teamMemberId": "<subagent name>",
+      "agentRole": "<role>",
+      "model": "<model>",
+      "sessionIds": ["<session ids if available>"],
+      "branchName": "<feature branch, optional>",
+      "commitSha": "<commit sha, optional>",
+      "changedFiles": ["path/to/file.ts"],
+      "verificationCommands": [
+        { "command": "npx tsc --noEmit", "success": true, "exitCode": 0 },
+        { "command": "npm test", "success": true, "exitCode": 0 }
+      ],
+      "status": "success" | "failed" | "blocked" | "partial",
+      "failureReasonCode": "<omit for success, otherwise a reason code>",
+      "freeformNotes": "<debug only, optional>",
+      "startedAt": "<ISO-8601>",
+      "completedAt": "<ISO-8601>"
+    }
+  ]
+}
 \`\`\`
-Also include a brief text summary for each task.`;
+
+Rules:
+- A task without a valid receipt will be marked failed regardless of text output.
+- "blocked" / "partial" / "failed" are NOT success — only "success" counts.
+- Verification commands MUST include the commands you actually ran and their outcomes.`;
 
   let resultText = "";
   let sessionId: string | undefined;
@@ -810,103 +1108,6 @@ Also include a brief text summary for each task.`;
   return { taskResults, costUsd, ...(sessionId !== undefined ? { sessionId } : {}) };
 }
 
-// --- Parallel scheduling helpers ---
-
-/**
- * Static analysis of a task description/title to extract file path references.
- * Heuristic extraction — conservative by design.
- *
- * Looks for:
- *   - Paths with `/` or common source file extensions (.ts, .tsx, .js, .jsx,
- *     .py, .go, .java, .rb, .rs, .cpp, .c, .h, .md, .json, .yaml, .yml, .html,
- *     .css, .scss, .vue, .svelte)
- *   - Capitalised component names following verbs like "Create", "Modify",
- *     "Update", "Add", "Refactor", "Implement"
- *
- * Returns `["*"]` when nothing can be extracted so the scheduler treats the
- * task as conflicting with everything (serial fallback).
- */
-export function estimateTaskFileGlobs(task: { title: string; description: string }): string[] {
-  const text = `${task.title}\n${task.description}`;
-  const globs = new Set<string>();
-
-  // Match paths / filenames with an extension, optionally including `/`.
-  const pathRegex =
-    /\b(?:[\w.-]+\/)*[\w.-]+\.(?:ts|tsx|js|jsx|py|go|java|rb|rs|cpp|cc|c|h|hpp|md|json|ya?ml|html|css|scss|vue|svelte)\b/g;
-  for (const match of text.matchAll(pathRegex)) {
-    globs.add(match[0]);
-  }
-
-  // Match explicit paths with `/` even without an extension.
-  const slashRegex = /\b(?:src|tests?|lib|app|pkg|cmd|internal|packages)\/[\w./-]+/g;
-  for (const match of text.matchAll(slashRegex)) {
-    globs.add(match[0]);
-  }
-
-  // Component names following verbs (Create X, Update Y, etc.). Used as a
-  // fallback logical identifier — we normalise them to lowercase to act as
-  // keys in the conflict graph.
-  const componentRegex =
-    /\b(?:Create|Modify|Update|Add|Refactor|Implement|Build|Delete|Remove|Fix)\s+(?:the\s+|a\s+|an\s+)?([A-Z][A-Za-z0-9]+(?:\s+[A-Z][A-Za-z0-9]+)?)/g;
-  for (const match of text.matchAll(componentRegex)) {
-    const name = match[1];
-    if (name) globs.add(`component:${name.toLowerCase().replace(/\s+/g, "-")}`);
-  }
-
-  if (globs.size === 0) return ["*"];
-  return [...globs];
-}
-
-/** Union of estimated globs for every task in a batch. */
-function estimateBatchFileGlobs(batch: Task[]): string[] {
-  const all = new Set<string>();
-  for (const t of batch) {
-    for (const g of estimateTaskFileGlobs(t)) all.add(g);
-  }
-  return [...all];
-}
-
-/**
- * Conservative overlap check between two glob sets. Treats `*` as "matches
- * everything" and uses prefix matching as a cheap approximation otherwise.
- */
-function globsConflict(a: string[], b: string[]): boolean {
-  if (a.includes("*") || b.includes("*")) return true;
-  for (const ga of a) {
-    for (const gb of b) {
-      if (ga === gb) return true;
-      // Prefix match: `src/foo` overlaps with `src/foo/bar.ts`.
-      if (ga.includes("/") && gb.startsWith(ga + "/")) return true;
-      if (gb.includes("/") && ga.startsWith(gb + "/")) return true;
-    }
-  }
-  return false;
-}
-
-/** True when two batches share any estimated file glob. */
-export function batchesConflict(batchA: Task[], batchB: Task[]): boolean {
-  return globsConflict(estimateBatchFileGlobs(batchA), estimateBatchFileGlobs(batchB));
-}
-
-/**
- * Tiny async mutex — serialises work through `run()`. Used to protect the
- * state-update section of the concurrent batch loop.
- */
-interface Mutex {
-  run<T>(task: () => Promise<T>): Promise<T>;
-}
-
-function createMutex(): Mutex {
-  let tail: Promise<unknown> = Promise.resolve();
-  return {
-    run<T>(task: () => Promise<T>): Promise<T> {
-      const result = tail.then(task, task);
-      tail = result.catch(() => undefined);
-      return result;
-    },
-  };
-}
-
 // --- Helpers ---
 
 function getExecStdout(err: unknown): string | null {
@@ -919,7 +1120,7 @@ function getExecStdout(err: unknown): string | null {
 
 // --- Quality Gates ---
 
-async function runQualityChecks(signal?: AbortSignal): Promise<boolean> {
+async function runQualityChecks(): Promise<boolean> {
   const checks = [
     { name: "TypeScript type-check", executable: "npx", args: ["tsc", "--noEmit"] },
     { name: "Tests", executable: "npm", args: ["test"] },
@@ -928,27 +1129,10 @@ async function runQualityChecks(signal?: AbortSignal): Promise<boolean> {
   let allPassed = true;
 
   for (const check of checks) {
-    if (signal?.aborted) {
-      console.warn(`[development] Aborted before running: ${check.name}`);
-      return false;
-    }
     try {
-      // Pass the interrupter signal so SIGINT terminates the child process
-      // (Node sends SIGTERM by default, then SIGKILL after the grace window
-      // if the process is still alive). killSignal is set explicitly for
-      // clarity.
-      const opts: Parameters<typeof execFileAsync>[2] = {
-        timeout: 120_000,
-        killSignal: "SIGTERM",
-        ...(signal ? { signal } : {}),
-      };
-      await execFileAsync(check.executable, check.args, opts);
+      await execFileAsync(check.executable, check.args, { timeout: 120_000 });
       console.log(`[development] Quality check passed: ${check.name}`);
     } catch (err) {
-      if (signal?.aborted) {
-        console.warn(`[development] Quality check aborted: ${check.name}`);
-        return false;
-      }
       allPassed = false;
       const output =
         getExecStdout(err)?.slice(0, 300) ?? "unknown error";
@@ -962,32 +1146,23 @@ async function runQualityChecks(signal?: AbortSignal): Promise<boolean> {
 async function autoFixQualityIssues(
   state: ProjectState,
   config: Config,
-  agentDefs: Record<string, { description: string; prompt: string; tools: string[] }>,
-  mcpServers: Record<string, McpServerConfig>,
-  signal?: AbortSignal,
+  agentDefs: Record<string, AgentDefinition>,
+  mcpServers: Record<string, McpServerConfig>
 ): Promise<{ fixed: boolean; costUsd: number }> {
   // Capture current errors
   let typeErrors = "";
   let testErrors = "";
 
-  const execOpts: Parameters<typeof execFileAsync>[2] = {
-    timeout: 120_000,
-    killSignal: "SIGTERM",
-    ...(signal ? { signal } : {}),
-  };
-
   try {
-    await execFileAsync("npx", ["tsc", "--noEmit"], execOpts);
+    await execFileAsync("npx", ["tsc", "--noEmit"], { timeout: 120_000 });
   } catch (err) {
-    if (signal?.aborted) return { fixed: false, costUsd: 0 };
     typeErrors =
       getExecStdout(err)?.slice(0, 2000) ?? "type-check failed";
   }
 
   try {
-    await execFileAsync("npm", ["test"], execOpts);
+    await execFileAsync("npm", ["test"], { timeout: 120_000 });
   } catch (err) {
-    if (signal?.aborted) return { fixed: false, costUsd: 0 };
     testErrors =
       getExecStdout(err)?.slice(0, 2000) ?? "tests failed";
   }
@@ -1011,10 +1186,8 @@ After fixing, run \`npx tsc --noEmit\` and \`npm test\` to verify.`;
   const sdkAgentDefs: Record<string, AgentDefinition> = {};
   for (const [name, def] of Object.entries(agentDefs)) {
     sdkAgentDefs[name] = {
-      description: def.description,
-      prompt: def.prompt,
-      tools: def.tools,
-      model: config.subagentModel,
+      ...def,
+      model: def.model ?? config.subagentModel,
     };
   }
 
@@ -1039,7 +1212,7 @@ After fixing, run \`npx tsc --noEmit\` and \`npm test\` to verify.`;
 
   // Verify fix
   if (fixed) {
-    fixed = await runQualityChecks(signal);
+    fixed = await runQualityChecks();
   }
 
   return { fixed, costUsd };

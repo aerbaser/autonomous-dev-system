@@ -1,4 +1,7 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   consumeQuery,
   QueryExecutionError,
@@ -124,6 +127,80 @@ describe("consumeQuery", () => {
 
     expect(result.result).toBe("legacy");
     expect(messages.length).toBeGreaterThan(0);
+  });
+
+  it("persists query telemetry into the active .autonomous-dev directory", async () => {
+    const rootDir = mkdtempSync(join(tmpdir(), "sdk-helpers-telemetry-"));
+    const stateDir = join(rootDir, ".autonomous-dev");
+    mkdirSync(stateDir, { recursive: true });
+
+    const previousCwd = process.cwd();
+    process.chdir(rootDir);
+
+    try {
+      const result = await consumeQuery(makeSuccessStream("persisted", 0.03), "ideation");
+      expect(result.result).toBe("persisted");
+
+      const telemetryPath = join(stateDir, "query-sessions.json");
+      expect(existsSync(telemetryPath)).toBe(true);
+
+      const parsed = JSON.parse(readFileSync(telemetryPath, "utf-8")) as any;
+      expect(parsed.queries["test-session"]?.label).toBe("ideation");
+      expect(parsed.queries["test-session"]?.success).toBe(true);
+      expect(parsed.queries["test-session"]?.turns).toBe(1);
+    } finally {
+      process.chdir(previousCwd);
+      rmSync(rootDir, { recursive: true, force: true });
+    }
+  });
+
+  it("emits enriched query events when an event bus is provided", async () => {
+    const emitted: Array<{ type: string; data: any }> = [];
+    const eventBus = {
+      emit(type: string, data: any) {
+        emitted.push({ type, data });
+        return { type, data };
+      },
+    } as any;
+
+    const result = await consumeQuery(makeSuccessStream("eventful", 0.04), {
+      label: "ideation",
+      phase: "ideation",
+      agentName: "spec-writer",
+      model: "sonnet",
+      eventBus,
+    });
+
+    expect(result.result).toBe("eventful");
+
+    const start = emitted.find((event) => event.type === "agent.query.start");
+    const end = emitted.find((event) => event.type === "agent.query.end");
+
+    expect(start?.data.label).toBe("ideation");
+    expect(start?.data.agentName).toBe("spec-writer");
+    expect(end?.data.sessionId).toBe("test-session");
+    expect(end?.data.turns).toBe(1);
+    expect(end?.data.label).toBe("ideation");
+  });
+
+  it("infers phase from a phase-shaped label for legacy call sites", async () => {
+    const emitted: Array<{ type: string; data: any }> = [];
+    const eventBus = {
+      emit(type: string, data: any) {
+        emitted.push({ type, data });
+        return { type, data };
+      },
+    } as any;
+
+    await consumeQuery(makeSuccessStream("legacy-phase", 0.01), {
+      label: "architecture",
+      agentName: "architect",
+      eventBus,
+    });
+
+    const start = emitted.find((event) => event.type === "agent.query.start");
+    expect(start?.data.phase).toBe("architecture");
+    expect(start?.data.label).toBe("architecture");
   });
 
   it("throws QueryAbortedError when signal is already aborted", async () => {

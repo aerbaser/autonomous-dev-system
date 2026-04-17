@@ -1,7 +1,10 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
+import type { AgentDefinition } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentBlueprint } from "../state/project-state.js";
+import type { Config } from "../utils/config.js";
 import { getBaseBlueprints } from "./base-blueprints.js";
+import { buildRunnableAgentDefinition } from "./codex-proxy.js";
 import { RegistryDataSchema } from "../types/llm-schemas.js";
 
 export interface AgentPerformance {
@@ -122,18 +125,10 @@ export class AgentRegistry {
   }
 
   /** Convert a blueprint to Agent SDK AgentDefinition format */
-  toAgentDefinition(name: string): {
-    description: string;
-    prompt: string;
-    tools: string[];
-  } {
+  toAgentDefinition(name: string, config?: Config): AgentDefinition {
     const bp = this.data.blueprints[name];
     if (!bp) throw new Error(`Agent not found: ${name}`);
 
-    return {
-      description: `${bp.role}: ${bp.name}`,
-      prompt: bp.systemPrompt,
-      tools: bp.tools,
-    };
+    return buildRunnableAgentDefinition(bp, config);
   }
 }

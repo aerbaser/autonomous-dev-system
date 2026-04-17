@@ -1,4 +1,4 @@
-import { createWriteStream, mkdirSync, readFileSync, existsSync } from "node:fs";
+import { createWriteStream, mkdirSync, readFileSync, existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { WriteStream } from "node:fs";
 import type { EventRecord } from "./event-bus.js";
@@ -36,6 +36,7 @@ export interface RunSummary {
 export class EventLogger {
   private stream: WriteStream | null = null;
   private logPath: string;
+  private summaryPath: string;
 
   constructor(
     stateDir: string,
@@ -44,6 +45,7 @@ export class EventLogger {
     const eventsDir = resolve(stateDir, "events");
     mkdirSync(eventsDir, { recursive: true });
     this.logPath = resolve(eventsDir, `${runId}.jsonl`);
+    this.summaryPath = resolve(eventsDir, `${runId}.summary.json`);
   }
 
   async log(record: EventRecord): Promise<void> {
@@ -124,6 +126,12 @@ export class EventLogger {
     };
   }
 
+  async persistRunSummary(): Promise<string> {
+    const summary = await this.generateRunSummary();
+    writeFileSync(this.summaryPath, JSON.stringify(summary, null, 2), "utf8");
+    return this.summaryPath;
+  }
+
   async close(): Promise<void> {
     if (this.stream) {
       return new Promise((resolve) => {
@@ -137,6 +145,10 @@ export class EventLogger {
 
   getLogPath(): string {
     return this.logPath;
+  }
+
+  getSummaryPath(): string {
+    return this.summaryPath;
   }
 
   private readEvents(): EventRecord[] {

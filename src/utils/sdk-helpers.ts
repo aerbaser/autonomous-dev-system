@@ -2,6 +2,8 @@ import type { Query, SDKMessage, SDKResultError } from "@anthropic-ai/claude-age
 import { isApiRetry } from "./shared.js";
 import type { EventBus } from "../events/event-bus.js";
 import type { Phase } from "../state/project-state.js";
+import { ALL_PHASES } from "../types/phases.js";
+import { recordQueryTelemetry } from "../state/session-store.js";
 
 export interface QueryResult {
   result: string;
@@ -44,19 +46,19 @@ export class QueryExecutionError extends Error {
 }
 
 export interface ConsumeQueryOptions {
-  label?: string;
-  onMessage?: (message: SDKMessage) => void;
-  eventBus?: EventBus;
-  phase?: Phase;
-  agentName?: string;
-  model?: "opus" | "sonnet" | "haiku";
+  label?: string | undefined;
+  onMessage?: ((message: SDKMessage) => void) | undefined;
+  eventBus?: EventBus | undefined;
+  phase?: Phase | undefined;
+  agentName?: string | undefined;
+  model?: string | undefined;
   /**
    * When aborted, consumeQuery calls `queryStream.interrupt()` (if the SDK
    * exposes it) and then throws a `QueryAbortedError`. Used by the orchestrator
    * SIGINT handler to cancel in-flight queries instead of letting them run to
    * completion.
    */
-  signal?: AbortSignal;
+  signal?: AbortSignal | undefined;
 }
 
 export class QueryAbortedError extends Error {
@@ -108,6 +110,16 @@ export async function consumeQuery(
 
   const tag = label ? `[${label}]` : "[query]";
   const startMs = Date.now();
+  const tracePhase = phase ?? (label && ALL_PHASES.includes(label as Phase) ? (label as Phase) : undefined);
+  const traceAgentName = agentName ?? label ?? "query";
+  const telemetryPhase = tracePhase ?? label;
+
+  console.log(
+    `${tag} start` +
+    (tracePhase ? ` phase=${tracePhase}` : "") +
+    (traceAgentName ? ` agent=${traceAgentName}` : "") +
+    (model ? ` model=${model}` : "")
+  );
 
   if (signal?.aborted) {
     throw new QueryAbortedError(signal.reason ? String(signal.reason) : undefined);
@@ -126,12 +138,13 @@ export async function consumeQuery(
     signal.addEventListener("abort", abortHandler, { once: true });
   }
 
-  if (eventBus && phase && agentName) {
+  if (eventBus && tracePhase && traceAgentName) {
     eventBus.emit("agent.query.start", {
-      phase,
-      agentName,
+      phase: tracePhase,
+      agentName: traceAgentName,
       model: model ?? "unknown",
       promptLength: 0, // prompt length unavailable from SDK stream
+      label,
     });
   }
 
@@ -148,13 +161,13 @@ export async function consumeQuery(
     }
 
     // Emit tool events
-    if (eventBus && phase && agentName) {
+    if (eventBus && tracePhase && traceAgentName) {
       if (message.type === "assistant" && hasToolUse(message)) {
         lastToolName = message.tool_use.name;
         lastToolStartMs = Date.now();
         eventBus.emit("agent.tool.use", {
-          phase,
-          agentName,
+          phase: tracePhase,
+          agentName: traceAgentName,
           toolName: lastToolName,
           inputSummary: typeof message.tool_use.input === "string"
             ? message.tool_use.input.slice(0, 200)
@@ -164,8 +177,8 @@ export async function consumeQuery(
 
       if (message.type === "tool_use_summary") {
         eventBus.emit("agent.tool.result", {
-          phase,
-          agentName,
+          phase: tracePhase,
+          agentName: traceAgentName,
           toolName: lastToolName,
           success: !("error" in message),
           durationMs: lastToolStartMs > 0 ? Date.now() - lastToolStartMs : 0,
@@ -175,6 +188,9 @@ export async function consumeQuery(
 
     if (message.type === "result") {
       if (message.subtype === "success") {
+        const sessionId = message.session_id ?? "unknown";
+        const costUsd = message.total_cost_usd ?? 0;
+        const turns = message.num_turns ?? 0;
         const usage = (message as unknown as {
           usage?: { input_tokens?: number; output_tokens?: number; cache_read_input_tokens?: number; cache_creation_input_tokens?: number };
         }).usage;
@@ -184,42 +200,83 @@ export async function consumeQuery(
 
         const result: QueryResult = {
           result: message.result,
-          sessionId: message.session_id,
-          cost: message.total_cost_usd,
-          turns: message.num_turns,
+          sessionId,
+          cost: costUsd,
+          turns,
           structuredOutput: message.structured_output,
           ...(modelUsage ? { modelUsage } : {}),
         };
 
-        if (eventBus && phase && agentName) {
+        if (eventBus && tracePhase && traceAgentName) {
           eventBus.emit("agent.query.end", {
-            phase,
-            agentName,
+            phase: tracePhase,
+            agentName: traceAgentName,
             inputTokens: usage?.input_tokens ?? 0,
             outputTokens: usage?.output_tokens ?? 0,
             ...(usage?.cache_read_input_tokens !== undefined ? { cacheReadInputTokens: usage.cache_read_input_tokens } : {}),
             ...(usage?.cache_creation_input_tokens !== undefined ? { cacheCreationInputTokens: usage.cache_creation_input_tokens } : {}),
             ...(modelUsage ? { modelUsage } : {}),
-            costUsd: message.total_cost_usd,
+            costUsd: costUsd,
             durationMs: Date.now() - startMs,
             success: true,
+            label,
+            sessionId,
+            turns,
           });
         }
+
+        recordQueryTelemetry({
+          sessionId,
+          label: label ?? traceAgentName,
+          phase: telemetryPhase,
+          agentName: traceAgentName,
+          model: model ?? "unknown",
+          costUsd: costUsd,
+          turns,
+          success: true,
+          startedAt: new Date(startMs).toISOString(),
+          endedAt: new Date().toISOString(),
+          durationMs: Date.now() - startMs,
+        });
+
+        console.log(
+          `${tag} success session=${sessionId} turns=${turns} ` +
+          `cost=$${costUsd.toFixed(4)} durationMs=${Date.now() - startMs}`
+        );
 
         return result;
       }
 
-      if (eventBus && phase && agentName) {
+      const sessionId = message.session_id ?? "unknown";
+      const costUsd = message.total_cost_usd ?? 0;
+
+      if (eventBus && tracePhase && traceAgentName) {
         eventBus.emit("agent.query.end", {
-          phase,
-          agentName,
+          phase: tracePhase,
+          agentName: traceAgentName,
           inputTokens: 0, // token counts unavailable from SDK stream
           outputTokens: 0, // token counts unavailable from SDK stream
-          costUsd: message.total_cost_usd,
+          costUsd: costUsd,
           durationMs: Date.now() - startMs,
           success: false,
+          label,
+          sessionId,
         });
       }
+
+      recordQueryTelemetry({
+        sessionId,
+        label: label ?? traceAgentName,
+        phase: telemetryPhase,
+        agentName: traceAgentName,
+        model: model ?? "unknown",
+        costUsd: costUsd,
+        turns: 0,
+        success: false,
+        startedAt: new Date(startMs).toISOString(),
+        endedAt: new Date().toISOString(),
+        durationMs: Date.now() - startMs,
+      });
 
       console.error(`${tag} Query error (${message.subtype}): ${message.errors.join("; ")}`);
       throw new QueryExecutionError(message);
@@ -300,4 +357,3 @@ export type MaxTurnsKey = keyof Config["maxTurns"];
 export function getMaxTurns(config: Config | undefined, key: MaxTurnsKey): number {
   return config?.maxTurns?.[key] ?? MAX_TURNS_DEFAULTS[key];
 }
-

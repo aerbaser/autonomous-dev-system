@@ -1,5 +1,6 @@
+import type { AgentDefinition } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
-import type { ProjectState, AgentBlueprint } from "../state/project-state.js";
+import type { ProjectState } from "../state/project-state.js";
 import { AgentRegistry } from "./registry.js";
 import { analyzeDomain, generateDomainAgents } from "./domain-analyzer.js";
 import { getBaseAgentNames } from "./base-blueprints.js";
@@ -29,7 +30,11 @@ export async function buildAgentTeam(
   }
 
   // Step 1: Reuse domain from spec if available, otherwise analyze
-  const domain = state.spec?.domain ?? await analyzeDomain(state.idea, config, signal);
+  const domain = state.spec?.domain ?? await analyzeDomain(
+    state.idea,
+    config,
+    signal ? { signal } : undefined,
+  );
   console.log(`[factory] Domain: ${domain.classification}`);
   console.log(`[factory] Specializations: ${domain.specializations.join(", ") || "none"}`);
   console.log(`[factory] Required roles: ${domain.requiredRoles.join(", ") || "none (standard only)"}`);
@@ -37,7 +42,12 @@ export async function buildAgentTeam(
   // Step 2: Generate domain-specific agents
   if (domain.requiredRoles.length > 0) {
     console.log("[factory] Generating specialized agent blueprints...");
-    const domainAgents = await generateDomainAgents(state.idea, domain, config, signal);
+    const domainAgents = await generateDomainAgents(
+      state.idea,
+      domain,
+      config,
+      signal ? { signal } : undefined,
+    );
 
     for (const agent of domainAgents) {
       registry.register(agent);
@@ -55,12 +65,13 @@ export async function buildAgentTeam(
  * Get all agent definitions for the Agent SDK, suitable for passing to query() options.
  */
 export function getAgentDefinitions(
-  registry: AgentRegistry
-): Record<string, { description: string; prompt: string; tools: string[] }> {
-  const defs: Record<string, { description: string; prompt: string; tools: string[] }> = {};
+  registry: AgentRegistry,
+  config?: Config,
+): Record<string, AgentDefinition> {
+  const defs: Record<string, AgentDefinition> = {};
 
   for (const bp of registry.getAll()) {
-    defs[bp.name] = registry.toAgentDefinition(bp.name);
+    defs[bp.name] = registry.toAgentDefinition(bp.name, config);
   }
 
   return defs;

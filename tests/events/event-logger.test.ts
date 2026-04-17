@@ -124,6 +124,38 @@ describe("EventLogger", () => {
     expect(summary.toolUsage["Read"]!.count).toBe(1);
   });
 
+  it("persists run summary to a JSON artifact", async () => {
+    const logger = new EventLogger(tempDir, "persisted-summary-run");
+
+    await logger.log(makeRecord("agent.query.end", 0, {
+      phase: "architecture",
+      agentName: "architect",
+      inputTokens: 10,
+      outputTokens: 20,
+      costUsd: 0.02,
+      durationMs: 150,
+      success: true,
+    }));
+    await logger.log(makeRecord("orchestrator.phase.end", 1, {
+      phase: "architecture",
+      success: false,
+      costUsd: 0.02,
+      durationMs: 250,
+    }));
+    await logger.close();
+
+    const summaryPath = await logger.persistRunSummary();
+    const raw = readFileSync(summaryPath, "utf-8");
+    const summary = JSON.parse(raw) as { runId: string; totalCostUsd: number; phases: Array<{ name: string; success: boolean }> };
+
+    expect(summaryPath).toBe(logger.getSummaryPath());
+    expect(summary.runId).toBe("persisted-summary-run");
+    expect(summary.totalCostUsd).toBeCloseTo(0.02);
+    expect(summary.phases).toHaveLength(1);
+    expect(summary.phases[0]!.name).toBe("architecture");
+    expect(summary.phases[0]!.success).toBe(false);
+  });
+
   it("generates empty summary for empty log", async () => {
     const logger = new EventLogger(tempDir, "empty-run");
     const summary = await logger.generateRunSummary();
