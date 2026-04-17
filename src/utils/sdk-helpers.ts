@@ -37,6 +37,20 @@ export interface ConsumeQueryOptions {
   phase?: Phase;
   agentName?: string;
   model?: "opus" | "sonnet" | "haiku";
+  /**
+   * When aborted, consumeQuery calls `queryStream.interrupt()` (if the SDK
+   * exposes it) and then throws a `QueryAbortedError`. Used by the orchestrator
+   * SIGINT handler to cancel in-flight queries instead of letting them run to
+   * completion.
+   */
+  signal?: AbortSignal;
+}
+
+export class QueryAbortedError extends Error {
+  constructor(reason?: string) {
+    super(reason ? `Query aborted: ${reason}` : "Query aborted");
+    this.name = "QueryAbortedError";
+  }
 }
 
 interface MessageWithToolUse {
@@ -65,6 +79,7 @@ export async function consumeQuery(
   let phase: Phase | undefined;
   let agentName: string | undefined;
   let model: string | undefined;
+  let signal: AbortSignal | undefined;
 
   if (typeof labelOrOptions === "string") {
     label = labelOrOptions;
@@ -75,10 +90,28 @@ export async function consumeQuery(
     phase = labelOrOptions.phase;
     agentName = labelOrOptions.agentName;
     model = labelOrOptions.model;
+    signal = labelOrOptions.signal;
   }
 
   const tag = label ? `[${label}]` : "[query]";
   const startMs = Date.now();
+
+  if (signal?.aborted) {
+    throw new QueryAbortedError(signal.reason ? String(signal.reason) : undefined);
+  }
+
+  let abortHandler: (() => void) | undefined;
+  if (signal) {
+    abortHandler = () => {
+      const q = queryStream as unknown as { interrupt?: () => Promise<void> };
+      if (typeof q.interrupt === "function") {
+        q.interrupt().catch(() => {
+          /* best-effort interrupt; stream may already be finishing */
+        });
+      }
+    };
+    signal.addEventListener("abort", abortHandler, { once: true });
+  }
 
   if (eventBus && phase && agentName) {
     eventBus.emit("agent.query.start", {
@@ -92,7 +125,11 @@ export async function consumeQuery(
   let lastToolStartMs = 0;
   let lastToolName = "";
 
+  try {
   for await (const message of queryStream) {
+    if (signal?.aborted) {
+      throw new QueryAbortedError(signal.reason ? String(signal.reason) : undefined);
+    }
     if (onMessage) {
       onMessage(message);
     }
@@ -172,7 +209,37 @@ export async function consumeQuery(
     }
   }
 
+  // If the stream ended cleanly because we called interrupt(), surface that
+  // as an abort rather than the generic "stream ended" error.
+  if (signal?.aborted) {
+    throw new QueryAbortedError(signal.reason ? String(signal.reason) : undefined);
+  }
   throw new Error(`${tag} Query stream ended without a result message`);
+  } finally {
+    if (signal && abortHandler) {
+      signal.removeEventListener("abort", abortHandler);
+    }
+  }
+}
+
+/**
+ * Compose a system prompt with a stable static prefix suitable for Anthropic
+ * prompt caching. The static context (architecture, memory, long instructions)
+ * MUST be identical across calls — put it first. Small dynamic details should
+ * stay out of this string; pass them in the per-call `prompt` instead.
+ *
+ * The SDK's `systemPrompt: string` form is sent verbatim to the transport
+ * layer, which applies `cache_control: "ephemeral"` automatically. Identical
+ * prefixes across calls within ~5 minutes hit the cache.
+ */
+export function buildCachedSystemPrompt(
+  staticContext: string,
+  instructions?: string,
+): string {
+  const prefix = staticContext.trim();
+  if (!instructions) return prefix;
+  const suffix = instructions.trim();
+  return suffix.length === 0 ? prefix : `${prefix}\n\n${suffix}`;
 }
 
 // --- Query permissions from config ---
