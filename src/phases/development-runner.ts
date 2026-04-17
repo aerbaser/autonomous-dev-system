@@ -42,6 +42,10 @@ import { isApiRetry, wrapUserInput, extractFirstJson, errMsg } from "../utils/sh
 import { TaskDecompositionSchema } from "../types/llm-schemas.js";
 import { getBaseAgentNames } from "../agents/base-blueprints.js";
 import { progress } from "../utils/progress.js";
+import {
+  type ExecutionEnvelope,
+  renderEnvelopeBlock,
+} from "../runtime/execution-envelope.js";
 
 // --- Main entry point ---
 
@@ -155,7 +159,8 @@ export async function runDevelopment(
       updatedState,
       baseAgentDefs,
       config,
-      registry
+      registry,
+      ctx?.envelope
     );
 
     const batchResult = await executeBatch(
@@ -454,14 +459,56 @@ function groupIntoBatches(projectTasks: Task[], devTasks: DevTask[]): Task[][] {
 
 const BASE_AGENT_NAMES = getBaseAgentNames();
 
-function buildBatchAgents(
+const GENERIC_DEV_INSTRUCTIONS = `## Instructions
+1. Read the existing codebase to understand current state
+2. Implement the task following the architecture exactly
+3. Write clean, well-structured code
+4. Add appropriate error handling
+5. Write or update tests for the new code
+6. Run type-check (\`npx tsc --noEmit\`) and fix any errors
+7. Run tests (\`npm test\`) and fix any failures
+8. Create a git commit for the completed work with a clear message
+
+Report what you implemented and any decisions you made.`;
+
+/**
+ * Build the stable system-prompt block shared by every task agent in a batch.
+ * Contains the (large) architecture JSON, the file structure summary, and the
+ * generic developer instructions — i.e. everything that is identical for every
+ * task in the same batch. Putting this text at the front of each subagent's
+ * `prompt` lets the SDK's ephemeral cache hit across subagent invocations,
+ * eliminating the per-task duplication of the architecture blob.
+ */
+export function buildSharedTaskContext(
+  state: ProjectState,
+  envelope?: ExecutionEnvelope,
+): string {
+  const archJson = JSON.stringify(state.architecture, null, 2);
+  const fileStructure = state.architecture?.fileStructure ?? "Not specified";
+  const envelopeBlock = envelope ? `\n\n${renderEnvelopeBlock(envelope)}` : "";
+  return `You are an expert developer. Implement the task described below.
+
+${wrapUserInput("architecture", archJson)}
+
+## File Structure
+${fileStructure}${envelopeBlock}
+
+${GENERIC_DEV_INSTRUCTIONS}`;
+}
+
+export function buildBatchAgents(
   batch: Task[],
   state: ProjectState,
   baseAgentDefs: Record<string, AgentDefinition>,
   config: Config,
-  registry: AgentRegistry
+  registry: AgentRegistry,
+  envelope?: ExecutionEnvelope
 ): Record<string, AgentDefinition> {
   const agents: Record<string, AgentDefinition> = {};
+  // Build the architecture + file-structure + generic instructions block ONCE
+  // per batch. Each task agent prompt prepends this so identical prefixes
+  // across subagents are eligible for Anthropic prompt caching.
+  const sharedContext = buildSharedTaskContext(state, envelope);
 
   // Include base agents (developer, qa-engineer, etc.)
   for (const [name, def] of Object.entries(baseAgentDefs)) {
@@ -503,7 +550,7 @@ function buildBatchAgents(
       const def = buildRunnableAgentDefinition({
         name: agentName,
         role: "Software Developer",
-        systemPrompt: buildTaskPrompt(task, state),
+        systemPrompt: buildTaskPrompt(task, sharedContext, envelope),
         tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
       }, config);
       agents[agentName] = {
@@ -517,27 +564,31 @@ function buildBatchAgents(
   return agents;
 }
 
-function buildTaskPrompt(task: Task, state: ProjectState): string {
-  return `You are an expert developer. Implement the following task.
-
-${wrapUserInput("task", `**${task.title}**\n${task.description}`)}
-
-${wrapUserInput("architecture", JSON.stringify(state.architecture, null, 2))}
-
-## File Structure
-${state.architecture?.fileStructure ?? "Not specified"}
-
-## Instructions
-1. Read the existing codebase to understand current state
-2. Implement the task following the architecture exactly
-3. Write clean, well-structured code
-4. Add appropriate error handling
-5. Write or update tests for the new code
-6. Run type-check (\`npx tsc --noEmit\`) and fix any errors
-7. Run tests (\`npm test\`) and fix any failures
-8. Create a git commit for the completed work with a clear message
-
-Report what you implemented and any decisions you made.`;
+/**
+ * Compose a generic-developer agent prompt: shared cached block followed by
+ * the per-task suffix. The architecture JSON is NOT inlined here — it lives
+ * in `sharedContext` which is built once per batch via
+ * `buildSharedTaskContext`.
+ *
+ * The optional `envelope` argument appends a secondary structured block that
+ * carries validated runtime context (project root, branch, package manager,
+ * verification command whitelist, OS, Node version). The envelope is emitted
+ * AFTER the current-task block so task-specific content still dominates the
+ * subagent's attention while runtime assumptions remain visible and machine-
+ * readable. Callers that already embed the envelope in `sharedContext` via
+ * `buildSharedTaskContext` can omit it here.
+ */
+export function buildTaskPrompt(
+  task: Task,
+  sharedContext: string,
+  envelope?: ExecutionEnvelope,
+): string {
+  const taskBlock = wrapUserInput(
+    "current-task",
+    `**${task.title}**\n${task.description}`,
+  );
+  const envelopeSuffix = envelope ? `\n\n${renderEnvelopeBlock(envelope)}` : "";
+  return `${sharedContext}\n\n${taskBlock}${envelopeSuffix}`;
 }
 
 /**

@@ -42,6 +42,7 @@ import { resolve } from "node:path";
 import { getPhaseRubric } from "./evaluation/phase-rubrics.js";
 import { gradePhaseOutput } from "./evaluation/grader.js";
 import type { RubricResult } from "./evaluation/rubric.js";
+import { buildEnvelope, type ExecutionEnvelope } from "./runtime/execution-envelope.js";
 
 export type { PhaseResult, PhaseHandler } from "./phases/types.js";
 
@@ -288,6 +289,26 @@ export async function runOrchestrator(
   sessionStore = cleanStaleSessions(sessionStore);
   saveSessions(config.stateDir, sessionStore);
 
+  // Build the execution envelope once per run — validated project root,
+  // current branch, package manager, and verification whitelist are shared
+  // across every phase so delegated agents don't spend tokens self-correcting
+  // paths or environment assumptions. On failure we log and proceed without
+  // an envelope (dry-run or fresh scaffolds shouldn't hard-fail here).
+  let envelope: ExecutionEnvelope | undefined;
+  try {
+    envelope = await buildEnvelope(config.projectDir);
+    console.log(
+      `[orchestrator] Envelope: root=${envelope.projectRoot}, ` +
+      `branch=${envelope.branch ?? "(none)"}, ` +
+      `pm=${envelope.environment.packageManager}`,
+    );
+  } catch (err) {
+    console.warn(
+      `[orchestrator] Failed to build execution envelope: ${errMsg(err)}. ` +
+      `Phases will run without validated runtime context.`,
+    );
+  }
+
   try {
 
   // Validate resume session ID if provided
@@ -303,7 +324,7 @@ export async function runOrchestrator(
   if (singlePhase) {
     console.log(`[orchestrator] Running single phase: ${singlePhase}`);
     eventBus.emit("session.state", { phase: singlePhase, state: "running" });
-    const singlePhaseResult = await executePhaseSafe(singlePhase, state, config, eventBus, undefined);
+    const singlePhaseResult = await executePhaseSafe(singlePhase, state, config, eventBus, undefined, interrupter, envelope);
     if (singlePhaseResult) {
       if (singlePhaseResult.costUsd !== undefined) {
         totalCostUsd += singlePhaseResult.costUsd;
@@ -413,7 +434,7 @@ export async function runOrchestrator(
         state,
       };
     } else {
-      result = await executePhaseSafe(phase, state, config, eventBus, memoryContext);
+      result = await executePhaseSafe(phase, state, config, eventBus, memoryContext, interrupter, envelope);
     }
 
     const elapsedMs = Date.now() - phaseStart;
@@ -548,6 +569,8 @@ async function executePhaseSafe(
   config: Config,
   eventBus?: EventBus,
   memoryContext?: string,
+  interrupter?: Interrupter,
+  envelope?: ExecutionEnvelope,
 ): Promise<PhaseResult | null> {
   const handler = PHASE_HANDLERS[phase];
   if (!handler) {
@@ -583,6 +606,8 @@ async function executePhaseSafe(
           ...(sessionId ? { sessionId } : {}),
           ...(context ? { context } : {}),
           ...(eventBus ? { eventBus } : {}),
+          ...(interrupter ? { signal: interrupter.signal } : {}),
+          ...(envelope ? { envelope } : {}),
         };
         const phaseResult = await handler(state, config, execCtx);
 
@@ -654,6 +679,8 @@ async function executePhaseSafe(
             ...(sessionId ? { sessionId } : {}),
             context: ctx,
             ...(eventBus ? { eventBus } : {}),
+            ...(interrupter ? { signal: interrupter.signal } : {}),
+            ...(envelope ? { envelope } : {}),
           };
           const iterResult =
             iter === 1 ? result : await handler(currentState, config, iterExecCtx);

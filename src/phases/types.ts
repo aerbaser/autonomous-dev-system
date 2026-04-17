@@ -2,6 +2,7 @@ import type { ProjectState, Phase, PhaseCheckpoint } from "../state/project-stat
 import type { Config } from "../utils/config.js";
 import type { RubricResult } from "../evaluation/rubric.js";
 import type { EventBus } from "../events/event-bus.js";
+import type { ExecutionEnvelope } from "../runtime/execution-envelope.js";
 
 export interface PhaseContext {
   memoryContext?: string | undefined;
@@ -26,6 +27,21 @@ export interface PhaseExecutionContext {
   sessionId?: string;
   context?: PhaseContext;
   eventBus?: EventBus;
+  /**
+   * AbortSignal sourced from the orchestrator's Interrupter. Phase handlers
+   * should forward this into `consumeQuery({ signal })` so SIGINT / budget /
+   * redirect interrupts cancel in-flight queries. Optional so tests and
+   * direct-invocation callers can omit it.
+   */
+  signal?: AbortSignal;
+  /**
+   * Validated execution envelope built once per orchestrator run. Contains
+   * canonical project/writable roots, current git branch, package manager,
+   * node/OS metadata, and the explicit verification command whitelist.
+   * Handlers forward this to team members so agents don't waste tokens
+   * self-correcting paths or guessing the environment.
+   */
+  envelope?: ExecutionEnvelope;
 }
 
 export type PhaseHandler = (
