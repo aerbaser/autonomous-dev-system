@@ -137,6 +137,8 @@ export const TaskDecompositionSchema = z.object({
     estimatedComplexity: z.enum(["low", "medium", "high"]),
     dependencies: z.array(z.string()),
     acceptanceCriteria: z.array(z.string()),
+    domain: z.string().optional(),
+    tags: z.array(z.string()).optional(),
   })),
 });
 

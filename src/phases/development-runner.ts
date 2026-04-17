@@ -48,7 +48,7 @@ import {
   renderEnvelopeBlock,
 } from "../runtime/execution-envelope.js";
 import { MemoryStore } from "../state/memory-store.js";
-import { SkillStore, extractSignature } from "../memory/skills.js";
+import { SkillStore, extractSignature, toDomainSlug } from "../memory/skills.js";
 import type { SkillPlaybook } from "../types/skills.js";
 
 // --- Main entry point ---
@@ -84,11 +84,15 @@ export async function runDevelopment(
       estimatedComplexity: at.estimatedComplexity,
       dependencies: at.dependencies,
       acceptanceCriteria: at.acceptanceCriteria,
+      ...(at.domain !== undefined ? { domain: at.domain } : {}),
+      ...(at.tags !== undefined ? { tags: at.tags } : {}),
     }));
     for (const dt of devTasks) {
       updatedState = addTask(updatedState, {
         title: dt.title,
         description: `${dt.description}\n\nAcceptance Criteria:\n${dt.acceptanceCriteria.map((ac) => `- ${ac}`).join("\n")}`,
+        ...(dt.domain !== undefined ? { domain: dt.domain } : {}),
+        ...(dt.tags !== undefined ? { tags: dt.tags } : {}),
       });
     }
     // Persist tasks immediately so interruption doesn't lose them
@@ -103,6 +107,8 @@ export async function runDevelopment(
       updatedState = addTask(updatedState, {
         title: dt.title,
         description: dt.description,
+        ...(dt.domain !== undefined ? { domain: dt.domain } : {}),
+        ...(dt.tags !== undefined ? { tags: dt.tags } : {}),
       });
     }
     // Persist tasks immediately so interruption doesn't lose them
@@ -177,10 +183,18 @@ export async function runDevelopment(
     );
 
     // Phase A: resolve one playbook per task (if any) before building agents
-    // so the prompt suffix is included in `buildBatchAgents`.
+    // so the prompt suffix is included in `buildBatchAgents`. Domain flows as
+    // task-specific → project-level → "generic" fallback so skills stay
+    // domain-scoped instead of leaking across unrelated projects.
+    const projectDomain = updatedState.spec?.domain.classification;
     const taskSkills = new Map<string, SkillPlaybook>();
     for (const task of batch) {
-      const skill = await resolveSkillForTask(task, "development", skillStore);
+      const skill = await resolveSkillForTask(
+        task,
+        "development",
+        skillStore,
+        projectDomain,
+      );
       if (skill) taskSkills.set(task.id, skill);
     }
 
@@ -226,8 +240,12 @@ export async function runDevelopment(
         persistReceipt(config.stateDir, "development", taskResult.receipt);
         if (skillStore && taskResult.receipt.status === "success") {
           try {
+            const batchTask = batch.find((t) => t.id === taskResult.taskId);
+            const crystallizeDomain = toDomainSlug(
+              batchTask?.domain ?? projectDomain,
+            );
             await skillStore.crystallize(taskResult.receipt, {
-              domain: "generic",
+              domain: crystallizeDomain,
               phase: "development",
             });
           } catch (err) {
@@ -427,6 +445,8 @@ Output a JSON object with a "tasks" array.`;
         estimatedComplexity: t.estimatedComplexity,
         dependencies: t.dependencies,
         acceptanceCriteria: t.acceptanceCriteria,
+        ...(t.domain !== undefined ? { domain: t.domain } : {}),
+        ...(t.tags !== undefined ? { tags: t.tags } : {}),
       }));
     }
   }
@@ -682,14 +702,21 @@ export function buildTaskPrompt(
  * Resolve the best matching skill playbook for a task, if any, and log
  * injection for observability. Returns undefined when skill injection is
  * disabled, no store is available, or there is no matching playbook.
+ *
+ * Domain fallback chain: task's own `domain` field → the project-level
+ * `stateDomain` (usually `state.spec.domain.classification`) → "generic".
+ * The result is normalized through `toDomainSlug` so the signature matches
+ * the form used by `crystallize`.
  */
 export async function resolveSkillForTask(
   task: Task,
   phase: string,
   skillStore: SkillStore | null,
+  stateDomain?: string,
 ): Promise<SkillPlaybook | undefined> {
   if (!skillStore) return undefined;
-  const signature = extractSignature(task.title, "generic", phase);
+  const domain = toDomainSlug(task.domain ?? stateDomain);
+  const signature = extractSignature(task.title, domain, phase);
   const matches = await skillStore.findMatching(signature, 1);
   const skill = matches[0];
   if (!skill) return undefined;

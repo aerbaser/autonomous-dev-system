@@ -24,6 +24,22 @@ const STOPWORDS = new Set([
 const KEYWORD_MIN_LENGTH = 3;
 
 /**
+ * Normalize a domain value to a stable kebab-case slug used as the skill
+ * signature domain and memory tag. Non-string / empty inputs → "generic" so
+ * downstream lookups stay partitioned instead of leaking into a bare-string
+ * tag space.
+ */
+export function toDomainSlug(raw: unknown): string {
+  if (typeof raw !== "string") return "generic";
+  const slug = raw
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return slug.length > 0 ? slug : "generic";
+}
+
+/**
  * Extract a coarse signature from a task title. Title is lowercased, tokenized
  * on non-alphanumerics, stopwords are dropped, and tokens shorter than
  * KEYWORD_MIN_LENGTH are filtered out. The domain and phase are passed in by

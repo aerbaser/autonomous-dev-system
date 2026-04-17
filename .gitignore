@@ -29,6 +29,10 @@ coverage/
 # Claude Code local settings
 .claude/settings.local.json
 .claude/worktrees/
+.claude/scheduled_tasks.lock
+
+# Recovered/broken git repair dirs
+.git.broken-*/
 
 # Local Codex skills/config bundle
 .codex/
