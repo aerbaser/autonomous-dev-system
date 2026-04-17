@@ -1,20 +1,22 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
 import type { ProjectState } from "../state/project-state.js";
-import type { PhaseResult } from "./types.js";
+import type { PhaseResult, PhaseExecutionContext } from "./types.js";
 import { getMcpServerConfigs } from "../environment/mcp-manager.js";
-import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
-import { errMsg } from "../utils/shared.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns, QueryAbortedError } from "../utils/sdk-helpers.js";
+import { errMsg, extractFirstJson } from "../utils/shared.js";
 import { TestingResultSchema } from "../types/llm-schemas.js";
 
 export async function runTesting(
   state: ProjectState,
-  config: Config
+  config: Config,
+  ctx?: PhaseExecutionContext
 ): Promise<PhaseResult> {
   if (!state.spec) {
     return { success: false, state, error: "Spec required for testing" };
   }
 
+  const signal = ctx?.signal;
   const mcpServers = state.environment
     ? getMcpServerConfigs(state.environment.mcpServers)
     : {};
@@ -58,24 +60,42 @@ Also output "PASS" or "FAIL: <reasons>" on the final line as a fallback.`;
           mcpServers,
         },
       }),
-      "testing"
+      { label: "testing", ...(signal ? { signal } : {}) }
     );
     resultText = queryResult.result;
     structuredOutput = queryResult.structuredOutput;
     costUsd = queryResult.cost;
   } catch (err) {
+    if (err instanceof QueryAbortedError) {
+      return { success: false, state, error: "aborted" };
+    }
     console.error(`[testing] Query failed: ${errMsg(err)}`);
     return { success: false, state, error: errMsg(err) };
   }
 
+  // Prefer native structured output from the SDK. If missing, try to extract
+  // JSON from the text body. Only fall back to text heuristic when both fail —
+  // and warn loudly when we do, because the text path is fragile.
   let passed: boolean;
-  const parsed = structuredOutput != null ? TestingResultSchema.safeParse(structuredOutput) : null;
+  let parsed = structuredOutput != null ? TestingResultSchema.safeParse(structuredOutput) : null;
+  if (!parsed?.success) {
+    const jsonStr = extractFirstJson(resultText);
+    if (jsonStr) {
+      try {
+        parsed = TestingResultSchema.safeParse(JSON.parse(jsonStr));
+      } catch {
+        parsed = null;
+      }
+    }
+  }
+
   if (parsed?.success) {
     passed = parsed.data.status === "passed";
     if (!passed && parsed.data.details) {
       console.log(`[testing] Details: ${parsed.data.details}`);
     }
   } else {
+    console.warn("[testing] text fallback used — no structured JSON found in output");
     const lastLine = resultText.trim().split("\n").pop()?.trim() ?? "";
     passed = lastLine.startsWith("PASS");
   }

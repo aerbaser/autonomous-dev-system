@@ -24,6 +24,7 @@ vi.mock("../../src/utils/retry.js", async (importOriginal) => {
 });
 
 vi.mock("../../src/phases/ideation.js", () => ({ runIdeation: vi.fn() }));
+vi.mock("../../src/phases/specification.js", () => ({ runSpecification: vi.fn() }));
 vi.mock("../../src/phases/architecture.js", () => ({ runArchitecture: vi.fn() }));
 vi.mock("../../src/phases/environment-setup.js", () => ({ runEnvironmentSetup: vi.fn() }));
 vi.mock("../../src/phases/development.js", () => ({ runDevelopment: vi.fn() }));
@@ -31,14 +32,17 @@ vi.mock("../../src/phases/testing.js", () => ({ runTesting: vi.fn() }));
 vi.mock("../../src/phases/review.js", () => ({ runReview: vi.fn() }));
 vi.mock("../../src/phases/deployment.js", () => ({ runDeployment: vi.fn() }));
 vi.mock("../../src/phases/ab-testing.js", () => ({ runABTesting: vi.fn() }));
+vi.mock("../../src/phases/analysis.js", () => ({ runAnalysis: vi.fn() }));
 vi.mock("../../src/phases/monitoring.js", () => ({ runMonitoring: vi.fn() }));
 
 const { runOrchestrator, getInterrupter } = await import("../../src/orchestrator.js");
 const { runIdeation } = await import("../../src/phases/ideation.js");
+const { runSpecification } = await import("../../src/phases/specification.js");
 const { runArchitecture } = await import("../../src/phases/architecture.js");
 const { runEnvironmentSetup } = await import("../../src/phases/environment-setup.js");
 
 const mockedIdeation = vi.mocked(runIdeation);
+const mockedSpecification = vi.mocked(runSpecification);
 const mockedArchitecture = vi.mocked(runArchitecture);
 const mockedEnvSetup = vi.mocked(runEnvironmentSetup);
 
@@ -93,6 +97,12 @@ describe("Pipeline E2E", () => {
       state: { ...state, currentPhase: "ideation", spec: specFixture },
     });
 
+    mockedSpecification.mockResolvedValueOnce({
+      success: true,
+      nextPhase: "architecture",
+      state: { ...state, currentPhase: "specification", spec: specFixture },
+    });
+
     mockedArchitecture.mockResolvedValueOnce({
       success: true,
       nextPhase: "environment-setup",
@@ -119,6 +129,7 @@ describe("Pipeline E2E", () => {
     await runOrchestrator(state, config);
 
     expect(mockedIdeation).toHaveBeenCalledTimes(1);
+    expect(mockedSpecification).toHaveBeenCalledTimes(1);
     expect(mockedArchitecture).toHaveBeenCalledTimes(1);
     expect(mockedEnvSetup).toHaveBeenCalledTimes(1);
     expect(mockedArchitecture.mock.calls[0]?.[0].spec).toEqual(specFixture);
@@ -141,10 +152,17 @@ describe("Pipeline E2E", () => {
       state: { ...state, currentPhase: "ideation", spec: specFixture },
     });
 
-    mockedArchitecture.mockResolvedValueOnce({
+    // Pass through accumulated orchestrator state (with completedPhases).
+    mockedSpecification.mockImplementationOnce(async (s) => ({
       success: true,
-      state: { ...state, currentPhase: "architecture", spec: specFixture },
-    });
+      nextPhase: "architecture",
+      state: { ...s, currentPhase: "specification", spec: specFixture },
+    }));
+
+    mockedArchitecture.mockImplementationOnce(async (s) => ({
+      success: true,
+      state: { ...s, currentPhase: "architecture", spec: specFixture },
+    }));
 
     await runOrchestrator(state, config);
 

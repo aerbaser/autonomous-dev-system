@@ -45,6 +45,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # gitleaks needs full history to scan commits, not just HEAD.
+          fetch-depth: 0
 
       - name: Use Node.js 22
         uses: actions/setup-node@v4
@@ -59,12 +62,19 @@ jobs:
         run: npm audit --audit-level=moderate
 
       - name: Gitleaks secret scan
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eux
+          GITLEAKS_VERSION=8.21.2
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            -o /tmp/gitleaks.tgz
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          /tmp/gitleaks detect --source . --no-banner --verbose --redact
 
       - name: Semgrep scan
-        uses: returntocorp/semgrep-action@v1
         if: github.event_name == 'pull_request'
-        with:
-          config: auto
+        run: |
+          set -eux
+          python3 -m pip install --quiet semgrep
+          # Use a publicly-available ruleset (no SEMGREP_APP_TOKEN required).
+          # p/ci is the standard CI pack curated by semgrep.dev.
+          semgrep scan --config=p/ci --error --no-git-ignore .

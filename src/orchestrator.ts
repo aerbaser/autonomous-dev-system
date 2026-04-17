@@ -10,6 +10,7 @@ import {
   getLatestCheckpoint,
   transitionPhase,
   canTransition,
+  withStateLock,
 } from "./state/project-state.js";
 import {
   loadSessions,
@@ -20,6 +21,7 @@ import {
 } from "./state/session-store.js";
 import { withRetry, isRetryableError } from "./utils/retry.js";
 import { runIdeation } from "./phases/ideation.js";
+import { runSpecification } from "./phases/specification.js";
 import { runArchitecture } from "./phases/architecture.js";
 import { runEnvironmentSetup } from "./phases/environment-setup.js";
 import { runDevelopment } from "./phases/development.js";
@@ -27,6 +29,7 @@ import { runTesting } from "./phases/testing.js";
 import { runReview } from "./phases/review.js";
 import { runDeployment } from "./phases/deployment.js";
 import { runABTesting } from "./phases/ab-testing.js";
+import { runAnalysis } from "./phases/analysis.js";
 import { runMonitoring } from "./phases/monitoring.js";
 import type { PhaseResult, PhaseHandler, PhaseContext, PhaseExecutionContext } from "./phases/types.js";
 import { EventBus } from "./events/event-bus.js";
@@ -54,12 +57,7 @@ export function getInterrupter(): Interrupter {
 
 const PHASE_HANDLERS: Record<Phase, PhaseHandler> = {
   ideation: runIdeation,
-  // specification is merged into ideation: the ideation phase already produces the spec.
-  // This pass-through preserves the phase in the lifecycle without duplicating logic.
-  specification: async (state, _config) => {
-    console.log("[specification] Specification merged into ideation — passing through to architecture.");
-    return { success: true, nextPhase: "architecture", state };
-  },
+  specification: runSpecification,
   architecture: runArchitecture,
   "environment-setup": runEnvironmentSetup,
   development: runDevelopment,
@@ -67,11 +65,7 @@ const PHASE_HANDLERS: Record<Phase, PhaseHandler> = {
   review: runReview,
   staging: runDeployment,
   "ab-testing": runABTesting,
-  analysis: async (state, _config) => ({
-    success: true,
-    nextPhase: "production",
-    state,
-  }),
+  analysis: runAnalysis,
   production: runDeployment,
   monitoring: runMonitoring,
 };
@@ -91,9 +85,9 @@ const PHASE_DRY_RUN_PLANS: Record<Phase, { description: string; agents: number; 
     tools: ["WebSearch", "WebFetch"],
   },
   specification: {
-    description: "Pass-through: specification is merged into ideation phase.",
-    agents: 0,
-    turns: 0,
+    description: "Expand the ideation spec into implementation-ready detail: refined Given/When/Then acceptance criteria, concrete NFR thresholds, explicit out-of-scope, integration boundaries.",
+    agents: 1,
+    turns: 6,
     tools: [],
   },
   architecture: {
@@ -224,9 +218,11 @@ export async function runOrchestrator(
 
   if (singlePhase) {
     console.log(`[orchestrator] Running single phase: ${singlePhase}`);
-    const singlePhaseResult = await executePhaseSafe(singlePhase, state, config, eventBus);
+    const singlePhaseResult = await executePhaseSafe(singlePhase, state, config, eventBus, undefined, interrupter);
     if (singlePhaseResult) {
-      saveState(config.stateDir, singlePhaseResult.state);
+      await withStateLock(config.stateDir, () =>
+        saveState(config.stateDir, singlePhaseResult.state)
+      );
     }
     unsubLogger();
     await eventLogger.close();
@@ -247,7 +243,7 @@ export async function runOrchestrator(
       });
       progress.emit("shutdown", { phase: state.currentPhase });
       console.log(`[shutdown] Graceful shutdown (${reason}). State saved at phase: ${state.currentPhase}`);
-      saveState(config.stateDir, state);
+      await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
       break;
     }
 
@@ -274,7 +270,7 @@ export async function runOrchestrator(
       if (nextPhase !== undefined) {
         if (canTransition(phase, nextPhase)) {
           state = transitionPhase(state, nextPhase);
-          saveState(config.stateDir, state);
+          await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
           console.log(`[orchestrator] Transition: ${phase} -> ${nextPhase}`);
           continue;
         }
@@ -287,7 +283,7 @@ export async function runOrchestrator(
     const handler = PHASE_HANDLERS[phase];
     if (!handler) {
       console.error(`[error] No handler for phase: ${phase}. This is a fatal error.`);
-      saveState(config.stateDir, state);
+      await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
       break;
     }
 
@@ -332,7 +328,7 @@ export async function runOrchestrator(
         state,
       };
     } else {
-      result = await executePhaseSafe(phase, state, config, eventBus, memoryContext);
+      result = await executePhaseSafe(phase, state, config, eventBus, memoryContext, interrupter);
     }
 
     const elapsedMs = Date.now() - phaseStart;
@@ -377,7 +373,7 @@ export async function runOrchestrator(
 
     if (budgetUsd !== undefined && totalCostUsd > budgetUsd) {
       console.log(`[budget] Budget exceeded ($${totalCostUsd.toFixed(4)}/$${budgetUsd.toFixed(4)}). Stopping.`);
-      saveState(config.stateDir, state);
+      await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
       break;
     }
 
@@ -434,7 +430,7 @@ export async function runOrchestrator(
 
     if (result.nextPhase && canTransition(phase, result.nextPhase)) {
       state = transitionPhase(state, result.nextPhase);
-      saveState(config.stateDir, state);
+      await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
       console.log(`[orchestrator] Transition: ${phase} -> ${result.nextPhase}`);
     } else if (phase === "monitoring") {
       console.log("[orchestrator] In monitoring loop. Waiting for next trigger...");
@@ -471,11 +467,12 @@ async function executePhaseSafe(
   config: Config,
   eventBus?: EventBus,
   memoryContext?: string,
+  interrupter?: Interrupter,
 ): Promise<PhaseResult | null> {
   const handler = PHASE_HANDLERS[phase];
   if (!handler) {
     console.error(`[error] No handler for phase: ${phase}`);
-    saveState(config.stateDir, state);
+    await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
     return null;
   }
 
@@ -498,13 +495,16 @@ async function executePhaseSafe(
     const result = await withRetry(
       async () => {
         // Save state before each attempt (crash safety)
-        saveState(config.stateDir, state);
+        await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
 
-        const context: PhaseContext | undefined = memoryContext ? { memoryContext } : undefined;
+        const context: PhaseContext | undefined = memoryContext
+          ? { memoryContext, cachedSystemPrompt: memoryContext }
+          : undefined;
         const execCtx: PhaseExecutionContext = {
           ...(checkpoint ? { checkpoint } : {}),
           ...(sessionId ? { sessionId } : {}),
           ...(context ? { context } : {}),
+          ...(interrupter ? { signal: interrupter.signal } : {}),
         };
         const phaseResult = await handler(state, config, execCtx);
 
@@ -555,7 +555,16 @@ async function executePhaseSafe(
       if (rubric) {
         console.log(`[rubric] Evaluating phase "${phase}" against rubric "${rubric.name}"`);
         const maxIter = config.rubrics?.maxIterations ?? 3;
-        const baseCtx: PhaseContext = memoryContext ? { memoryContext } : {};
+        // Compute the stable reused prefix ONCE. Each iteration re-runs the
+        // handler with a reference-equal `cachedSystemPrompt`, so the SDK's
+        // ephemeral cache can hit on retry iterations (memoryContext is
+        // typically a few KB of knowledge-base excerpts, already carries a
+        // `## Knowledge from previous sessions` heading).
+        const cachedSystemPrompt = memoryContext;
+        const baseCtx: PhaseContext = {
+          ...(memoryContext ? { memoryContext } : {}),
+          ...(cachedSystemPrompt ? { cachedSystemPrompt } : {}),
+        };
         let currentState = result.state; // post-phase state, not pre-phase
         let rubricFeedback: string | undefined;
         let lastRubricResult: RubricResult | null = null;
@@ -575,6 +584,7 @@ async function executePhaseSafe(
             ...(checkpoint ? { checkpoint } : {}),
             ...(sessionId ? { sessionId } : {}),
             context: ctx,
+            ...(interrupter ? { signal: interrupter.signal } : {}),
           };
           const iterResult =
             iter === 1 ? result : await handler(currentState, config, iterExecCtx);
@@ -607,6 +617,7 @@ async function executePhaseSafe(
               ...(eventBus ? { eventBus } : {}),
               config,
               phase,
+              ...(interrupter ? { signal: interrupter.signal } : {}),
             },
           );
           rubricCost += graderCost;
@@ -663,7 +674,7 @@ async function executePhaseSafe(
     }
 
     // Save state with error details
-    saveState(config.stateDir, state);
+    await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
 
     return {
       success: false,

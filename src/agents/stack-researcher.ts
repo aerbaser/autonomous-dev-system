@@ -1,6 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { ArchDesign, DomainAnalysis, StackEnvironment, LspConfig, McpDiscovery, PluginDiscovery, OssTool } from "../state/project-state.js";
-import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns, QueryAbortedError } from "../utils/sdk-helpers.js";
 import type { Config } from "../utils/config.js";
 import { StackResearchResultSchema } from "../types/llm-schemas.js";
 import { extractFirstJson, wrapUserInput } from "../utils/shared.js";
@@ -45,7 +45,8 @@ Output ONLY the JSON.`;
 export async function researchStack(
   architecture: ArchDesign,
   domain: DomainAnalysis,
-  config?: Config
+  config?: Config,
+  signal?: AbortSignal,
 ): Promise<StackEnvironment> {
   const techList = Object.entries(architecture.techStack)
     .map(([k, v]) => `${k}: ${v}`)
@@ -65,10 +66,11 @@ ${wrapUserInput("tech-context", `Tech Stack:\n${techList}\n\nDomain: ${domain.cl
           maxTurns: getMaxTurns(config, "stackResearch"),
         },
       }),
-      "stack-research"
+      { label: "stack-research", ...(signal ? { signal } : {}) }
     );
     resultText = result;
   } catch (err) {
+    if (err instanceof QueryAbortedError) throw err;
     console.warn(`[stack-researcher] Query failed: ${err instanceof Error ? err.message : String(err)}`);
     return getDefaultEnvironment(architecture, domain);
   }

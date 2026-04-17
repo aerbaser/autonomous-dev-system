@@ -47,6 +47,9 @@ vi.mock("../../src/utils/retry.js", async (importOriginal) => {
 vi.mock("../../src/phases/ideation.js", () => ({
   runIdeation: vi.fn(),
 }));
+vi.mock("../../src/phases/specification.js", () => ({
+  runSpecification: vi.fn(),
+}));
 vi.mock("../../src/phases/architecture.js", () => ({
   runArchitecture: vi.fn(),
 }));
@@ -68,15 +71,20 @@ vi.mock("../../src/phases/deployment.js", () => ({
 vi.mock("../../src/phases/ab-testing.js", () => ({
   runABTesting: vi.fn(),
 }));
+vi.mock("../../src/phases/analysis.js", () => ({
+  runAnalysis: vi.fn(),
+}));
 vi.mock("../../src/phases/monitoring.js", () => ({
   runMonitoring: vi.fn(),
 }));
 
 const { runOrchestrator } = await import("../../src/orchestrator.js");
 const { runIdeation } = await import("../../src/phases/ideation.js");
+const { runSpecification } = await import("../../src/phases/specification.js");
 const { runArchitecture } = await import("../../src/phases/architecture.js");
 
 const mockedRunIdeation = vi.mocked(runIdeation);
+const mockedRunSpecification = vi.mocked(runSpecification);
 const mockedRunArchitecture = vi.mocked(runArchitecture);
 
 function makeConfig(overrides: Partial<Config> = {}): Config {
@@ -222,10 +230,15 @@ describe("Orchestrator autonomy hardening", () => {
       nextPhase: "specification",
       state: makeSpecState(state),
     });
-    mockedRunArchitecture.mockResolvedValueOnce({
+    mockedRunSpecification.mockImplementationOnce(async (s) => ({
       success: true,
-      state: { ...state, currentPhase: "architecture" },
-    });
+      nextPhase: "architecture",
+      state: { ...s, currentPhase: "specification" },
+    }));
+    mockedRunArchitecture.mockImplementationOnce(async (s) => ({
+      success: true,
+      state: { ...s, currentPhase: "architecture" },
+    }));
 
     const onceSpy = vi.spyOn(process.stdin, "once").mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
       if (event === "data") {
@@ -250,10 +263,15 @@ describe("Orchestrator autonomy hardening", () => {
       nextPhase: "specification",
       state: makeSpecState(state),
     });
-    mockedRunArchitecture.mockResolvedValueOnce({
+    mockedRunSpecification.mockImplementationOnce(async (s) => ({
       success: true,
-      state: { ...state, currentPhase: "architecture" },
-    });
+      nextPhase: "architecture",
+      state: { ...s, currentPhase: "specification" },
+    }));
+    mockedRunArchitecture.mockImplementationOnce(async (s) => ({
+      success: true,
+      state: { ...s, currentPhase: "architecture" },
+    }));
 
     const onceSpy = vi.spyOn(process.stdin, "once");
     const timeout = new Promise<never>((_, reject) => {

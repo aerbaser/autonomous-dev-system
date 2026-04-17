@@ -1,16 +1,30 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { resolve, dirname, isAbsolute } from "node:path";
-import { randomUUID } from "node:crypto";
-import { z } from "zod";
-import { Phase, ALL_PHASES, TaskStatus } from "../types/phases.js";
 import {
-  ProjectStateSchema, TaskStateSchema, AgentBlueprintSchema,
-  McpServerConfigSchema, ProductSpecSchema, UserStorySchema,
+  readFileSync,
+  writeFileSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  writeSync,
+  fsyncSync,
+  closeSync,
+  renameSync,
+  unlinkSync,
+  statSync,
+} from "node:fs";
+import { resolve, dirname, isAbsolute, join } from "node:path";
+import { randomUUID } from "node:crypto";
+import type { z } from "zod";
+import { Phase, ALL_PHASES, TaskStatus } from "../types/phases.js";
+import { errMsg } from "../utils/shared.js";
+import type { TaskStateSchema, AgentBlueprintSchema, ProductSpecSchema, UserStorySchema,
   DomainAnalysisSchema, ArchDesignSchema, ArchTaskSchema,
   StackEnvironmentSchema, LspConfigSchema, McpDiscoverySchema,
   PluginDiscoverySchema, OssToolStateSchema, DeploymentStateSchema,
   ABTestStateSchema, PhaseCheckpointSchema, PhaseResultSummarySchema,
-  EvolutionEntrySchema,
+  EvolutionEntrySchema} from "../types/llm-schemas.js";
+import {
+  ProjectStateSchema,
+  McpServerConfigSchema
 } from "../types/llm-schemas.js";
 
 export { Phase, ALL_PHASES, TaskStatus };
@@ -117,20 +131,57 @@ export function loadState(stateDir: string): ProjectState | null {
   const statePath = resolve(stateDir, "state.json");
   if (!existsSync(statePath)) return null;
   try {
-    const parsed = ProjectStateSchema.safeParse(JSON.parse(readFileSync(statePath, "utf-8")));
-    return parsed.success ? parsed.data : null;
-  } catch {
+    const raw = JSON.parse(readFileSync(statePath, "utf-8"));
+    const parsed = ProjectStateSchema.safeParse(raw);
+    if (!parsed.success) {
+      const issues = parsed.error.issues
+        .map((i) => `${i.path.join(".")}: ${i.message}`)
+        .join("; ");
+      console.warn(
+        `[project-state] loadState: schema validation failed for ${statePath}. ` +
+          `Issues: ${issues}. Returning null; operator should inspect state.`
+      );
+      return null;
+    }
+    return parsed.data;
+  } catch (err) {
+    console.warn(
+      `[project-state] loadState: failed to parse ${statePath}: ${errMsg(err)}. ` +
+        `Returning null; operator should inspect state.`
+    );
     return null;
   }
 }
 
+/**
+ * Atomic state write: write to a temp file, fsync, then rename onto state.json.
+ * A mid-write crash leaves state.json unchanged (or absent on first write), never
+ * half-written. On error, the tmp file is unlinked and the original is rethrown.
+ */
 export function saveState(stateDir: string, state: ProjectState): void {
   assertSafePath(stateDir);
   const statePath = resolve(stateDir, "state.json");
   const dir = dirname(statePath);
   mkdirSync(dir, { recursive: true });
   const toSave = { ...state, updatedAt: new Date().toISOString() };
-  writeFileSync(statePath, JSON.stringify(toSave, null, 2));
+  const payload = JSON.stringify(toSave, null, 2);
+  const tmpPath = `${statePath}.tmp.${process.pid}.${Date.now()}`;
+
+  let fd: number | null = null;
+  try {
+    fd = openSync(tmpPath, "w");
+    writeSync(fd, payload);
+    fsyncSync(fd);
+    closeSync(fd);
+    fd = null;
+    renameSync(tmpPath, statePath);
+  } catch (err) {
+    if (fd !== null) {
+      try { closeSync(fd); } catch { /* ignore */ }
+    }
+    try { unlinkSync(tmpPath); } catch { /* ignore */ }
+    throw err;
+  }
 }
 
 export function transitionPhase(state: ProjectState, to: Phase): ProjectState {
@@ -166,25 +217,110 @@ export function updateTask(
   };
 }
 
+/** Cap on checkpoint history retained per phase (sliding window). */
+export const MAX_CHECKPOINTS_PER_PHASE = 3;
+
+function checkpointTime(c: PhaseCheckpoint): number {
+  const t = Date.parse(c.timestamp);
+  return Number.isFinite(t) ? t : 0;
+}
+
 export function saveCheckpoint(
   state: ProjectState,
   checkpoint: PhaseCheckpoint
 ): ProjectState {
-  // Replace existing checkpoint for the same phase, or append
-  const existing = state.checkpoints.findIndex((c) => c.phase === checkpoint.phase);
-  const updated = [...state.checkpoints];
-  if (existing >= 0) {
-    updated[existing] = checkpoint;
-  } else {
-    updated.push(checkpoint);
-  }
-  return { ...state, checkpoints: updated };
+  // Keep the (MAX_CHECKPOINTS_PER_PHASE - 1) most recent checkpoints for this
+  // phase, then append the new one so total per phase stays ≤ MAX.
+  const sameKeep = state.checkpoints
+    .filter((c) => c.phase === checkpoint.phase)
+    .sort((a, b) => checkpointTime(b) - checkpointTime(a))
+    .slice(0, MAX_CHECKPOINTS_PER_PHASE - 1);
+  const others = state.checkpoints.filter((c) => c.phase !== checkpoint.phase);
+  return {
+    ...state,
+    checkpoints: [...others, ...sameKeep, checkpoint],
+  };
+}
+
+/** Returns all checkpoints for the given phase, newest-first. */
+export function getCheckpointHistory(
+  state: ProjectState,
+  phase: Phase
+): PhaseCheckpoint[] {
+  return state.checkpoints
+    .filter((c) => c.phase === phase)
+    .sort((a, b) => checkpointTime(b) - checkpointTime(a));
 }
 
 export function getLatestCheckpoint(
   state: ProjectState,
   phase: Phase
 ): PhaseCheckpoint | null {
-  const match = state.checkpoints.find((c) => c.phase === phase);
-  return match ?? null;
+  const history = getCheckpointHistory(state, phase);
+  return history[0] ?? null;
+}
+
+// --- Advisory file lock ---
+
+const LOCK_STALE_MS = 5 * 60 * 1000; // 5 minutes
+
+/**
+ * Advisory cross-process file lock for `${stateDir}/.lock`.
+ *
+ * Acquires via `openSync(lockPath, "wx")` (atomic exclusive-create). If another
+ * holder already owns the lock and its mtime is older than 5 min, the lock is
+ * considered stale and reclaimed once. The lock file records the current pid
+ * to aid debugging.
+ *
+ * Releases the lock in a finally block so exceptions don't strand the lockfile.
+ */
+export async function withStateLock<T>(
+  stateDir: string,
+  fn: () => T | Promise<T>
+): Promise<T> {
+  assertSafePath(stateDir);
+  mkdirSync(stateDir, { recursive: true });
+  const lockPath = join(stateDir, ".lock");
+
+  let fd: number | null = null;
+  let reclaimed = false;
+
+  while (fd === null) {
+    try {
+      fd = openSync(lockPath, "wx");
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "EEXIST") throw err;
+
+      // EEXIST: check staleness once, else wait briefly and retry.
+      if (!reclaimed) {
+        try {
+          const st = statSync(lockPath);
+          const age = Date.now() - st.mtimeMs;
+          if (age > LOCK_STALE_MS) {
+            try { unlinkSync(lockPath); } catch { /* ignore */ }
+            reclaimed = true;
+            continue;
+          }
+        } catch {
+          // lock file vanished between EEXIST and stat — just retry.
+          continue;
+        }
+      }
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  }
+
+  try {
+    writeFileSync(fd, String(process.pid));
+  } catch {
+    // non-fatal: debug info only.
+  }
+
+  try {
+    return await fn();
+  } finally {
+    try { closeSync(fd); } catch { /* ignore */ }
+    try { unlinkSync(lockPath); } catch { /* ignore */ }
+  }
 }

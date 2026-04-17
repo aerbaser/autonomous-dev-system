@@ -12,7 +12,10 @@ const selfImproveSchema = z.object({
 const maxTurnsSchema = z.object({
   default: z.number().default(50),
   decomposition: z.number().default(3),
-  development: z.number().default(60),
+  // development: lowered from 60 → 30 to discourage wasteful reasoning inside
+  // a single batch. Most tasks finish in <20 turns; 30 leaves headroom without
+  // inviting 60-turn loops on simple tasks.
+  development: z.number().default(30),
   qualityFix: z.number().default(30),
   testing: z.number().default(30),
   review: z.number().default(20),
@@ -24,12 +27,14 @@ const maxTurnsSchema = z.object({
   stackResearch: z.number().default(15),
   domainAnalysis: z.number().default(5),
   ossScan: z.number().default(10),
+  specification: z.number().default(10),
+  analysis: z.number().default(10),
 });
 
 export const MAX_TURNS_DEFAULTS = {
   default: 50,
   decomposition: 3,
-  development: 60,
+  development: 30,
   qualityFix: 30,
   testing: 30,
   review: 20,
@@ -41,6 +46,8 @@ export const MAX_TURNS_DEFAULTS = {
   stackResearch: 15,
   domainAnalysis: 5,
   ossScan: 10,
+  specification: 10,
+  analysis: 10,
 } satisfies z.input<typeof maxTurnsSchema>;
 
 const memorySchema = z.object({
@@ -89,6 +96,7 @@ export const ConfigSchema = z.object({
     maxIterations: z.number().default(3),
     graderModel: z.string().optional(),
   }).default({ enabled: true, maxIterations: 3 }),
+  maxParallelBatches: z.number().default(3),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

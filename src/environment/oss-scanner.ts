@@ -2,7 +2,7 @@ import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { OssTool, DomainAnalysis, ArchDesign } from "../state/project-state.js";
 import { OssToolArraySchema } from "../types/llm-schemas.js";
 import { getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
-import { wrapUserInput } from "../utils/shared.js";
+import { wrapUserInput, errMsg } from "../utils/shared.js";
 import type { Config } from "../utils/config.js";
 import { isValidOssType } from "../utils/type-guards.js";
 
@@ -61,7 +61,16 @@ ${wrapUserInput("tech-context", `Tech Stack: ${techList}\nDomain: ${domain.class
 
   try {
     const parseResult = OssToolArraySchema.safeParse(JSON.parse(jsonMatch[0]));
-    if (!parseResult.success) return [];
+    if (!parseResult.success) {
+      // Strict-at-LLM-boundary: surface the invalid shape so it isn't silently
+      // coerced. Caller runs under Promise.allSettled so logging is the right
+      // level of severity for a non-critical scan.
+      const issues = parseResult.error.issues
+        .map((i) => `${i.path.join(".")}: ${i.message}`)
+        .join("; ");
+      console.warn(`[oss-scanner] OSS scan result failed schema validation: ${issues}`);
+      return [];
+    }
 
     return parseResult.data.map((o) => ({
       name: o.name,
@@ -70,7 +79,8 @@ ${wrapUserInput("tech-context", `Tech Stack: ${techList}\nDomain: ${domain.class
       integrationPlan: o.integrationPlan,
       integrated: false,
     }));
-  } catch {
+  } catch (err) {
+    console.warn(`[oss-scanner] OSS scan JSON parse failed: ${errMsg(err)}`);
     return [];
   }
 }

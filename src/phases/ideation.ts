@@ -1,9 +1,9 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
-import type { ProjectState, ProductSpec } from "../state/project-state.js";
-import type { PhaseResult } from "./types.js";
+import type { ProjectState, ProductSpec, DomainAnalysis } from "../state/project-state.js";
+import type { PhaseResult, PhaseExecutionContext } from "./types.js";
 import { analyzeDomain } from "../agents/domain-analyzer.js";
-import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns, QueryAbortedError } from "../utils/sdk-helpers.js";
 import { extractFirstJson, errMsg, wrapUserInput } from "../utils/shared.js";
 import { ProductSpecWithoutDomainSchema, ProductSpecSchema } from "../types/llm-schemas.js";
 
@@ -68,39 +68,63 @@ Requirements:
 
 Think through your analysis step by step, then provide your final answer as a JSON object.`;
 
+const DEFAULT_DOMAIN: DomainAnalysis = {
+  classification: "web-application",
+  specializations: [],
+  requiredRoles: [],
+  requiredMcpServers: ["playwright", "github"],
+  techStack: ["typescript", "node"],
+};
+
 export async function runIdeation(
   state: ProjectState,
-  config: Config
+  config: Config,
+  ctx?: PhaseExecutionContext
 ): Promise<PhaseResult> {
   console.log("[ideation] Generating product specification...");
+  const signal = ctx?.signal;
 
-  // Step 1: Domain analysis (parallel with spec generation)
-  const domainPromise = analyzeDomain(state.idea, config);
+  // Run domain analysis and spec generation concurrently and await BOTH via
+  // Promise.allSettled so neither result is silently dropped. Domain failures
+  // degrade gracefully (warn + fall back to DEFAULT_DOMAIN); spec failures
+  // fail the phase.
+  const domainPromise = analyzeDomain(state.idea, config, signal);
 
-  // Step 2: Generate spec
-  let specText: string;
-  let costUsd: number | undefined;
-  try {
-    const queryResult = await consumeQuery(
-      query({
-        prompt: `${SPEC_PROMPT}\n\n${wrapUserInput("project-idea", state.idea)}`,
-        options: {
-          tools: ["WebSearch", "WebFetch"],
-          ...getQueryPermissions(config),
-          maxTurns: getMaxTurns(config, "ideation"),
-        },
-      }),
-      "ideation"
-    );
-    specText = queryResult.result;
-    costUsd = queryResult.cost;
-  } catch (err) {
+  // The long, fully-static SPEC_PROMPT goes into `options.systemPrompt` so
+  // the SDK's ephemeral cache can hit across retries (rubric loop, failures,
+  // etc.). The per-call prompt carries only the project-specific idea.
+  const specPromise = consumeQuery(
+    query({
+      prompt: wrapUserInput("project-idea", state.idea),
+      options: {
+        systemPrompt: SPEC_PROMPT,
+        tools: ["WebSearch", "WebFetch"],
+        ...getQueryPermissions(config),
+        maxTurns: getMaxTurns(config, "ideation"),
+      },
+    }),
+    { label: "ideation", ...(signal ? { signal } : {}) }
+  );
+
+  const [domainSettled, specSettled] = await Promise.allSettled([
+    domainPromise,
+    specPromise,
+  ]);
+
+  // Spec failure is fatal for the phase.
+  if (specSettled.status === "rejected") {
+    const err = specSettled.reason;
+    if (err instanceof QueryAbortedError) {
+      return { success: false, state, error: "aborted" };
+    }
     return {
       success: false,
       state,
       error: `Failed to generate spec: ${errMsg(err)}`,
     };
   }
+  const specText = specSettled.value.result;
+  const costUsd = specSettled.value.cost;
 
   // Parse spec
   const jsonStr = extractFirstJson(specText);
@@ -122,8 +146,23 @@ export async function runIdeation(
   }
   const specData = parseResult.data;
 
-  // Step 3: Combine with domain analysis
-  const domain = await domainPromise;
+  // Domain failures are non-fatal — warn and continue with the default domain
+  // so the successfully-generated spec can still be used.
+  let domain: DomainAnalysis;
+  if (domainSettled.status === "fulfilled") {
+    domain = domainSettled.value;
+  } else {
+    const err = domainSettled.reason;
+    if (err instanceof QueryAbortedError) {
+      // Abort affects both queries; treat the phase as aborted so partial
+      // state isn't committed.
+      return { success: false, state, error: "aborted" };
+    }
+    console.warn(
+      `[ideation] Domain analysis failed, continuing with default domain: ${errMsg(err)}`
+    );
+    domain = DEFAULT_DOMAIN;
+  }
 
   const spec = ProductSpecSchema.parse({ ...specData, domain });
 

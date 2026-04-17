@@ -10,7 +10,8 @@ import { getBaseAgentNames } from "./base-blueprints.js";
  */
 export async function buildAgentTeam(
   state: ProjectState,
-  config: Config
+  config: Config,
+  signal?: AbortSignal,
 ): Promise<{ registry: AgentRegistry; domain: ProjectState["spec"] }> {
   const registry = new AgentRegistry(config.stateDir);
 
@@ -28,7 +29,7 @@ export async function buildAgentTeam(
   }
 
   // Step 1: Reuse domain from spec if available, otherwise analyze
-  const domain = state.spec?.domain ?? await analyzeDomain(state.idea, config);
+  const domain = state.spec?.domain ?? await analyzeDomain(state.idea, config, signal);
   console.log(`[factory] Domain: ${domain.classification}`);
   console.log(`[factory] Specializations: ${domain.specializations.join(", ") || "none"}`);
   console.log(`[factory] Required roles: ${domain.requiredRoles.join(", ") || "none (standard only)"}`);
@@ -36,7 +37,7 @@ export async function buildAgentTeam(
   // Step 2: Generate domain-specific agents
   if (domain.requiredRoles.length > 0) {
     console.log("[factory] Generating specialized agent blueprints...");
-    const domainAgents = await generateDomainAgents(state.idea, domain, config);
+    const domainAgents = await generateDomainAgents(state.idea, domain, config, signal);
 
     for (const agent of domainAgents) {
       registry.register(agent);
