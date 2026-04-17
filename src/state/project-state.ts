@@ -13,17 +13,18 @@ import {
 } from "node:fs";
 import { resolve, dirname, isAbsolute, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { z } from "zod";
+import type { z } from "zod";
 import { Phase, ALL_PHASES, TaskStatus } from "../types/phases.js";
 import { errMsg } from "../utils/shared.js";
-import {
-  ProjectStateSchema, TaskStateSchema, AgentBlueprintSchema,
-  McpServerConfigSchema, ProductSpecSchema, UserStorySchema,
+import type { TaskStateSchema, AgentBlueprintSchema, ProductSpecSchema, UserStorySchema,
   DomainAnalysisSchema, ArchDesignSchema, ArchTaskSchema,
   StackEnvironmentSchema, LspConfigSchema, McpDiscoverySchema,
   PluginDiscoverySchema, OssToolStateSchema, DeploymentStateSchema,
   ABTestStateSchema, PhaseCheckpointSchema, PhaseResultSummarySchema,
-  EvolutionEntrySchema,
+  EvolutionEntrySchema} from "../types/llm-schemas.js";
+import {
+  ProjectStateSchema,
+  McpServerConfigSchema
 } from "../types/llm-schemas.js";
 
 export { Phase, ALL_PHASES, TaskStatus };

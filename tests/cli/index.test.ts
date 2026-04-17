@@ -143,7 +143,10 @@ describe("CLI contract", () => {
     await expect(runCli(["run", "--idea", "Build a todo app"])).rejects.toMatchObject({ code: 1 });
 
     expect(mockedRunOrchestrator).not.toHaveBeenCalled();
-    expect(String(errorSpy.mock.calls.at(-1)?.[0] ?? "")).toContain("Use --resume");
+    // Strip ANSI codes before substring check — the CLI styles "--resume"
+    // bold, so the literal "Use --resume" is interrupted by \x1b sequences.
+    const stripAnsi = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "");
+    expect(stripAnsi(String(errorSpy.mock.calls.at(-1)?.[0] ?? ""))).toContain("Use --resume");
   });
 
   it("resumes an existing state when `run` receives `--resume`", async () => {
