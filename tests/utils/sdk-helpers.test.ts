@@ -217,16 +217,16 @@ describe("buildCachedSystemPrompt", () => {
 describe("getQueryPermissions", () => {
   it("returns bypass permissions when config is undefined", () => {
     const perms = getQueryPermissions(undefined);
-    expect(perms.permissionMode).toBe("bypassPermissions");
-    // bypassPermissions alone suffices; the extra --dangerously-skip flag
-    // is redundant AND the CLI refuses it under root, blocking container use.
+    // Uses acceptEdits rather than bypassPermissions so the CLI works
+    // under root (sandboxed containers). Same autonomous behavior in -p mode.
+    expect(perms.permissionMode).toBe("acceptEdits");
     expect(perms.allowDangerouslySkipPermissions).toBe(false);
   });
 
   it("returns bypass permissions when autonomousMode is true", () => {
     const config = { autonomousMode: true } as Config;
     const perms = getQueryPermissions(config);
-    expect(perms.permissionMode).toBe("bypassPermissions");
+    expect(perms.permissionMode).toBe("acceptEdits");
   });
 
   it("returns default permissions when autonomousMode is false", () => {

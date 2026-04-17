@@ -269,16 +269,22 @@ export function buildCachedSystemPrompt(
 import { MAX_TURNS_DEFAULTS, type Config } from "./config.js";
 
 export interface QueryPermissions {
-  permissionMode: "bypassPermissions" | "default";
+  permissionMode: "acceptEdits" | "bypassPermissions" | "default";
   allowDangerouslySkipPermissions: boolean;
 }
 
-// permissionMode: "bypassPermissions" already skips prompts. Adding the
-// separate --dangerously-skip-permissions flag is redundant AND the Claude
-// Code CLI refuses it when running as root (sandboxed environments,
-// containers), making the system unusable there. Keep the typed option on
-// QueryPermissions for API compatibility but don't set it true.
-const BYPASS_PERMISSIONS: QueryPermissions = { permissionMode: "bypassPermissions", allowDangerouslySkipPermissions: false };
+// Autonomous mode uses `acceptEdits` rather than `bypassPermissions`.
+//
+// Why: `bypassPermissions` (whether set via the mode flag OR via
+// --dangerously-skip-permissions) is refused by the Claude Code CLI when
+// running as root — a common case in Docker/sandboxed environments. This
+// made the entire system unusable inside containers.
+//
+// `acceptEdits` auto-approves Edit/Write/Bash tool calls in non-interactive
+// (-p) mode the same way bypass did for our use case, but works under root
+// since it doesn't require the dangerous flag. Verified with:
+//   claude -p "..." --permission-mode acceptEdits → exit 0 under root.
+const BYPASS_PERMISSIONS: QueryPermissions = { permissionMode: "acceptEdits", allowDangerouslySkipPermissions: false };
 const DEFAULT_PERMISSIONS: QueryPermissions = { permissionMode: "default", allowDangerouslySkipPermissions: false };
 
 export function getQueryPermissions(config?: Config): QueryPermissions {
