@@ -5,6 +5,7 @@ import type { Config } from "../utils/config.js";
 import { StackResearchResultSchema } from "../types/llm-schemas.js";
 import { extractFirstJson, wrapUserInput } from "../utils/shared.js";
 import { isValidScope, isValidOssType } from "../utils/type-guards.js";
+import type { LayeredMemory } from "../memory/layers.js";
 
 const RESEARCH_PROMPT = `You are a Stack Researcher. Given a project's tech stack and domain,
 find the best tools to supercharge AI agent development.
@@ -47,10 +48,24 @@ export async function researchStack(
   domain: DomainAnalysis,
   config?: Config,
   signal?: AbortSignal,
+  memory?: LayeredMemory,
 ): Promise<StackEnvironment> {
   const techList = Object.entries(architecture.techStack)
     .map(([k, v]) => `${k}: ${v}`)
     .join("\n");
+
+  const persist = async (env: StackEnvironment): Promise<StackEnvironment> => {
+    if (memory) {
+      try {
+        await persistL2Facts(env, domain, architecture, memory, config);
+      } catch (err) {
+        console.warn(
+          `[stack-researcher] L2 fact persistence failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return env;
+  };
 
   let resultText: string;
 
@@ -72,17 +87,17 @@ ${wrapUserInput("tech-context", `Tech Stack:\n${techList}\n\nDomain: ${domain.cl
   } catch (err) {
     if (err instanceof QueryAbortedError) throw err;
     console.warn(`[stack-researcher] Query failed: ${err instanceof Error ? err.message : String(err)}`);
-    return getDefaultEnvironment(architecture, domain);
+    return persist(getDefaultEnvironment(architecture, domain));
   }
 
   const jsonStr = extractFirstJson(resultText);
   if (!jsonStr) {
-    return getDefaultEnvironment(architecture, domain);
+    return persist(getDefaultEnvironment(architecture, domain));
   }
 
   try {
     const parseResult = StackResearchResultSchema.safeParse(JSON.parse(jsonStr));
-    if (!parseResult.success) return getDefaultEnvironment(architecture, domain);
+    if (!parseResult.success) return persist(getDefaultEnvironment(architecture, domain));
     const raw = parseResult.data;
 
     const lspServers: LspConfig[] = (raw.lspServers ?? []).map((l) => ({
@@ -118,9 +133,48 @@ ${wrapUserInput("tech-context", `Tech Stack:\n${techList}\n\nDomain: ${domain.cl
 
     const claudeMd = (raw.claudeMdSuggestions ?? []).join("\n");
 
-    return { lspServers, mcpServers, plugins, openSourceTools, claudeMd };
+    return persist({ lspServers, mcpServers, plugins, openSourceTools, claudeMd });
   } catch {
-    return getDefaultEnvironment(architecture, domain);
+    return persist(getDefaultEnvironment(architecture, domain));
+  }
+}
+
+async function persistL2Facts(
+  env: StackEnvironment,
+  domain: DomainAnalysis,
+  architecture: ArchDesign,
+  memory: LayeredMemory,
+  config?: Config,
+): Promise<void> {
+  if (config && (config.memory?.enabled === false || config.memory?.layers?.enabled === false)) {
+    return;
+  }
+
+  const writeFact = async (key: string, value: string): Promise<void> => {
+    if (!value) return;
+    await memory.l2.upsertFact(key, value);
+    console.log(`[stack-researcher] Wrote L2 fact: ${key}`);
+  };
+
+  for (const lsp of env.lspServers) {
+    if (lsp.language && lsp.server) {
+      await writeFact(`stack.lsp.${lsp.language}`, lsp.server);
+    }
+  }
+
+  for (const mcp of env.mcpServers) {
+    if (mcp.name && mcp.source) {
+      await writeFact(`stack.mcp.${mcp.name}`, mcp.source);
+    }
+  }
+
+  if (domain.classification) {
+    await writeFact("stack.domain", domain.classification);
+  }
+
+  const techValues = Object.values(architecture.techStack).filter((v) => v && v.length > 0);
+  if (techValues.length > 0) {
+    await writeFact("stack.tech", techValues.join(", "));
   }
 }
 

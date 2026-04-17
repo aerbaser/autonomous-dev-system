@@ -3,7 +3,7 @@ import { mkdirSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MemoryStore } from "../../src/state/memory-store.js";
-import { SkillStore, extractSignature } from "../../src/memory/skills.js";
+import { SkillStore, extractSignature, toDomainSlug } from "../../src/memory/skills.js";
 import type { TaskReceipt } from "../../src/types/task-receipt.js";
 
 const TEST_STATE_DIR = join(tmpdir(), `ads-test-skills-${process.pid}`);
@@ -185,5 +185,69 @@ describe("SkillStore", () => {
     });
     // prev=0.1 (count=1), new=0.3 → (0.1 * 1 + 0.3) / 2 = 0.2
     expect(second.avgCostUsd).toBeCloseTo(0.2, 5);
+  });
+
+  it("crystallize scopes the signature to a passed-in domain and tags it", async () => {
+    const playbook = await skills.crystallize(receipt(), {
+      domain: "telegram-bot",
+      phase: "development",
+    });
+
+    expect(playbook.signature.domain).toBe("telegram-bot");
+
+    const docs = await memory.list({ tags: ["skill"] });
+    expect(docs.length).toBe(1);
+    expect(docs[0]!.tags).toContain("telegram-bot");
+  });
+
+  it("findMatching partitions results across domains — cross-domain leakage is blocked", async () => {
+    await skills.crystallize(receipt(), {
+      domain: "telegram-bot",
+      phase: "development",
+    });
+
+    const sameDomain = await skills.findMatching(
+      extractSignature(
+        "Add user authentication endpoint",
+        "telegram-bot",
+        "development",
+      ),
+    );
+    expect(sameDomain.length).toBeGreaterThan(0);
+    expect(sameDomain[0]!.signature.domain).toBe("telegram-bot");
+
+    const crossDomain = await skills.findMatching(
+      extractSignature(
+        "Add user authentication endpoint",
+        "email-bot",
+        "development",
+      ),
+    );
+    expect(crossDomain).toEqual([]);
+  });
+});
+
+describe("toDomainSlug", () => {
+  it("kebab-cases human-friendly domain strings", () => {
+    expect(toDomainSlug("Web Application")).toBe("web-application");
+    expect(toDomainSlug("Telegram Bot")).toBe("telegram-bot");
+  });
+
+  it("collapses non-alphanumeric runs to a single hyphen", () => {
+    expect(toDomainSlug("telegram/bot")).toBe("telegram-bot");
+    expect(toDomainSlug("telegram__bot!!")).toBe("telegram-bot");
+  });
+
+  it("returns 'generic' for empty or non-string values", () => {
+    expect(toDomainSlug("")).toBe("generic");
+    expect(toDomainSlug("   ")).toBe("generic");
+    expect(toDomainSlug(undefined as unknown as string)).toBe("generic");
+    expect(toDomainSlug(null as unknown as string)).toBe("generic");
+    expect(toDomainSlug(42 as unknown as string)).toBe("generic");
+  });
+
+  it("returns 'generic' when input slugifies to an empty string", () => {
+    expect(toDomainSlug("///")).toBe("generic");
+    expect(toDomainSlug("!!!")).toBe("generic");
   });
 });

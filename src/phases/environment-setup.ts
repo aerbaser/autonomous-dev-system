@@ -9,6 +9,8 @@ import { installPlugins } from "../environment/plugin-manager.js";
 import { scanOpenSource } from "../environment/oss-scanner.js";
 import { generateClaudeMd } from "../environment/claude-md-generator.js";
 import { saveCheckpoint as saveCheckpointState, saveState } from "../state/project-state.js";
+import { MemoryStore } from "../state/memory-store.js";
+import { LayeredMemory } from "../memory/layers.js";
 
 interface SetupStepResult {
   name: string;
@@ -37,9 +39,24 @@ export async function runEnvironmentSetup(
   let updatedState = { ...state };
 
   // Step 1: Stack Research (critical — without it we can't proceed)
+  // Build a LayeredMemory locally so the researcher can persist stable
+  // detected facts into L2. Same construction pattern as development-runner's
+  // SkillStore bootstrap — keeps phase concerns local and avoids plumbing
+  // through PhaseExecutionContext.
+  const layeredMemory =
+    config.memory?.enabled && config.memory.layers?.enabled !== false
+      ? new LayeredMemory(
+          new MemoryStore(config.stateDir, {
+            maxDocuments: config.memory.maxDocuments,
+            maxDocumentSizeKb: config.memory.maxDocumentSizeKb,
+          }),
+          config.stateDir,
+        )
+      : undefined;
+
   let discovered: Awaited<ReturnType<typeof researchStack>>;
   try {
-    discovered = await researchStack(state.architecture, state.spec.domain, config, signal);
+    discovered = await researchStack(state.architecture, state.spec.domain, config, signal, layeredMemory);
     stepResults.push({ name: "Stack Research", success: true, critical: true });
     console.log(
       `[env-setup] Discovered: ${discovered.lspServers.length} LSP, ` +
