@@ -1,16 +1,18 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
 import type { ProjectState } from "../state/project-state.js";
-import type { PhaseResult } from "./types.js";
-import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
-import { errMsg } from "../utils/shared.js";
+import type { PhaseResult, PhaseExecutionContext } from "./types.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns, QueryAbortedError } from "../utils/sdk-helpers.js";
+import { errMsg, extractFirstJson } from "../utils/shared.js";
 import { ReviewResultSchema } from "../types/llm-schemas.js";
 
 export async function runReview(
   state: ProjectState,
-  config: Config
+  config: Config,
+  ctx?: PhaseExecutionContext
 ): Promise<PhaseResult> {
   console.log("[review] Running code review...");
+  const signal = ctx?.signal;
 
   const prompt = `You are a senior Code Reviewer. Review ALL code in this project.
 
@@ -43,24 +45,42 @@ Also end with "APPROVE" or "REQUEST_CHANGES: <summary>" as a fallback.`;
           maxTurns: getMaxTurns(config, "review"),
         },
       }),
-      "review"
+      { label: "review", ...(signal ? { signal } : {}) }
     );
     resultText = queryResult.result;
     structuredOutput = queryResult.structuredOutput;
     costUsd = queryResult.cost;
   } catch (err) {
+    if (err instanceof QueryAbortedError) {
+      return { success: false, state, error: "aborted" };
+    }
     console.error(`[review] Query failed: ${errMsg(err)}`);
     return { success: false, state, error: errMsg(err) };
   }
 
+  // Prefer native structured output, fall back to JSON extracted from the text
+  // body. Only drop to the text heuristic when both fail — and warn because
+  // the text path can mis-classify ambiguous outputs.
   let approved: boolean;
-  const parsed = structuredOutput != null ? ReviewResultSchema.safeParse(structuredOutput) : null;
+  let parsed = structuredOutput != null ? ReviewResultSchema.safeParse(structuredOutput) : null;
+  if (!parsed?.success) {
+    const jsonStr = extractFirstJson(resultText);
+    if (jsonStr) {
+      try {
+        parsed = ReviewResultSchema.safeParse(JSON.parse(jsonStr));
+      } catch {
+        parsed = null;
+      }
+    }
+  }
+
   if (parsed?.success) {
     approved = parsed.data.status === "approved";
     if (!approved && parsed.data.summary) {
       console.log(`[review] Issues: ${parsed.data.summary}`);
     }
   } else {
+    console.warn("[review] text fallback used — no structured JSON found in output");
     approved = resultText.includes("APPROVE") && !resultText.includes("REQUEST_CHANGES");
   }
 

@@ -3,7 +3,7 @@ import type { Config } from "../utils/config.js";
 import type { ProjectState, ArchDesign, ArchTask } from "../state/project-state.js";
 import type { PhaseExecutionContext, PhaseResult } from "./types.js";
 import { buildAgentTeam } from "../agents/factory.js";
-import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns, QueryAbortedError } from "../utils/sdk-helpers.js";
 import { extractFirstJson, errMsg, isRecord, wrapUserInput } from "../utils/shared.js";
 import { ArchDesignSchema } from "../types/llm-schemas.js";
 
@@ -230,24 +230,28 @@ export async function runArchitecture(
   }
 
   console.log("[architecture] Designing system architecture...");
+  const signal = ctx?.signal;
 
   // Also initialize the agent team (domain analysis -> dynamic agents)
-  const { registry } = await buildAgentTeam(state, config);
+  const { registry } = await buildAgentTeam(state, config, signal);
 
   let archText: string;
   let costUsd: number | undefined;
   let sessionId: string | undefined;
-  try {
-    const queryResult = await consumeQuery(
-      query({
-        prompt: `${ARCH_PROMPT}
-
-${wrapUserInput("product-spec", JSON.stringify(state.spec, null, 2))}
+  // Fully-static instructions go in `options.systemPrompt` so the SDK's
+  // ephemeral cache can hit across retries. Per-call prompt carries only the
+  // project-specific spec and domain summary.
+  const perCallPrompt = `${wrapUserInput("product-spec", JSON.stringify(state.spec, null, 2))}
 
 Domain: ${state.spec.domain.classification}
 Specializations: ${state.spec.domain.specializations.join(", ")}
-Recommended tech: ${state.spec.domain.techStack.join(", ")}`,
+Recommended tech: ${state.spec.domain.techStack.join(", ")}`;
+  try {
+    const queryResult = await consumeQuery(
+      query({
+        prompt: perCallPrompt,
         options: {
+          systemPrompt: ARCH_PROMPT,
           tools: ["WebSearch", "WebFetch"],
           ...getQueryPermissions(config),
           maxTurns: getMaxTurns(config, "architecture"),
@@ -259,12 +263,16 @@ Recommended tech: ${state.spec.domain.techStack.join(", ")}`,
         phase: "architecture",
         agentName: "architect",
         model: config.model,
+        ...(signal ? { signal } : {}),
       }
     );
     archText = queryResult.result;
     costUsd = queryResult.cost;
     sessionId = queryResult.sessionId;
   } catch (err) {
+    if (err instanceof QueryAbortedError) {
+      return { success: false, state, error: "aborted" };
+    }
     return {
       success: false,
       state,

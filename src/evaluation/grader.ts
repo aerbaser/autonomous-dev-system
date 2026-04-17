@@ -102,6 +102,7 @@ export interface GraderOptions {
   config: Config;
   eventBus?: EventBus;
   phase?: Phase;
+  signal?: AbortSignal;
 }
 
 export async function gradePhaseOutput(
@@ -110,7 +111,7 @@ export async function gradePhaseOutput(
   state: ProjectState,
   options: GraderOptions,
 ): Promise<{ rubricResult: RubricResult; costUsd: number }> {
-  const { config, eventBus } = options;
+  const { config, eventBus, signal } = options;
   const phase = options.phase ?? state.currentPhase;
   const model = options.model ?? config.subagentModel;
   const stateSummary = buildStateSummary(state);
@@ -136,6 +137,7 @@ export async function gradePhaseOutput(
       phase,
       agentName: "grader",
       model,
+      ...(signal ? { signal } : {}),
     });
   } catch (err) {
     const summary = `Grader unavailable after ${Date.now() - queryStart}ms: ${

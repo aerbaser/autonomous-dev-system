@@ -1,17 +1,19 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
 import type { ProjectState, ABTest } from "../state/project-state.js";
-import type { PhaseResult } from "./types.js";
+import type { PhaseResult, PhaseExecutionContext } from "./types.js";
 import { getMcpServerConfigs } from "../environment/mcp-manager.js";
 import { randomUUID } from "node:crypto";
-import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns, QueryAbortedError } from "../utils/sdk-helpers.js";
 import { ABTestDesignResponseSchema, ABTestAnalysisSchema } from "../types/llm-schemas.js";
 import { extractFirstJson, errMsg, wrapUserInput } from "../utils/shared.js";
 
 export async function runABTesting(
   state: ProjectState,
-  config: Config
+  config: Config,
+  ctx?: PhaseExecutionContext
 ): Promise<PhaseResult> {
+  const signal = ctx?.signal;
   const mcpServers = state.environment
     ? getMcpServerConfigs(state.environment.mcpServers)
     : {};
@@ -19,7 +21,7 @@ export async function runABTesting(
   // Check if we have active tests to analyze
   const activeTests = state.abTests.filter((t) => t.status === "running");
   if (activeTests.length > 0) {
-    return analyzeTests(state, config, activeTests, mcpServers);
+    return analyzeTests(state, config, activeTests, mcpServers, signal);
   }
 
   // Otherwise, create a new A/B test
@@ -61,11 +63,14 @@ Output JSON:
           mcpServers,
         },
       }),
-      "ab-test-design"
+      { label: "ab-test-design", ...(signal ? { signal } : {}) }
     );
     resultText = result;
     costUsd = cost;
   } catch (err) {
+    if (err instanceof QueryAbortedError) {
+      return { success: false, state, error: "aborted" };
+    }
     return {
       success: false,
       state,
@@ -110,7 +115,8 @@ async function analyzeTests(
   state: ProjectState,
   config: Config,
   tests: ABTest[],
-  mcpServers: Record<string, { command: string; args?: string[] }>
+  mcpServers: Record<string, { command: string; args?: string[] }>,
+  signal?: AbortSignal,
 ): Promise<PhaseResult> {
   console.log(`[ab-test] Analyzing ${tests.length} active tests...`);
 
@@ -148,11 +154,14 @@ Output a JSON array.`;
           mcpServers,
         },
       }),
-      "ab-test-analysis"
+      { label: "ab-test-analysis", ...(signal ? { signal } : {}) }
     );
     analysisText = result;
     costUsd = cost;
   } catch (err) {
+    if (err instanceof QueryAbortedError) {
+      return { success: false, state, error: "aborted" };
+    }
     console.warn(`[ab-test] Analysis query failed: ${errMsg(err)}`);
   }
 

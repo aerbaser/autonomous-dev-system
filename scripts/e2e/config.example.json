@@ -1,0 +1,22 @@
+{
+  "model": "claude-opus-4-6",
+  "subagentModel": "claude-sonnet-4-6",
+  "projectDir": ".",
+  "stateDir": ".autonomous-dev",
+  "autonomousMode": true,
+  "maxParallelBatches": 3,
+  "selfImprove": {
+    "enabled": true,
+    "maxIterations": 5,
+    "nightlyOptimize": false
+  },
+  "memory": {
+    "enabled": true,
+    "maxDocuments": 500,
+    "maxDocumentSizeKb": 100
+  },
+  "rubrics": {
+    "enabled": true,
+    "maxIterations": 3
+  }
+}

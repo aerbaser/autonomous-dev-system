@@ -1,6 +1,7 @@
 import type { Config } from "../utils/config.js";
 import type { ProjectState, PhaseCheckpoint } from "../state/project-state.js";
-import type { PhaseResult } from "./types.js";
+import type { PhaseResult, PhaseExecutionContext } from "./types.js";
+import { QueryAbortedError } from "../utils/sdk-helpers.js";
 import { researchStack } from "../agents/stack-researcher.js";
 import { installLspServers } from "../environment/lsp-manager.js";
 import { configureMcpServers } from "../environment/mcp-manager.js";
@@ -19,6 +20,7 @@ interface SetupStepResult {
 export async function runEnvironmentSetup(
   state: ProjectState,
   config: Config,
+  ctx?: PhaseExecutionContext,
 ): Promise<PhaseResult> {
   if (!state.architecture || !state.spec) {
     return {
@@ -29,6 +31,7 @@ export async function runEnvironmentSetup(
   }
 
   console.log("[env-setup] Researching optimal environment for this stack...");
+  const signal = ctx?.signal;
 
   const stepResults: SetupStepResult[] = [];
   let updatedState = { ...state };
@@ -36,7 +39,7 @@ export async function runEnvironmentSetup(
   // Step 1: Stack Research (critical — without it we can't proceed)
   let discovered: Awaited<ReturnType<typeof researchStack>>;
   try {
-    discovered = await researchStack(state.architecture, state.spec.domain, config);
+    discovered = await researchStack(state.architecture, state.spec.domain, config, signal);
     stepResults.push({ name: "Stack Research", success: true, critical: true });
     console.log(
       `[env-setup] Discovered: ${discovered.lspServers.length} LSP, ` +
@@ -44,6 +47,9 @@ export async function runEnvironmentSetup(
         `${discovered.openSourceTools.length} OSS tools`
     );
   } catch (err) {
+    if (err instanceof QueryAbortedError) {
+      return { success: false, state: updatedState, error: "aborted" };
+    }
     const message = err instanceof Error ? err.message : String(err);
     stepResults.push({ name: "Stack Research", success: false, error: message, critical: true });
     console.error(`[env-setup] Stack research failed: ${message}`);

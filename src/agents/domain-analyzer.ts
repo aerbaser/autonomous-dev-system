@@ -1,6 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { DomainAnalysis, AgentBlueprint } from "../state/project-state.js";
-import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns, QueryAbortedError } from "../utils/sdk-helpers.js";
 import type { Config } from "../utils/config.js";
 import { DomainAnalysisSchema, DomainAgentArraySchema } from "../types/llm-schemas.js";
 import { extractFirstJson, wrapUserInput } from "../utils/shared.js";
@@ -41,6 +41,7 @@ interface DomainQueryTelemetryOptions {
   eventBus?: EventBus | undefined;
   phase?: Phase | undefined;
   model?: string | undefined;
+  signal?: AbortSignal | undefined;
 }
 
 export async function analyzeDomain(
@@ -66,10 +67,14 @@ export async function analyzeDomain(
         phase: telemetry?.phase,
         agentName: "domain-analyzer",
         model: telemetry?.model,
+        ...(telemetry?.signal ? { signal: telemetry.signal } : {}),
       }
     );
     resultText = result;
   } catch (err) {
+    // Re-throw abort so callers can treat it as cancellation rather than
+    // silently falling back to a default domain.
+    if (err instanceof QueryAbortedError) throw err;
     console.warn(`[domain-analyzer] Query failed: ${err instanceof Error ? err.message : String(err)}`);
     return getDefaultDomain();
   }
@@ -163,10 +168,12 @@ Generate blueprints for these roles: ${domain.requiredRoles.join(", ")}`,
         phase: telemetry?.phase,
         agentName: "agent-generator",
         model: telemetry?.model,
+        ...(telemetry?.signal ? { signal: telemetry.signal } : {}),
       }
     );
     resultText = result;
-  } catch {
+  } catch (err) {
+    if (err instanceof QueryAbortedError) throw err;
     return [];
   }
 

@@ -1,16 +1,18 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
 import type { ProjectState } from "../state/project-state.js";
-import type { PhaseResult } from "./types.js";
+import type { PhaseResult, PhaseExecutionContext } from "./types.js";
 import { getMcpServerConfigs } from "../environment/mcp-manager.js";
-import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns, QueryAbortedError } from "../utils/sdk-helpers.js";
 import { errMsg } from "../utils/shared.js";
 import { MonitoringResultSchema } from "../types/llm-schemas.js";
 
 export async function runMonitoring(
   state: ProjectState,
-  config: Config
+  config: Config,
+  ctx?: PhaseExecutionContext
 ): Promise<PhaseResult> {
+  const signal = ctx?.signal;
   const mcpServers = state.environment
     ? getMcpServerConfigs(state.environment.mcpServers)
     : {};
@@ -54,12 +56,15 @@ or
           mcpServers,
         },
       }),
-      "monitoring"
+      { label: "monitoring", ...(signal ? { signal } : {}) }
     );
     resultText = queryResult.result;
     structuredOutput = queryResult.structuredOutput;
     costUsd = queryResult.cost;
   } catch (err) {
+    if (err instanceof QueryAbortedError) {
+      return { success: false, state, error: "aborted" };
+    }
     console.error(`[monitoring] Query failed: ${errMsg(err)}`);
     return { success: false, state, error: errMsg(err) };
   }

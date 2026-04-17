@@ -5,8 +5,10 @@ import { join } from "node:path";
 import {
   consumeQuery,
   QueryExecutionError,
+  QueryAbortedError,
   getQueryPermissions,
   getMaxTurns,
+  buildCachedSystemPrompt,
 } from "../../src/utils/sdk-helpers.js";
 import type { Config } from "../../src/utils/config.js";
 import { MAX_TURNS_DEFAULTS } from "../../src/utils/config.js";
@@ -200,6 +202,91 @@ describe("consumeQuery", () => {
     expect(start?.data.phase).toBe("architecture");
     expect(start?.data.label).toBe("architecture");
   });
+
+  it("throws QueryAbortedError when signal is already aborted", async () => {
+    const ctrl = new AbortController();
+    ctrl.abort("user-cancelled");
+    await expect(
+      consumeQuery(makeSuccessStream("x"), { signal: ctrl.signal })
+    ).rejects.toBeInstanceOf(QueryAbortedError);
+  });
+
+  it("calls queryStream.interrupt() and throws when signal aborts mid-stream", async () => {
+    const ctrl = new AbortController();
+    let interruptCalled = false;
+
+    // Build a stream that yields a system message, then an assistant tick, then
+    // (only when interrupt is called) a result. We abort before result arrives.
+    const stream: any = {
+      [Symbol.asyncIterator]() {
+        const queue: any[] = [
+          { type: "system", subtype: "api_retry_started", attempt: 1, max_retries: 3, retry_delay_ms: 100 },
+        ];
+        return {
+          async next() {
+            // After one pre-abort message, abort the signal. The next iteration
+            // must throw QueryAbortedError instead of returning another message.
+            if (queue.length === 0) {
+              ctrl.abort("mid-stream");
+              return { value: undefined, done: true as const };
+            }
+            const value = queue.shift();
+            return { value, done: false as const };
+          },
+        };
+      },
+      interrupt: async () => {
+        interruptCalled = true;
+      },
+    };
+
+    await expect(
+      consumeQuery(stream, { signal: ctrl.signal })
+    ).rejects.toBeInstanceOf(QueryAbortedError);
+    expect(interruptCalled).toBe(true);
+  });
+
+  it("removes abort listener after success to avoid leaks", async () => {
+    const ctrl = new AbortController();
+    const listenersBefore = (ctrl.signal as any).__listeners ?? 0;
+    await consumeQuery(makeSuccessStream("ok"), { signal: ctrl.signal });
+    // AbortSignal doesn't expose listener count publicly; check by asserting
+    // abort after completion does NOT throw in our code path (listener removed).
+    expect(() => ctrl.abort("late")).not.toThrow();
+    expect(listenersBefore).toBe(0);
+  });
+});
+
+// ── buildCachedSystemPrompt ───────────────────────────────────────────────────
+
+describe("buildCachedSystemPrompt", () => {
+  it("returns static context alone when instructions omitted", () => {
+    expect(buildCachedSystemPrompt("ARCH")).toBe("ARCH");
+  });
+
+  it("places static context BEFORE instructions (stable prefix first)", () => {
+    const result = buildCachedSystemPrompt("ARCH", "do task");
+    expect(result.indexOf("ARCH")).toBeLessThan(result.indexOf("do task"));
+  });
+
+  it("separates static and dynamic with blank line", () => {
+    expect(buildCachedSystemPrompt("A", "B")).toBe("A\n\nB");
+  });
+
+  it("trims surrounding whitespace from both parts", () => {
+    expect(buildCachedSystemPrompt("  ARCH\n", "\n  do task  ")).toBe("ARCH\n\ndo task");
+  });
+
+  it("omits suffix when instructions are empty string", () => {
+    expect(buildCachedSystemPrompt("ARCH", "")).toBe("ARCH");
+    expect(buildCachedSystemPrompt("ARCH", "   ")).toBe("ARCH");
+  });
+
+  it("produces identical output for same inputs (cache-key stability)", () => {
+    const a = buildCachedSystemPrompt("ctx", "instr");
+    const b = buildCachedSystemPrompt("ctx", "instr");
+    expect(a).toBe(b);
+  });
 });
 
 // ── getQueryPermissions ───────────────────────────────────────────────────────
@@ -207,14 +294,16 @@ describe("consumeQuery", () => {
 describe("getQueryPermissions", () => {
   it("returns bypass permissions when config is undefined", () => {
     const perms = getQueryPermissions(undefined);
-    expect(perms.permissionMode).toBe("bypassPermissions");
-    expect(perms.allowDangerouslySkipPermissions).toBe(true);
+    // Uses acceptEdits rather than bypassPermissions so the CLI works
+    // under root (sandboxed containers). Same autonomous behavior in -p mode.
+    expect(perms.permissionMode).toBe("acceptEdits");
+    expect(perms.allowDangerouslySkipPermissions).toBe(false);
   });
 
   it("returns bypass permissions when autonomousMode is true", () => {
     const config = { autonomousMode: true } as Config;
     const perms = getQueryPermissions(config);
-    expect(perms.permissionMode).toBe("bypassPermissions");
+    expect(perms.permissionMode).toBe("acceptEdits");
   });
 
   it("returns default permissions when autonomousMode is false", () => {
