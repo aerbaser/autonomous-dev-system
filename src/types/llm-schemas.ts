@@ -184,19 +184,6 @@ export const RegistryDataSchema = z.object({
   }))),
 });
 
-export const ExternalBenchmarkFileSchema = z.object({
-  id: z.string(),
-  name: z.string(),
-  verifier: z.enum(["deterministic", "llm"]),
-  weight: z.number(),
-  tasks: z.array(z.object({
-    instruction: z.string(),
-    timeout: z.number(),
-    expectedOutput: z.string().optional(),
-    evaluationPrompt: z.string().optional(),
-  })),
-});
-
 export const ToolConfigResponseSchema = z.array(z.string());
 
 export const PhaseLogicResponseSchema = z.object({

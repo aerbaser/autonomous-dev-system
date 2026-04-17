@@ -36,10 +36,6 @@ export interface L0Layer {
   getRules(): Promise<MetaRule[]>;
 }
 
-export interface L1Layer {
-  queryIndex(keyword: string): Promise<string[]>;
-}
-
 export interface L2Layer {
   upsertFact(key: string, value: string): Promise<void>;
   getFact(key: string): Promise<string | null>;
@@ -63,12 +59,11 @@ const FACT_TOPIC_PREFIX = "fact:";
 const FACT_TAG = "global-fact";
 
 /**
- * LayeredMemory implements the L0-L4 memory hierarchy on top of the existing
+ * LayeredMemory implements the L0/L2-L4 memory hierarchy on top of the existing
  * `MemoryStore` and the filesystem:
  *
  *   L0 — read-only meta-rules shipped with the codebase (seed) or copied into
  *        the state dir. These are the "always-apply" invariants.
- *   L1 — index over the MemoryStore; cheap topic/tag keyword lookup.
  *   L2 — global facts. Small key-value store on top of MemoryStore using the
  *        reserved `fact:` topic prefix and the `global-fact` tag.
  *   L3 — SkillStore (playbooks crystallized from successful receipts).
@@ -79,7 +74,6 @@ const FACT_TAG = "global-fact";
  */
 export class LayeredMemory {
   readonly l0: L0Layer;
-  readonly l1: L1Layer;
   readonly l2: L2Layer;
   readonly l3: SkillStore;
   readonly l4: L4Layer;
@@ -100,26 +94,6 @@ export class LayeredMemory {
         } catch {
           return [];
         }
-      },
-    };
-
-    this.l1 = {
-      async queryIndex(keyword: string): Promise<string[]> {
-        // Use memoryStore.list with no tag filter, then filter by topic /
-        // tag substring locally — cheap and avoids leaking content reads.
-        const docs = await memoryStore.list();
-        const needle = keyword.toLowerCase();
-        const out = new Set<string>();
-        for (const doc of docs) {
-          if (doc.topic.toLowerCase().includes(needle)) {
-            out.add(doc.topic);
-            continue;
-          }
-          if (doc.tags.some((t) => t.toLowerCase().includes(needle))) {
-            out.add(doc.topic);
-          }
-        }
-        return [...out];
       },
     };
 

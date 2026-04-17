@@ -81,7 +81,10 @@ export type TechStackRecommendation = NonNullable<ProductSpec["techStackRecommen
 const VALID_TRANSITIONS = {
   ideation: ["specification"],
   specification: ["architecture"],
-  architecture: ["environment-setup"],
+  // architecture → development is allowed so --quick can skip environment-setup
+  // when a handler returns `nextPhase: "development"` directly. The standard
+  // path still goes through environment-setup.
+  architecture: ["environment-setup", "development"],
   "environment-setup": ["development"],
   development: ["testing"],
   testing: ["development", "review"],

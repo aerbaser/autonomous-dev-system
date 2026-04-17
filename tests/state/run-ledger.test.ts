@@ -99,6 +99,10 @@ describe("RunLedger", () => {
       expect(ReasonCodeSchema.safeParse("verification_failed").success).toBe(true);
       expect(ReasonCodeSchema.safeParse("blocked_filesystem").success).toBe(true);
       expect(ReasonCodeSchema.safeParse("unsupported_team_runtime").success).toBe(true);
+      // Canonical superset also contains the governor-side codes.
+      expect(ReasonCodeSchema.safeParse("transient").success).toBe(true);
+      expect(ReasonCodeSchema.safeParse("timeout").success).toBe(true);
+      expect(ReasonCodeSchema.safeParse("unknown").success).toBe(true);
       expect(ReasonCodeSchema.safeParse("nope").success).toBe(false);
     });
 

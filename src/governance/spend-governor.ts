@@ -1,15 +1,19 @@
 import type { Config, RetryPolicy, RoleBudget } from "../utils/config.js";
+import type { CanonicalFailureReasonCode } from "../types/failure-codes.js";
 
 /**
  * Failure reason codes used by the governor's retry policy.
- * Local to this module — Phase 1's run-ledger does not exist yet.
+ *
+ * Aliased to the canonical `CanonicalFailureReasonCode` (see
+ * `src/types/failure-codes.ts`) so that governor decisions and run-ledger
+ * entries share a single vocabulary. The governor currently only reacts
+ * specifically to `provider_limit` and `verification_failed`; all other
+ * codes (including `transient`, `timeout`, `unknown`, and the ledger-only
+ * codes like `provider_rate_limit`, `invalid_structured_output`,
+ * `blocked_filesystem`, `unsupported_team_runtime`) fall through to the
+ * default "allow retry" path inside `shouldRetry`.
  */
-export type FailureReason =
-  | "provider_limit"
-  | "verification_failed"
-  | "transient"
-  | "timeout"
-  | "unknown";
+export type FailureReason = CanonicalFailureReasonCode;
 
 export type GovernorAction =
   | "allow"

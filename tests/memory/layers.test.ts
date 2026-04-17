@@ -141,20 +141,4 @@ describe("LayeredMemory", () => {
     });
   });
 
-  describe("L1 — index query", () => {
-    it("queryIndex matches topics by keyword substring", async () => {
-      await memory.write("billing-notes", "content", ["billing"]);
-      await memory.write("auth-notes", "content", ["auth"]);
-
-      const topics = await layered.l1.queryIndex("billing");
-      expect(topics).toContain("billing-notes");
-      expect(topics).not.toContain("auth-notes");
-    });
-
-    it("queryIndex matches by tag substring", async () => {
-      await memory.write("topic-x", "content", ["security-review"]);
-      const topics = await layered.l1.queryIndex("security");
-      expect(topics).toContain("topic-x");
-    });
-  });
 });

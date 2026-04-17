@@ -36,11 +36,15 @@ vi.mock("../../src/dashboard/generate.js", () => ({ generateDashboard: vi.fn() }
 
 const { runOrchestrator } = await import("../../src/orchestrator.js");
 const { runArchitecture } = await import("../../src/phases/architecture.js");
+const { runEnvironmentSetup } = await import("../../src/phases/environment-setup.js");
+const { runDevelopment } = await import("../../src/phases/development.js");
 const { runReview } = await import("../../src/phases/review.js");
 const { runDeployment } = await import("../../src/phases/deployment.js");
 const { generateDashboard } = await import("../../src/dashboard/generate.js");
 
 const mockedArchitecture = vi.mocked(runArchitecture);
+const mockedEnvironmentSetup = vi.mocked(runEnvironmentSetup);
+const mockedDevelopment = vi.mocked(runDevelopment);
 const mockedReview = vi.mocked(runReview);
 const mockedDeployment = vi.mocked(runDeployment);
 const mockedGenerateDashboard = vi.mocked(generateDashboard);
@@ -134,6 +138,37 @@ describe("Orchestrator runtime matrix", () => {
 
     const saved = loadState(config.stateDir);
     expect(saved?.currentPhase).toBe("staging");
+  });
+
+  it("skips environment-setup in quick mode (PRODUCT.md §3)", async () => {
+    // Regression: environment-setup is documented as optional in PRODUCT.md §3
+    // but historically was missing from OPTIONAL_PHASES in both orchestrator.ts
+    // and index.ts, so --quick ran it anyway. Now a single source of truth in
+    // src/types/phases.ts includes environment-setup.
+    const state: ProjectState = {
+      ...createInitialState("Ship fast without env setup"),
+      currentPhase: "environment-setup",
+    };
+    const config = makeConfig({ quickMode: true });
+
+    // runDevelopment is the first required phase after env-setup — we stop the
+    // orchestrator there by leaving the mock un-configured (returns undefined,
+    // which causes the error branch to save state and break). We only care
+    // that env-setup was skipped and the state transitioned to development.
+    mockedDevelopment.mockResolvedValueOnce({
+      success: true,
+      state: {
+        ...state,
+        currentPhase: "development",
+      },
+    });
+
+    await runOrchestrator(state, config);
+
+    expect(mockedEnvironmentSetup).not.toHaveBeenCalled();
+
+    const saved = loadState(config.stateDir);
+    expect(saved?.currentPhase).toBe("development");
   });
 
   it("forces outer model to Opus when codexSubagents.enabled=true", async () => {

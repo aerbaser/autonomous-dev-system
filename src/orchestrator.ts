@@ -12,6 +12,7 @@ import {
   canTransition,
   withStateLock,
 } from "./state/project-state.js";
+import { OPTIONAL_PHASES } from "./types/phases.js";
 import {
   loadSessions,
   saveSessions,
@@ -79,12 +80,6 @@ const PHASE_HANDLERS: Record<Phase, PhaseHandler> = {
   production: runDeployment,
   monitoring: runMonitoring,
 };
-
-const OPTIONAL_PHASES: Phase[] = [
-  "review",
-  "ab-testing",
-  "monitoring",
-];
 
 /** Static execution plan shown when --dry-run is active. */
 const PHASE_DRY_RUN_PLANS: Record<Phase, { description: string; agents: number; turns: number; tools: string[] }> = {

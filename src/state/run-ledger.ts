@@ -6,6 +6,10 @@ import type { Phase } from "../types/phases.js";
 import type { EventBus, EventRecord, AgentQueryStartData, AgentQueryEndData } from "../events/event-bus.js";
 import { assertSafePath } from "./project-state.js";
 import { errMsg } from "../utils/shared.js";
+import {
+  CanonicalFailureReasonCodeSchema,
+  type CanonicalFailureReasonCode,
+} from "../types/failure-codes.js";
 
 export const SessionTypeSchema = z.enum([
   "coordinator",
@@ -18,15 +22,12 @@ export const SessionTypeSchema = z.enum([
 ]);
 export type SessionType = z.infer<typeof SessionTypeSchema>;
 
-export const ReasonCodeSchema = z.enum([
-  "provider_limit",
-  "provider_rate_limit",
-  "invalid_structured_output",
-  "verification_failed",
-  "blocked_filesystem",
-  "unsupported_team_runtime",
-]);
-export type ReasonCode = z.infer<typeof ReasonCodeSchema>;
+// Unified failure vocabulary — see `src/types/failure-codes.ts`. Kept as a
+// named re-export so external imports (`import { ReasonCode } from ...`) keep
+// working while internally converging on a single canonical type shared with
+// `SpendGovernor`.
+export const ReasonCodeSchema = CanonicalFailureReasonCodeSchema;
+export type ReasonCode = CanonicalFailureReasonCode;
 
 export const SessionAttributionSchema = z.object({
   sessionId: z.string(),

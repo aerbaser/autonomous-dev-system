@@ -10,6 +10,7 @@ import {
   loadState, createInitialState, saveState,
   ALL_PHASES, type Phase, type ProjectState,
 } from "./state/project-state.js";
+import { OPTIONAL_PHASES } from "./types/phases.js";
 import { runOrchestrator, getInterrupter } from "./orchestrator.js";
 import { runOptimizer } from "./self-improve/optimizer.js";
 import { runNightlyMaintenance } from "./nightly/nightly-runner.js";
@@ -31,8 +32,6 @@ const C = USE_COLOR
   : {
       reset: "", bold: "", dim: "", red: "", green: "", yellow: "", cyan: "", gray: "",
     };
-
-const OPTIONAL_PHASES: Phase[] = ["review", "ab-testing", "monitoring"];
 
 // Process-wide safety net: surface unhandled promise rejections and uncaught
 // exceptions through the active Interrupter so the orchestrator can save state
