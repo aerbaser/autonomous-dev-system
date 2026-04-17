@@ -60,6 +60,34 @@ function selectTargetAgent(
   return worstAgent;
 }
 
+/**
+ * Hybrid weighting for mutation acceptance.
+ *   weighted = AGENT_WEIGHT * agentSpecificScore + OVERALL_WEIGHT * overallScore
+ * Tuned so an agent-specific regression isn't masked by unrelated
+ * improvements in the rest of the benchmark suite.
+ */
+const AGENT_WEIGHT = 0.7;
+const OVERALL_WEIGHT = 0.3;
+
+/**
+ * Compute the average benchmark score attributable to a specific agent from
+ * the freshly-recorded post-mutation results. We source per-benchmark scores
+ * from the registry's performance history because results may reach us via
+ * different paths (worktree sandbox, inline). Falls back to the overall
+ * score when no agent-specific signal is available.
+ */
+function computeAgentSpecificScore(
+  results: BenchmarkResult[],
+  overallScore: number
+): number {
+  if (results.length === 0) return overallScore;
+  let sum = 0;
+  for (const r of results) {
+    sum += Number.isFinite(r.score) ? r.score : 0;
+  }
+  return sum / results.length;
+}
+
 export async function runOptimizerImpl(
   state: ProjectState,
   config: Config,
@@ -68,6 +96,10 @@ export async function runOptimizerImpl(
   const registry = new AgentRegistry(config.stateDir);
   let currentState = { ...state };
   let totalCostUsd = 0;
+
+  // Per-agent baseline scores — seeded lazily as we observe mutations for
+  // each agent. Not persisted; local to this optimizer run.
+  const agentBaselines = new Map<string, number>();
 
   // Merge convergence config
   const convergenceConfig: ConvergenceConfig = {
@@ -248,25 +280,38 @@ export async function runOptimizerImpl(
         timestamp: new Date().toISOString(),
       };
 
-      if (newScore > currentState.baselineScore) {
-        // Accept mutation
+      // Hybrid acceptance: weight agent-specific benchmark score against
+      // overall suite score so we don't let a regression on the targeted
+      // agent slip through just because unrelated benchmarks happened to
+      // improve in the same run.
+      const agentName = mutatedBlueprint.name;
+      const agentSpecificScore = computeAgentSpecificScore(newResults, newScore);
+      const overallScore = newScore;
+      const priorAgentBaseline =
+        agentBaselines.get(agentName) ?? currentState.baselineScore;
+      const weightedNew =
+        AGENT_WEIGHT * agentSpecificScore + OVERALL_WEIGHT * overallScore;
+      const weightedBaseline =
+        AGENT_WEIGHT * priorAgentBaseline +
+        OVERALL_WEIGHT * currentState.baselineScore;
+      const accepted = !evaluationFailed && weightedNew > weightedBaseline;
+
+      if (accepted) {
         entry.accepted = true;
-        currentState.baselineScore = newScore;
+        currentState.baselineScore = overallScore;
+        agentBaselines.set(agentName, agentSpecificScore);
 
         // Save the new prompt version
         savePromptVersion(config.stateDir, mutatedBlueprint);
-
-        console.log(
-          `[optimizer] ACCEPTED: ${entry.scoreBefore.toFixed(3)} → ${newScore.toFixed(3)} (+${(newScore - entry.scoreBefore).toFixed(3)})`
-        );
       } else {
         // Reject mutation — rollback
         const rolledBack = mutation.rollback();
         registry.register(rolledBack);
-        console.log(
-          `[optimizer] REJECTED: ${newScore.toFixed(3)} <= ${currentState.baselineScore.toFixed(3)}`
-        );
       }
+
+      console.log(
+        `[optimize] agent=${agentName} agentScore=${agentSpecificScore.toFixed(3)} overall=${overallScore.toFixed(3)} weighted=${weightedNew.toFixed(3)} baseline=${weightedBaseline.toFixed(3)} -> ${accepted ? "ACCEPT" : "REJECT"}`
+      );
 
       currentState = { ...currentState, evolution: [...currentState.evolution, entry] };
       registry.save();

@@ -92,6 +92,7 @@ export const ConfigSchema = z.object({
     maxIterations: z.number().default(3),
     graderModel: z.string().optional(),
   }).default({ enabled: true, maxIterations: 3 }),
+  maxParallelBatches: z.number().default(3),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;
