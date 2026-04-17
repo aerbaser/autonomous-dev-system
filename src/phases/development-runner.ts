@@ -30,7 +30,7 @@ import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
 import { TaskResultsSchema } from "../types/llm-schemas.js";
-import { getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { getQueryPermissions, getMaxTurns, buildCachedSystemPrompt } from "../utils/sdk-helpers.js";
 import { isApiRetry, wrapUserInput, extractFirstJson } from "../utils/shared.js";
 import { TaskDecompositionSchema } from "../types/llm-schemas.js";
 import { getBaseAgentNames } from "../agents/base-blueprints.js";
@@ -493,7 +493,39 @@ function groupIntoBatches(projectTasks: Task[], devTasks: DevTask[]): Task[][] {
 
 const BASE_AGENT_NAMES = getBaseAgentNames();
 
-function buildBatchAgents(
+const GENERIC_DEV_INSTRUCTIONS = `You are an expert developer. Implement the task described below.
+
+## Instructions
+1. Read the existing codebase to understand current state
+2. Implement the task following the architecture exactly
+3. Write clean, well-structured code
+4. Add appropriate error handling
+5. Write or update tests for the new code
+6. Run type-check (\`npx tsc --noEmit\`) and fix any errors
+7. Run tests (\`npm test\`) and fix any failures
+8. Create a git commit for the completed work with a clear message
+
+Report what you implemented and any decisions you made.`;
+
+/**
+ * Build the stable system-prompt block shared by every task agent in a batch.
+ * Contains the (large) architecture JSON, the file structure summary, and the
+ * generic developer instructions — i.e. everything that is identical for every
+ * task in the same batch. Putting this text at the front of each subagent's
+ * `prompt` lets the SDK's ephemeral cache hit across subagent invocations,
+ * eliminating the per-task duplication of the architecture blob.
+ */
+export function buildSharedTaskContext(state: ProjectState): string {
+  const archJson = JSON.stringify(state.architecture, null, 2);
+  const fileStructure = state.architecture?.fileStructure ?? "Not specified";
+  const staticContext = `${wrapUserInput("architecture", archJson)}
+
+## File Structure
+${fileStructure}`;
+  return buildCachedSystemPrompt(staticContext, GENERIC_DEV_INSTRUCTIONS);
+}
+
+export function buildBatchAgents(
   batch: Task[],
   state: ProjectState,
   baseAgentDefs: Record<string, { description: string; prompt: string; tools: string[] }>,
@@ -501,6 +533,10 @@ function buildBatchAgents(
   registry: AgentRegistry
 ): Record<string, AgentDefinition> {
   const agents: Record<string, AgentDefinition> = {};
+  // Build the architecture + file-structure + generic instructions block ONCE
+  // per batch. Each task agent prompt prepends this so identical prefixes
+  // across subagents are eligible for Anthropic prompt caching.
+  const sharedContext = buildSharedTaskContext(state);
 
   // Include base agents (developer, qa-engineer, etc.)
   for (const [name, def] of Object.entries(baseAgentDefs)) {
@@ -528,13 +564,20 @@ function buildBatchAgents(
         titleLower.includes(bp.role.toLowerCase())
     );
 
+    const taskBlock = wrapUserInput(
+      "current-task",
+      `**${task.title}**\n${task.description}`
+    );
+
     if (matchingDomain) {
       const agentName = matchingDomain.name;
       const def = registry.toAgentDefinition(agentName);
       console.log(`[dev] Using domain agent: ${agentName}`);
+      // Domain specialization stays up top (cache-friendly across domain
+      // matches), shared architecture block follows, then the per-task suffix.
       agents[agentName] = {
         description: def.description,
-        prompt: def.prompt + `\n\n${wrapUserInput("current-task", `**${task.title}**\n${task.description}`)}`,
+        prompt: `${def.prompt}\n\n${sharedContext}\n\n${taskBlock}`,
         tools: def.tools,
         model: config.subagentModel,
         maxTurns: getMaxTurns(config, "default"),
@@ -544,7 +587,7 @@ function buildBatchAgents(
       console.log(`[dev] Using generic agent for: ${task.title}`);
       agents[agentName] = {
         description: `Implement: ${task.title}`,
-        prompt: buildTaskPrompt(task, state),
+        prompt: buildTaskPrompt(task, sharedContext),
         tools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep"],
         model: config.subagentModel,
         maxTurns: getMaxTurns(config, "default"),
@@ -555,27 +598,14 @@ function buildBatchAgents(
   return agents;
 }
 
-function buildTaskPrompt(task: Task, state: ProjectState): string {
-  return `You are an expert developer. Implement the following task.
-
-${wrapUserInput("task", `**${task.title}**\n${task.description}`)}
-
-${wrapUserInput("architecture", JSON.stringify(state.architecture, null, 2))}
-
-## File Structure
-${state.architecture?.fileStructure ?? "Not specified"}
-
-## Instructions
-1. Read the existing codebase to understand current state
-2. Implement the task following the architecture exactly
-3. Write clean, well-structured code
-4. Add appropriate error handling
-5. Write or update tests for the new code
-6. Run type-check (\`npx tsc --noEmit\`) and fix any errors
-7. Run tests (\`npm test\`) and fix any failures
-8. Create a git commit for the completed work with a clear message
-
-Report what you implemented and any decisions you made.`;
+/**
+ * Compose a generic-developer agent prompt: shared cached block followed by
+ * the per-task suffix. The architecture JSON is NOT inlined here — it lives
+ * in `sharedContext` which is built once per batch via
+ * `buildSharedTaskContext`.
+ */
+export function buildTaskPrompt(task: Task, sharedContext: string): string {
+  return `${sharedContext}\n\n${wrapUserInput("current-task", `**${task.title}**\n${task.description}`)}`;
 }
 
 /**
@@ -636,14 +666,75 @@ async function executeBatch(
   config: Config,
   mcpServers: Record<string, McpServerConfig>
 ): Promise<BatchResult> {
-  const taskList = batch
-    .map((t, i) => `${i + 1}. **${t.title}**: ${t.description}`)
-    .join("\n\n");
-
   // Derive task agent names from the agentDefs (excludes base agents like developer, qa-engineer)
   const taskAgentNames = Object.keys(agentDefs).filter(
     (name) => !BASE_AGENT_NAMES.has(name)
   );
+
+  // Single-task batch: skip the lead-agent wrapper and dispatch the task's
+  // subagent directly. Saves one full turn of lead-agent reasoning plus the
+  // Agent-tool invocation overhead (the lead agent's only job would be to
+  // delegate to this one subagent).
+  if (batch.length === 1 && taskAgentNames.length === 1) {
+    const task = batch[0]!;
+    const agentName = taskAgentNames[0]!;
+    const def = agentDefs[agentName]!;
+
+    const singlePrompt = `Implement the task described in your system prompt. When done, report the result as structured JSON:
+\`\`\`json
+{ "tasks": [{ "title": "${task.title.replace(/"/g, '\\"')}", "status": "success" | "failed" }] }
+\`\`\`
+Follow with a brief text summary.`;
+
+    let resultText = "";
+    let sessionId: string | undefined;
+    let costUsd = 0;
+
+    // Preserve the subagent's tool set; intentionally omit "Agent".
+    const allowedTools = def.tools ?? ["Read", "Write", "Edit", "Bash", "Glob", "Grep"];
+
+    for await (const message of query({
+      prompt: singlePrompt,
+      options: {
+        systemPrompt: def.prompt,
+        allowedTools,
+        hooks: {
+          PostToolUse: [{ matcher: "Edit|Write", hooks: [auditLoggerHook] }],
+        },
+        mcpServers,
+        model: config.subagentModel,
+        maxTurns: getMaxTurns(config, "default"),
+        ...getQueryPermissions(config),
+      },
+    })) {
+      if (message.type === "result") {
+        if (message.subtype === "success") {
+          resultText = message.result;
+          sessionId = message.session_id;
+          costUsd = message.total_cost_usd;
+        } else {
+          console.error(
+            `[development] Single-task execution ended with error: ${message.subtype}`,
+            message.errors
+          );
+          costUsd = message.total_cost_usd;
+        }
+      }
+
+      if (isApiRetry(message)) {
+        console.warn(
+          `[development] API retry attempt ${message.attempt}, waiting ${message.retry_delay_ms}ms`
+        );
+      }
+    }
+
+    const taskResults = parseTaskResults(resultText, batch);
+    return { taskResults, costUsd, ...(sessionId !== undefined ? { sessionId } : {}) };
+  }
+
+  const taskList = batch
+    .map((t, i) => `${i + 1}. **${t.title}**: ${t.description}`)
+    .join("\n\n");
 
   const prompt = `You are the lead developer orchestrating implementation of ${batch.length} task(s).
 
@@ -655,7 +746,7 @@ ${taskAgentNames.map((name) => `- Use the "${name}" agent for its corresponding 
 
 ## Instructions
 1. For each task, delegate to the corresponding subagent
-2. ${batch.length > 1 ? "Tasks in this batch are independent. You MUST invoke all subagents in a SINGLE assistant message (multiple Agent tool calls in parallel) to maximize throughput." : "Focus on this single task"}
+2. Tasks in this batch are independent. You MUST invoke all subagents in a SINGLE assistant message (multiple Agent tool calls in parallel) to maximize throughput.
 3. After each task completes, verify the implementation:
    - Run \`npx tsc --noEmit\` to check types
    - Run \`npm test\` to check tests

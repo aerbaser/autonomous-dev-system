@@ -78,13 +78,18 @@ export async function runIdeation(
   const domainPromise = analyzeDomain(state.idea, config);
 
   // Step 2: Generate spec
+  //
+  // The long, fully-static SPEC_PROMPT goes into `options.systemPrompt` so
+  // the SDK's ephemeral cache can hit across retries (rubric loop, failures,
+  // etc.). The per-call prompt carries only the project-specific idea.
   let specText: string;
   let costUsd: number | undefined;
   try {
     const queryResult = await consumeQuery(
       query({
-        prompt: `${SPEC_PROMPT}\n\n${wrapUserInput("project-idea", state.idea)}`,
+        prompt: wrapUserInput("project-idea", state.idea),
         options: {
+          systemPrompt: SPEC_PROMPT,
           tools: ["WebSearch", "WebFetch"],
           ...getQueryPermissions(config),
           maxTurns: getMaxTurns(config, "ideation"),

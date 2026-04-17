@@ -78,17 +78,20 @@ export async function runArchitecture(
 
   let archText: string;
   let costUsd: number | undefined;
-  try {
-    const queryResult = await consumeQuery(
-      query({
-        prompt: `${ARCH_PROMPT}
-
-${wrapUserInput("product-spec", JSON.stringify(state.spec, null, 2))}
+  // Fully-static instructions go in `options.systemPrompt` so the SDK's
+  // ephemeral cache can hit across retries. Per-call prompt carries only the
+  // project-specific spec and domain summary.
+  const perCallPrompt = `${wrapUserInput("product-spec", JSON.stringify(state.spec, null, 2))}
 
 Domain: ${state.spec.domain.classification}
 Specializations: ${state.spec.domain.specializations.join(", ")}
-Recommended tech: ${state.spec.domain.techStack.join(", ")}`,
+Recommended tech: ${state.spec.domain.techStack.join(", ")}`;
+  try {
+    const queryResult = await consumeQuery(
+      query({
+        prompt: perCallPrompt,
         options: {
+          systemPrompt: ARCH_PROMPT,
           tools: ["WebSearch", "WebFetch"],
           ...getQueryPermissions(config),
           maxTurns: getMaxTurns(config, "architecture"),
