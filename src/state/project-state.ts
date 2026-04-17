@@ -22,10 +22,7 @@ import type { TaskStateSchema, AgentBlueprintSchema, ProductSpecSchema, UserStor
   PluginDiscoverySchema, OssToolStateSchema, DeploymentStateSchema,
   ABTestStateSchema, PhaseCheckpointSchema, PhaseResultSummarySchema,
   EvolutionEntrySchema} from "../types/llm-schemas.js";
-import {
-  ProjectStateSchema,
-  McpServerConfigSchema
-} from "../types/llm-schemas.js";
+import { ProjectStateSchema } from "../types/llm-schemas.js";
 
 export { Phase, ALL_PHASES, TaskStatus };
 

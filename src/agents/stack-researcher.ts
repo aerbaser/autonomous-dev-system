@@ -126,7 +126,7 @@ ${wrapUserInput("tech-context", `Tech Stack:\n${techList}\n\nDomain: ${domain.cl
 
 function getDefaultEnvironment(
   architecture: ArchDesign,
-  domain: DomainAnalysis
+  _domain: DomainAnalysis
 ): StackEnvironment {
   const lspServers: LspConfig[] = [];
   const stack = Object.values(architecture.techStack).join(" ").toLowerCase();

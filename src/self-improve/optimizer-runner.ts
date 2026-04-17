@@ -9,7 +9,6 @@ import { AgentRegistry } from "../agents/registry.js";
 import { runAllBenchmarks, getDefaultBenchmarks } from "./benchmarks.js";
 import type { BenchmarkResult } from "./benchmarks.js";
 import { generateMutations } from "./mutation-engine.js";
-import type { Mutation } from "./mutation-engine.js";
 import { randomUUID } from "node:crypto";
 import { BenchmarkRunResultSchema } from "../types/llm-schemas.js";
 import {

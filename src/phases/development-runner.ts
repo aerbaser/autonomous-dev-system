@@ -39,7 +39,7 @@ import {
 } from "../types/llm-schemas.js";
 import type { TaskReceipt } from "../types/task-receipt.js";
 import { getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
-import { isApiRetry, wrapUserInput, extractFirstJson, errMsg } from "../utils/shared.js";
+import { isApiRetry, wrapUserInput, errMsg } from "../utils/shared.js";
 import { TaskDecompositionSchema } from "../types/llm-schemas.js";
 import { getBaseAgentNames } from "../agents/base-blueprints.js";
 import { progress } from "../utils/progress.js";
