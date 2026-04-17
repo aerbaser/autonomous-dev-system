@@ -249,8 +249,10 @@ export class RunLedger {
       costUsd: data.costUsd,
       inputTokens: data.inputTokens,
       outputTokens: data.outputTokens,
-      cacheReadTokens: data.cacheReadInputTokens ?? 0,
-      cacheWriteTokens: data.cacheCreationInputTokens ?? 0,
+      // Cache-token fields are forward-compatible: events may carry them
+      // even if AgentQueryEndData doesn't yet declare them as typed fields.
+      cacheReadTokens: (data as { cacheReadInputTokens?: number }).cacheReadInputTokens ?? 0,
+      cacheWriteTokens: (data as { cacheCreationInputTokens?: number }).cacheCreationInputTokens ?? 0,
     };
     this.endSession(sessionId, {
       success: data.success,
