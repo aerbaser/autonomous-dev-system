@@ -2,6 +2,10 @@
 
 Self-improving multi-agent development system built on [Claude Agent SDK](https://docs.anthropic.com/en/docs/claude-agent-sdk). Give it an idea — it designs, builds, tests, and deploys autonomously, then optimizes its own agent prompts via hill-climbing.
 
+> **Product documentation** — for goals, architecture deep-dive, 12-phase lifecycle details, memory/governance/self-improve mechanics, and current implementation status, see [`PRODUCT.md`](./PRODUCT.md).
+> **Active backlog** — [`tasks-plans/tasks.md`](./tasks-plans/tasks.md).
+> **Historical reviews and plans** — [`docs/archive/`](./docs/archive/).
+
 ## How It Works
 
 The system runs your project through a phased lifecycle, each handled by specialized AI agents:
@@ -239,7 +243,9 @@ Custom benchmarks can be added to `benchmarks/<category>/tasks.json`.
 
 ## Status
 
-All 12 phases implemented, input sanitization via XML delimiters, full Zod schema validation, cost tracking across all phases, ESLint enforced in CI. Event bus emits typed events per phase/agent/memory operation. Rubric-based evaluation loop re-runs phases until quality bar is met. Persistent cross-session memory store. See `TODO.md` for remaining items.
+All 12 phases implemented, input sanitization via XML delimiters, full Zod schema validation, cost tracking across all phases, ESLint enforced in CI. Event bus emits typed events per phase/agent/memory operation. Rubric-based evaluation loop re-runs phases until quality bar is met. Persistent cross-session memory (L0–L4 layered memory + SkillStore + MemoryStore). Run ledger, spend governor, and task receipts enforce attributable, bounded execution. 778 tests.
+
+For the full status matrix and open work, see [`PRODUCT.md`](./PRODUCT.md) and [`tasks-plans/tasks.md`](./tasks-plans/tasks.md).
 
 ## License
 
