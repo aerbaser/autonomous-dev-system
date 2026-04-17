@@ -500,7 +500,9 @@ async function executePhaseSafe(
         // Save state before each attempt (crash safety)
         saveState(config.stateDir, state);
 
-        const context: PhaseContext | undefined = memoryContext ? { memoryContext } : undefined;
+        const context: PhaseContext | undefined = memoryContext
+          ? { memoryContext, cachedSystemPrompt: memoryContext }
+          : undefined;
         const execCtx: PhaseExecutionContext = {
           ...(checkpoint ? { checkpoint } : {}),
           ...(sessionId ? { sessionId } : {}),
@@ -555,7 +557,16 @@ async function executePhaseSafe(
       if (rubric) {
         console.log(`[rubric] Evaluating phase "${phase}" against rubric "${rubric.name}"`);
         const maxIter = config.rubrics?.maxIterations ?? 3;
-        const baseCtx: PhaseContext = memoryContext ? { memoryContext } : {};
+        // Compute the stable reused prefix ONCE. Each iteration re-runs the
+        // handler with a reference-equal `cachedSystemPrompt`, so the SDK's
+        // ephemeral cache can hit on retry iterations (memoryContext is
+        // typically a few KB of knowledge-base excerpts, already carries a
+        // `## Knowledge from previous sessions` heading).
+        const cachedSystemPrompt = memoryContext;
+        const baseCtx: PhaseContext = {
+          ...(memoryContext ? { memoryContext } : {}),
+          ...(cachedSystemPrompt ? { cachedSystemPrompt } : {}),
+        };
         let currentState = result.state; // post-phase state, not pre-phase
         let rubricFeedback: string | undefined;
         let lastRubricResult: RubricResult | null = null;

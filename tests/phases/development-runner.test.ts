@@ -5,8 +5,15 @@ import type { Config } from "../../src/utils/config.js";
 import {
   estimateTaskFileGlobs,
   batchesConflict,
+  buildBatchAgents,
+  buildTaskPrompt,
+  buildSharedTaskContext,
 } from "../../src/phases/development-runner.js";
 import type { Task } from "../../src/state/project-state.js";
+import { AgentRegistry } from "../../src/agents/registry.js";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { mkdtempSync } from "node:fs";
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
@@ -699,5 +706,162 @@ describe("Development Runner", () => {
 
     // 2 query calls: one for decomposition, one for batch execution
     expect(mockedQuery).toHaveBeenCalledTimes(2);
+  });
+
+  // ── Token-waste / prompt-cache refactor (Stream 1) ────────────────────────
+
+  function makeBatch(n: number): Task[] {
+    return Array.from({ length: n }, (_, i) => makeTask(
+      `task-${i}`,
+      `Implement feature ${i}`,
+      `Build src/feature${i}.ts with all the logic`,
+    ));
+  }
+
+  function freshRegistry(): AgentRegistry {
+    const dir = mkdtempSync(join(tmpdir(), "ads-dev-runner-"));
+    return new AgentRegistry(dir);
+  }
+
+  it("buildBatchAgents: architecture JSON appears AT MOST ONCE per agent, not duplicated as a distinct stringification", () => {
+    const state = makeStateWithSpecAndArch();
+    const batch = makeBatch(3);
+    const registry = freshRegistry();
+    const agents = buildBatchAgents(batch, state, {}, makeConfig(), registry);
+
+    // Every task-agent's prompt carries the architecture block exactly once,
+    // via the single shared cached context. That's the cache-friendly shape:
+    // identical prefixes → SDK can cache-match.
+    const archJson = JSON.stringify(state.architecture, null, 2);
+    for (const [, def] of Object.entries(agents)) {
+      const occurrences = def.prompt!.split(archJson).length - 1;
+      expect(occurrences).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("buildBatchAgents: all task agents share the EXACT same architecture prefix (cache-friendly)", () => {
+    const state = makeStateWithSpecAndArch();
+    const batch = makeBatch(3);
+    const registry = freshRegistry();
+    const agents = buildBatchAgents(batch, state, {}, makeConfig(), registry);
+
+    const taskAgents = Object.entries(agents).filter(([name]) =>
+      name.startsWith("dev-")
+    );
+    expect(taskAgents.length).toBe(3);
+
+    // The shared cached context must appear verbatim inside every task agent
+    // prompt — that's what makes the Anthropic ephemeral cache hit.
+    const sharedContext = buildSharedTaskContext(state);
+    for (const [, def] of taskAgents) {
+      expect(def.prompt!).toContain(sharedContext);
+    }
+  });
+
+  it("buildTaskPrompt: no longer embeds architecture JSON directly", () => {
+    const state = makeStateWithSpecAndArch();
+    const task = makeTask("t1", "Do thing", "Implement src/x.ts");
+    const sharedContext = buildSharedTaskContext(state);
+    const prompt = buildTaskPrompt(task, sharedContext);
+
+    // Architecture JSON only appears because sharedContext carries it —
+    // it is not re-stringified inside buildTaskPrompt itself.
+    const withoutShared = prompt.replace(sharedContext, "");
+    const archJson = JSON.stringify(state.architecture, null, 2);
+    expect(withoutShared).not.toContain(archJson);
+
+    // And the per-task content must be present.
+    expect(prompt).toContain(task.title);
+    expect(prompt).toContain(task.description);
+  });
+
+  it("single-task batch bypasses Agent tool (no delegation wrapper)", async () => {
+    const archTasks = [
+      {
+        id: "arch-solo",
+        title: "Single task",
+        description: "Implement src/solo.ts",
+        estimatedComplexity: "low" as const,
+        dependencies: [],
+        acceptanceCriteria: ["done"],
+      },
+    ];
+    const base = makeStateWithSpecAndArch();
+    const state: ProjectState = {
+      ...base,
+      tasks: [],
+      architecture: {
+        ...base.architecture!,
+        taskDecomposition: { tasks: archTasks },
+      },
+    };
+
+    mockedQuery.mockReturnValue(
+      makeQueryStream(
+        JSON.stringify({ tasks: [{ title: "Single task", status: "success" }] })
+      )
+    );
+
+    await runDevelopment(state, makeConfig());
+
+    // There should be exactly one query call (the single task, dispatched
+    // directly as its subagent rather than through a lead-agent wrapper).
+    expect(mockedQuery).toHaveBeenCalledTimes(1);
+    const callArg = mockedQuery.mock.calls[0]![0] as {
+      options: { allowedTools?: string[] };
+    };
+    // Agent tool MUST NOT be on the allowedTools list for the single-task path.
+    expect(callArg.options.allowedTools).toBeDefined();
+    expect(callArg.options.allowedTools!).not.toContain("Agent");
+  });
+
+  it("multi-task batch still exposes Agent tool to the lead agent", async () => {
+    // 2 independent tasks referencing different files → one batch of 2.
+    const archTasks = [
+      {
+        id: "arch-a",
+        title: "Edit src/a.ts",
+        description: "Implement src/a.ts",
+        estimatedComplexity: "low" as const,
+        dependencies: [],
+        acceptanceCriteria: ["done"],
+      },
+      {
+        id: "arch-b",
+        title: "Edit src/b.ts",
+        description: "Implement src/b.ts",
+        estimatedComplexity: "low" as const,
+        dependencies: [],
+        acceptanceCriteria: ["done"],
+      },
+    ];
+    const base = makeStateWithSpecAndArch();
+    const state: ProjectState = {
+      ...base,
+      tasks: [],
+      architecture: {
+        ...base.architecture!,
+        taskDecomposition: { tasks: archTasks },
+      },
+    };
+
+    mockedQuery.mockReturnValue(
+      makeQueryStream(
+        JSON.stringify({
+          tasks: [
+            { title: "Edit src/a.ts", status: "success" },
+            { title: "Edit src/b.ts", status: "success" },
+          ],
+        })
+      )
+    );
+
+    await runDevelopment(state, makeConfig());
+
+    expect(mockedQuery).toHaveBeenCalledTimes(1);
+    const callArg = mockedQuery.mock.calls[0]![0] as {
+      options: { allowedTools?: string[] };
+    };
+    expect(callArg.options.allowedTools).toContain("Agent");
   });
 });

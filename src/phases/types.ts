@@ -6,6 +6,13 @@ export interface PhaseContext {
   memoryContext?: string | undefined;
   /** Rubric gaps from a previous evaluation iteration, injected for retry. */
   rubricFeedback?: string | undefined;
+  /**
+   * Stable prefix (memory + other reused static context) precomputed once by
+   * the orchestrator and reused across rubric-retry iterations. Handlers
+   * should pass it into `query(...)` as `options.systemPrompt` so Anthropic's
+   * ephemeral cache can hit on repeat iterations.
+   */
+  cachedSystemPrompt?: string | undefined;
 }
 
 export interface PhaseResult {
