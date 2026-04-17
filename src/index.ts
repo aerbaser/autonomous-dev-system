@@ -33,6 +33,37 @@ const C = USE_COLOR
 
 const OPTIONAL_PHASES: Phase[] = ["review", "ab-testing", "monitoring"];
 
+// Process-wide safety net: surface unhandled promise rejections and uncaught
+// exceptions through the active Interrupter so the orchestrator can save state
+// and shut down gracefully instead of crashing the process silently. Do NOT
+// call process.exit() here — let the orchestrator's SIGINT/interrupt flow do
+// the normal state-saving, then the process will exit naturally.
+let runtimeHandlersInstalled = false;
+function installRuntimeSafetyHandlers(): void {
+  if (runtimeHandlersInstalled) return;
+  runtimeHandlersInstalled = true;
+
+  process.on("unhandledRejection", (reason) => {
+    console.error("[runtime] unhandled rejection:", reason);
+    try {
+      getInterrupter().interrupt("unhandled-rejection");
+    } catch {
+      /* no active interrupter — nothing to do */
+    }
+  });
+
+  process.on("uncaughtException", (err) => {
+    console.error("[runtime] uncaught exception:", err);
+    try {
+      getInterrupter().interrupt("uncaught-exception");
+    } catch {
+      /* no active interrupter — nothing to do */
+    }
+  });
+}
+
+installRuntimeSafetyHandlers();
+
 function isPhase(value: string): value is Phase {
   return (ALL_PHASES as readonly string[]).includes(value);
 }

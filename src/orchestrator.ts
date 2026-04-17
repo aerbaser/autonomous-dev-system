@@ -225,7 +225,7 @@ export async function runOrchestrator(
 
   if (singlePhase) {
     console.log(`[orchestrator] Running single phase: ${singlePhase}`);
-    const singlePhaseResult = await executePhaseSafe(singlePhase, state, config, eventBus);
+    const singlePhaseResult = await executePhaseSafe(singlePhase, state, config, eventBus, undefined, interrupter);
     if (singlePhaseResult) {
       await withStateLock(config.stateDir, () =>
         saveState(config.stateDir, singlePhaseResult.state)
@@ -335,7 +335,7 @@ export async function runOrchestrator(
         state,
       };
     } else {
-      result = await executePhaseSafe(phase, state, config, eventBus, memoryContext);
+      result = await executePhaseSafe(phase, state, config, eventBus, memoryContext, interrupter);
     }
 
     const elapsedMs = Date.now() - phaseStart;
@@ -474,6 +474,7 @@ async function executePhaseSafe(
   config: Config,
   eventBus?: EventBus,
   memoryContext?: string,
+  interrupter?: Interrupter,
 ): Promise<PhaseResult | null> {
   const handler = PHASE_HANDLERS[phase];
   if (!handler) {
@@ -510,6 +511,7 @@ async function executePhaseSafe(
           ...(checkpoint ? { checkpoint } : {}),
           ...(sessionId ? { sessionId } : {}),
           ...(context ? { context } : {}),
+          ...(interrupter ? { signal: interrupter.signal } : {}),
         };
         const phaseResult = await handler(state, config, execCtx);
 
@@ -589,6 +591,7 @@ async function executePhaseSafe(
             ...(checkpoint ? { checkpoint } : {}),
             ...(sessionId ? { sessionId } : {}),
             context: ctx,
+            ...(interrupter ? { signal: interrupter.signal } : {}),
           };
           const iterResult =
             iter === 1 ? result : await handler(currentState, config, iterExecCtx);
@@ -621,6 +624,7 @@ async function executePhaseSafe(
               ...(eventBus ? { eventBus } : {}),
               config,
               phase,
+              ...(interrupter ? { signal: interrupter.signal } : {}),
             },
           );
           rubricCost += graderCost;

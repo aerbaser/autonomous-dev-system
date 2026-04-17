@@ -1,18 +1,20 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
 import type { ProjectState, Deployment } from "../state/project-state.js";
-import type { PhaseResult } from "./types.js";
+import type { PhaseResult, PhaseExecutionContext } from "./types.js";
 import { randomUUID } from "node:crypto";
-import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns, QueryAbortedError } from "../utils/sdk-helpers.js";
 import { errMsg } from "../utils/shared.js";
 import { DeploymentResultSchema } from "../types/llm-schemas.js";
 
 export async function runDeployment(
   state: ProjectState,
-  config: Config
+  config: Config,
+  ctx?: PhaseExecutionContext
 ): Promise<PhaseResult> {
   const environment: "staging" | "production" = state.currentPhase === "staging" ? "staging" : "production";
   console.log(`[deploy] Deploying to ${environment}...`);
+  const signal = ctx?.signal;
 
   const prompt = `You are a DevOps Engineer. Deploy this project to ${environment}.
 
@@ -47,12 +49,15 @@ or
           maxTurns: getMaxTurns(config, "deployment"),
         },
       }),
-      "deployment"
+      { label: "deployment", ...(signal ? { signal } : {}) }
     );
     resultText = queryResult.result;
     structuredOutput = queryResult.structuredOutput;
     costUsd = queryResult.cost;
   } catch (err) {
+    if (err instanceof QueryAbortedError) {
+      return { success: false, state, error: "aborted" };
+    }
     console.error(`[deploy] Query failed: ${errMsg(err)}`);
     const deployment: Deployment = {
       id: randomUUID(),

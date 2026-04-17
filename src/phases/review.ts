@@ -1,16 +1,18 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
 import type { ProjectState } from "../state/project-state.js";
-import type { PhaseResult } from "./types.js";
-import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import type { PhaseResult, PhaseExecutionContext } from "./types.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns, QueryAbortedError } from "../utils/sdk-helpers.js";
 import { errMsg } from "../utils/shared.js";
 import { ReviewResultSchema } from "../types/llm-schemas.js";
 
 export async function runReview(
   state: ProjectState,
-  config: Config
+  config: Config,
+  ctx?: PhaseExecutionContext
 ): Promise<PhaseResult> {
   console.log("[review] Running code review...");
+  const signal = ctx?.signal;
 
   const prompt = `You are a senior Code Reviewer. Review ALL code in this project.
 
@@ -43,12 +45,15 @@ Also end with "APPROVE" or "REQUEST_CHANGES: <summary>" as a fallback.`;
           maxTurns: getMaxTurns(config, "review"),
         },
       }),
-      "review"
+      { label: "review", ...(signal ? { signal } : {}) }
     );
     resultText = queryResult.result;
     structuredOutput = queryResult.structuredOutput;
     costUsd = queryResult.cost;
   } catch (err) {
+    if (err instanceof QueryAbortedError) {
+      return { success: false, state, error: "aborted" };
+    }
     console.error(`[review] Query failed: ${errMsg(err)}`);
     return { success: false, state, error: errMsg(err) };
   }

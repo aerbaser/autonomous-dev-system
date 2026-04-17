@@ -48,6 +48,7 @@ export async function runDevelopment(
   }
 
   console.log("[development] Starting development phase");
+  const signal = ctx?.signal;
 
   // Step 1: Decompose user stories into implementation tasks
   let updatedState = { ...state };
@@ -220,14 +221,15 @@ export async function runDevelopment(
 
       // Quality gate after each batch (serialized so only one runs at a time)
       await stateMutex.run(async () => {
-        const qualityOk = await runQualityChecks();
+        const qualityOk = await runQualityChecks(signal);
         if (!qualityOk) {
           console.warn("[development] Quality checks failed after batch. Attempting auto-fix...");
           const fixResult = await autoFixQualityIssues(
             updatedState,
             config,
             baseAgentDefs,
-            mcpServers
+            mcpServers,
+            signal
           );
           totalCost += fixResult.costUsd;
           if (!fixResult.fixed) {
@@ -268,7 +270,7 @@ export async function runDevelopment(
   }
 
   // Step 6: Final quality check
-  const finalQuality = await runQualityChecks();
+  const finalQuality = await runQualityChecks(signal);
 
   const failedTasks = updatedState.tasks.filter((t) => t.status === "failed");
   const success = failedTasks.length === 0 && finalQuality;
@@ -917,7 +919,7 @@ function getExecStdout(err: unknown): string | null {
 
 // --- Quality Gates ---
 
-async function runQualityChecks(): Promise<boolean> {
+async function runQualityChecks(signal?: AbortSignal): Promise<boolean> {
   const checks = [
     { name: "TypeScript type-check", executable: "npx", args: ["tsc", "--noEmit"] },
     { name: "Tests", executable: "npm", args: ["test"] },
@@ -926,10 +928,27 @@ async function runQualityChecks(): Promise<boolean> {
   let allPassed = true;
 
   for (const check of checks) {
+    if (signal?.aborted) {
+      console.warn(`[development] Aborted before running: ${check.name}`);
+      return false;
+    }
     try {
-      await execFileAsync(check.executable, check.args, { timeout: 120_000 });
+      // Pass the interrupter signal so SIGINT terminates the child process
+      // (Node sends SIGTERM by default, then SIGKILL after the grace window
+      // if the process is still alive). killSignal is set explicitly for
+      // clarity.
+      const opts: Parameters<typeof execFileAsync>[2] = {
+        timeout: 120_000,
+        killSignal: "SIGTERM",
+        ...(signal ? { signal } : {}),
+      };
+      await execFileAsync(check.executable, check.args, opts);
       console.log(`[development] Quality check passed: ${check.name}`);
     } catch (err) {
+      if (signal?.aborted) {
+        console.warn(`[development] Quality check aborted: ${check.name}`);
+        return false;
+      }
       allPassed = false;
       const output =
         getExecStdout(err)?.slice(0, 300) ?? "unknown error";
@@ -944,22 +963,31 @@ async function autoFixQualityIssues(
   state: ProjectState,
   config: Config,
   agentDefs: Record<string, { description: string; prompt: string; tools: string[] }>,
-  mcpServers: Record<string, McpServerConfig>
+  mcpServers: Record<string, McpServerConfig>,
+  signal?: AbortSignal,
 ): Promise<{ fixed: boolean; costUsd: number }> {
   // Capture current errors
   let typeErrors = "";
   let testErrors = "";
 
+  const execOpts: Parameters<typeof execFileAsync>[2] = {
+    timeout: 120_000,
+    killSignal: "SIGTERM",
+    ...(signal ? { signal } : {}),
+  };
+
   try {
-    await execFileAsync("npx", ["tsc", "--noEmit"], { timeout: 120_000 });
+    await execFileAsync("npx", ["tsc", "--noEmit"], execOpts);
   } catch (err) {
+    if (signal?.aborted) return { fixed: false, costUsd: 0 };
     typeErrors =
       getExecStdout(err)?.slice(0, 2000) ?? "type-check failed";
   }
 
   try {
-    await execFileAsync("npm", ["test"], { timeout: 120_000 });
+    await execFileAsync("npm", ["test"], execOpts);
   } catch (err) {
+    if (signal?.aborted) return { fixed: false, costUsd: 0 };
     testErrors =
       getExecStdout(err)?.slice(0, 2000) ?? "tests failed";
   }
@@ -1011,7 +1039,7 @@ After fixing, run \`npx tsc --noEmit\` and \`npm test\` to verify.`;
 
   // Verify fix
   if (fixed) {
-    fixed = await runQualityChecks();
+    fixed = await runQualityChecks(signal);
   }
 
   return { fixed, costUsd };

@@ -31,6 +31,13 @@ export interface PhaseExecutionContext {
   checkpoint?: PhaseCheckpoint;
   sessionId?: string;
   context?: PhaseContext;
+  /**
+   * AbortSignal sourced from the orchestrator's Interrupter. Phase handlers
+   * should forward this into `consumeQuery({ signal })` so SIGINT / budget /
+   * redirect interrupts cancel in-flight queries. Optional so tests and
+   * direct-invocation callers can omit it.
+   */
+  signal?: AbortSignal;
 }
 
 export type PhaseHandler = (

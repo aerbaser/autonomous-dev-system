@@ -1,6 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { DomainAnalysis, AgentBlueprint } from "../state/project-state.js";
-import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
+import { consumeQuery, getQueryPermissions, getMaxTurns, QueryAbortedError } from "../utils/sdk-helpers.js";
 import type { Config } from "../utils/config.js";
 import { DomainAnalysisSchema, DomainAgentArraySchema } from "../types/llm-schemas.js";
 import { extractFirstJson, wrapUserInput } from "../utils/shared.js";
@@ -35,7 +35,11 @@ Think through the domain analysis step by step, then provide your final answer a
 
 Be conservative: only add a role if it would change the implementation in a meaningful way.`;
 
-export async function analyzeDomain(idea: string, config?: Config): Promise<DomainAnalysis> {
+export async function analyzeDomain(
+  idea: string,
+  config?: Config,
+  signal?: AbortSignal,
+): Promise<DomainAnalysis> {
   let resultText: string;
 
   try {
@@ -48,10 +52,13 @@ export async function analyzeDomain(idea: string, config?: Config): Promise<Doma
           maxTurns: getMaxTurns(config, "domainAnalysis"),
         },
       }),
-      "domain-analysis"
+      { label: "domain-analysis", ...(signal ? { signal } : {}) }
     );
     resultText = result;
   } catch (err) {
+    // Re-throw abort so callers can treat it as cancellation rather than
+    // silently falling back to a default domain.
+    if (err instanceof QueryAbortedError) throw err;
     console.warn(`[domain-analyzer] Query failed: ${err instanceof Error ? err.message : String(err)}`);
     return getDefaultDomain();
   }
@@ -116,7 +123,8 @@ Think through what each agent role needs for this specific domain, then provide 
 export async function generateDomainAgents(
   idea: string,
   domain: DomainAnalysis,
-  config?: Config
+  config?: Config,
+  signal?: AbortSignal,
 ): Promise<AgentBlueprint[]> {
   if (domain.requiredRoles.length === 0) return [];
 
@@ -138,10 +146,11 @@ Generate blueprints for these roles: ${domain.requiredRoles.join(", ")}`,
           maxTurns: getMaxTurns(config, "domainAnalysis"),
         },
       }),
-      "agent-generation"
+      { label: "agent-generation", ...(signal ? { signal } : {}) }
     );
     resultText = result;
-  } catch {
+  } catch (err) {
+    if (err instanceof QueryAbortedError) throw err;
     return [];
   }
 

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { Interrupter } from "../../src/events/interrupter.js";
+import { consumeQuery, QueryAbortedError } from "../../src/utils/sdk-helpers.js";
 
 describe("Interrupter", () => {
   it("starts in non-interrupted state", () => {
@@ -95,5 +96,56 @@ describe("Interrupter", () => {
     // The reason property gets overwritten but signal keeps first
     expect(int.getReason()).toBe("second-reason");
     expect(int.signal.reason).toBe("first-reason");
+  });
+
+  it("signal aborts in-flight consumeQuery within 100ms", async () => {
+    const int = new Interrupter();
+    let interruptCalled = false;
+
+    // Build an infinite stream that would never produce a result on its own.
+    // It yields a harmless system message, then blocks indefinitely on next().
+    const infiniteStream: any = {
+      [Symbol.asyncIterator]() {
+        let primed = false;
+        return {
+          async next() {
+            if (!primed) {
+              primed = true;
+              return {
+                value: {
+                  type: "system",
+                  subtype: "api_retry_started",
+                  attempt: 1,
+                  max_retries: 3,
+                  retry_delay_ms: 1000,
+                },
+                done: false,
+              };
+            }
+            // Wait on the abort signal — never completes unless aborted.
+            await new Promise<void>((resolve) => {
+              int.signal.addEventListener("abort", () => resolve(), { once: true });
+            });
+            // After abort, end the stream cleanly so consumeQuery can throw
+            // QueryAbortedError via its end-of-stream fallback path.
+            return { value: undefined, done: true };
+          },
+        };
+      },
+      interrupt: async () => {
+        interruptCalled = true;
+      },
+    };
+
+    const consumer = consumeQuery(infiniteStream, { signal: int.signal });
+    // Trigger interrupt shortly after the consumer starts iterating.
+    setTimeout(() => int.interrupt("test-abort"), 10);
+
+    const start = Date.now();
+    await expect(consumer).rejects.toBeInstanceOf(QueryAbortedError);
+    const elapsed = Date.now() - start;
+
+    expect(elapsed).toBeLessThan(100);
+    expect(interruptCalled).toBe(true);
   });
 });
