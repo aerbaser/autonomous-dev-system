@@ -4,6 +4,47 @@ import type { Phase } from "../state/project-state.js";
 import type { Rubric, RubricResult, EvaluatedPhaseResult } from "./rubric.js";
 import type { EventBus } from "../events/event-bus.js";
 import { gradePhaseOutput } from "./grader.js";
+import { getActiveLedger } from "../state/run-ledger.js";
+import { errMsg } from "../utils/shared.js";
+
+/**
+ * HIGH-01: Best-effort escalation of a `failed` rubric verdict into the active
+ * RunLedger with reason code `verification_failed`. No-op if no ledger is set
+ * (e.g. unit tests that don't bootstrap an orchestrator). Errors are swallowed
+ * — a ledger failure must never mask the actual phase outcome being reported.
+ */
+function escalateRubricFailureToLedger(
+  phase: Phase | undefined,
+  rubric: Rubric,
+  rubricResult: RubricResult,
+  config: Config,
+): void {
+  if (!phase) return;
+  try {
+    const ledger = getActiveLedger();
+    if (!ledger) return;
+    const graderModel = config.rubrics?.graderModel ?? config.subagentModel;
+    const session = ledger.startSession({
+      phase,
+      role: "rubric-grader",
+      sessionType: "rubric",
+      ...(graderModel ? { model: graderModel } : {}),
+    });
+    const message =
+      rubricResult.summary && rubricResult.summary.trim().length > 0
+        ? rubricResult.summary
+        : `Rubric "${rubric.name}" failed at iteration ${rubricResult.iteration} with overall score ${rubricResult.overallScore.toFixed(2)}`;
+    ledger.recordFailure(session.sessionId, "verification_failed", message);
+    ledger.endSession(session.sessionId, { success: false });
+    console.log(
+      `[ledger] verification_failed recorded for phase "${phase}" (rubric "${rubric.name}")`,
+    );
+  } catch (err) {
+    console.warn(
+      `[ledger] Failed to record verification_failed escalation: ${errMsg(err)}`,
+    );
+  }
+}
 
 /**
  * Run a phase handler, then grade the output. If the grader says "needs_revision",
@@ -52,17 +93,19 @@ export async function evaluateWithRubric(
           iteration,
         });
       }
+      const syntheticFailedResult: RubricResult = {
+        rubricName: rubric.name,
+        scores: [],
+        verdict: "failed",
+        overallScore: 0,
+        summary: `Phase handler failed: ${phaseResult.error ?? "unknown error"}`,
+        iteration,
+      };
+      escalateRubricFailureToLedger(phase, rubric, syntheticFailedResult, config);
       return {
         ...phaseResult,
         costUsd: totalCost,
-        rubricResult: {
-          rubricName: rubric.name,
-          scores: [],
-          verdict: "failed",
-          overallScore: 0,
-          summary: `Phase handler failed: ${phaseResult.error ?? "unknown error"}`,
-          iteration,
-        },
+        rubricResult: syntheticFailedResult,
         totalIterations: iteration,
       };
     }
@@ -97,6 +140,9 @@ export async function evaluateWithRubric(
           result: rubricResult.verdict,
           iteration,
         });
+      }
+      if (rubricResult.verdict === "failed") {
+        escalateRubricFailureToLedger(phase, rubric, rubricResult, config);
       }
       return {
         ...phaseResult,
