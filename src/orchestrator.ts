@@ -39,7 +39,7 @@ import { Interrupter } from "./events/interrupter.js";
 import { generateDashboard } from "./dashboard/generate.js";
 import { MemoryStore } from "./state/memory-store.js";
 import { LayeredMemory } from "./memory/layers.js";
-import { RunLedger, setActiveLedger } from "./state/run-ledger.js";
+import { RunLedger, setActiveLedger, getActiveLedger } from "./state/run-ledger.js";
 import { capturePhaseMemories } from "./hooks/memory-capture.js";
 import { errMsg } from "./utils/shared.js";
 import { randomUUID } from "node:crypto";
@@ -823,7 +823,44 @@ async function executePhaseSafe(
             phase, rubricName: rubric.name, result: rubricResult.verdict, iteration: iter,
           });
 
-          if (rubricResult.verdict === "satisfied" || rubricResult.verdict === "failed") {
+          if (rubricResult.verdict === "satisfied") {
+            return { ...iterResult, costUsd: rubricCost, rubricResult };
+          }
+          if (rubricResult.verdict === "failed") {
+            // HIGH-01: escalate failed rubric verdict to RunLedger with the
+            // canonical `verification_failed` reason code. Best-effort — a
+            // ledger error must not mask the actual phase outcome being
+            // returned to the caller.
+            try {
+              const activeLedger = getActiveLedger();
+              if (activeLedger) {
+                const graderModel =
+                  config.rubrics?.graderModel ?? config.subagentModel;
+                const session = activeLedger.startSession({
+                  phase,
+                  role: "rubric-grader",
+                  sessionType: "rubric",
+                  ...(graderModel ? { model: graderModel } : {}),
+                });
+                const failureMessage =
+                  rubricResult.summary && rubricResult.summary.trim().length > 0
+                    ? rubricResult.summary
+                    : `Rubric "${rubric.name}" failed at iteration ${iter} with overall score ${rubricResult.overallScore.toFixed(2)}`;
+                activeLedger.recordFailure(
+                  session.sessionId,
+                  "verification_failed",
+                  failureMessage,
+                );
+                activeLedger.endSession(session.sessionId, { success: false });
+                console.log(
+                  `[ledger] verification_failed recorded for phase "${phase}" (rubric "${rubric.name}", score ${rubricResult.overallScore.toFixed(2)})`,
+                );
+              }
+            } catch (err) {
+              console.warn(
+                `[ledger] Failed to record verification_failed escalation for phase "${phase}": ${errMsg(err)}`,
+              );
+            }
             return { ...iterResult, costUsd: rubricCost, rubricResult };
           }
 
