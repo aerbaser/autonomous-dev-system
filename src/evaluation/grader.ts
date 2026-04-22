@@ -105,6 +105,35 @@ export interface GraderOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * Run the grader LLM against a phase result and return a structured RubricResult.
+ *
+ * **verdict precedence rule (HIGH-02 — required by REQUIREMENTS.md):**
+ *
+ *   1. **LLM-emitted verdict (preferred).** When `GraderOutputSchema.safeParse`
+ *      succeeds against the structured output (or a JSON parse of the result
+ *      text), the LLM's `verdict`, `overallScore`, `scores`, and `summary` are
+ *      returned VERBATIM. The grader MUST NOT recompute the verdict via
+ *      `determineVerdict(scores)` or override `overallScore` via
+ *      `computeWeightedScore(...)`. The LLM is the source of truth.
+ *
+ *   2. **Algorithmic fallback.** When parsing fails (no structured_output AND
+ *      `result.result` is not valid JSON matching the schema), and only then,
+ *      the grader synthesizes a default `scores` array (one entry per
+ *      criterion at 0.5 / passed=false), then computes `overallScore` and
+ *      `verdict` algorithmically from those defaults. This is a degraded
+ *      signal — the rubric loop will see `verdict: "needs_revision"` (because
+ *      most criteria fail their thresholds) and retry, OR `verdict: "failed"`
+ *      if more than half "fail."
+ *
+ *   3. **Fail-open on grader outage.** When `consumeQuery` itself throws
+ *      (timeout / network / abort), the grader returns `verdict: "satisfied"`
+ *      with `overallScore: 1` so an infrastructure error does NOT block the
+ *      pipeline. This is a deliberate trade — operators get a warning log,
+ *      not a halt.
+ *
+ * Tests in `tests/evaluation/grader.test.ts` lock this precedence in.
+ */
 export async function gradePhaseOutput(
   rubric: Rubric,
   phaseResult: PhaseResult,
@@ -144,6 +173,9 @@ export async function gradePhaseOutput(
       err instanceof Error ? err.message : String(err)
     }`;
     console.warn(`[grader] ${summary}. Skipping rubric gate.`);
+    // HIGH-02 — verdict precedence rule (#3): grader outage → fail-open
+    // verdict='satisfied' with overallScore=1 so infrastructure errors
+    // (timeout, network, abort) do NOT block the orchestrator.
     const satisfiedScores = rubric.criteria.map((criterion) => ({
       criterionName: criterion.name,
       score: 1,
@@ -180,12 +212,20 @@ export async function gradePhaseOutput(
   const parsed = GraderOutputSchema.safeParse(raw);
 
   if (parsed.success) {
+    // HIGH-02 — verdict precedence rule (#1): LLM verdict wins.
+    // Do NOT replace `verdict` with `determineVerdict(scores)` and do NOT
+    // replace `overallScore` with `computeWeightedScore(scores, criteria)`.
+    // The LLM's structured output is the source of truth when it parses.
     scores = parsed.data.scores;
     verdict = parsed.data.verdict;
     overallScore = parsed.data.overallScore;
     summary = parsed.data.summary;
   } else {
-    // Fallback: construct minimal result from text
+    // HIGH-02 — verdict precedence rule (#2): no LLM verdict to honor.
+    // Synthesize defaults for every criterion, then derive verdict/overallScore
+    // algorithmically. This branch only runs when neither the SDK's
+    // `structuredOutput` nor a JSON parse of `result.result` matches
+    // `GraderOutputSchema`.
     console.warn("[grader] Failed to parse structured output, using fallback scoring");
     scores = rubric.criteria.map(c => ({
       criterionName: c.name,
