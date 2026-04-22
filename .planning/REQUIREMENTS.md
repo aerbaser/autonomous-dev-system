@@ -71,7 +71,8 @@ The current milestone is **v1.0 Validation & Hardening**. Goal: prove the existi
 - [ ] **SEC-06**: ReDoS pattern in `src/state/memory-store.ts` `topicPattern` regex bounded with input length cap and/or non-backtracking pattern
 - [x] **SEC-07
 **: Path-traversal hardening for all `.autonomous-dev/` subdirectories — every write site validated, not only `stateDir`
-- [ ] **SEC-08**: Anthropic API key removed from any `Config` field — lives only in `process.env`; no logged or serialized location
+- [x] **SEC-08
+**: Anthropic API key removed from any `Config` field — lives only in `process.env`; no logged or serialized location
 
 ### High-Priority Runtime Fixes (from PRODUCT.md §16 high-priority list)
 

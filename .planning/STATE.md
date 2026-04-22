@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: Completed 02-07-PLAN.md
-last_updated: "2026-04-22T17:37:09.040Z"
+stopped_at: "Phase 2 / SEC-08 complete: ConfigSchema audit locked in via 4 regression tests + inline SEC-08 invariant comment."
+last_updated: "2026-04-22T17:38:27.528Z"
 last_activity: 2026-04-22
 progress:
   total_phases: 6
-  completed_phases: 1
+  completed_phases: 2
   total_plans: 9
-  completed_plans: 8
-  percent: 89
+  completed_plans: 9
+  percent: 100
 ---
 
 # Project State
@@ -30,7 +30,7 @@ Plan: 1 of 1 complete in Phase 1
 Status: Phase complete — ready for verification
 Last activity: 2026-04-22
 
-Progress: [████████░░] 78%
+Progress: [██████████] 100%
 
 ## Performance Metrics
 
@@ -57,6 +57,7 @@ Progress: [████████░░] 78%
 | Phase 02 P04 | 5 min | 3 tasks tasks | 2 files files |
 | Phase 02 P03 | 5 min | 3 tasks | 2 files |
 | Phase 02 P07 | 7 min | 4 tasks | 7 files |
+| Phase 02 P08 | 7 | 3 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -76,6 +77,7 @@ Recent decisions affecting current work:
 - SEC-04: two-layer deny-first/allow-second gate in runCommandInSandbox; ALLOWED_EXECUTABLES + FORBIDDEN_BINARIES exported as ReadonlySet<string> so tests pin contents
 - Phase 2 / SEC-07: Added assertSafeWritePath(stateDir, target) helper + wired 5 high-value boundary sites (memory-store, agents registry, event-logger, run-ledger, ask-user). 6 regression tests including prefix-substring aliasing guard. 811/811 tests green; typecheck + lint clean.
 - Phase 2 / SEC-03: ALLOWED_INSTALL_EXECUTABLES in lsp-manager.ts exported as ReadonlySet<string> with content-assert test; 4 regression tests (curl/rm/metachar-order + allowlist freeze) cover defense-in-depth rejection paths. Rule 1 fix: plan's 'rm -rf' test fixture rewritten to 'rm foo' so the assertion exercises the allowlist gate (not the upstream validateInstallCommand /rm\\s+-rf/i pattern).
+- Phase 2 / SEC-08: regression-locked audit — ConfigSchema has zero Anthropic-key fields and 4 new tests (schema-shape sentinel, no-apiKey negative, env-leak sentinel, third-party-token positive) pin the invariant. 811/811 tests + typecheck + lint green.
 
 ### Pending Todos
 
@@ -102,8 +104,8 @@ Items acknowledged and carried forward from the ingest:
 
 ## Session Continuity
 
-Last session: 2026-04-22T17:37:04.632Z
-Stopped at: Completed 02-07-PLAN.md
+Last session: 2026-04-22T17:38:27.492Z
+Stopped at: Phase 2 / SEC-08 complete: ConfigSchema audit locked in via 4 regression tests + inline SEC-08 invariant comment.
 Resume file: None
 
 **Planned Phase:** 1 (Test-Readiness Stabilization) — 1 plans — 2026-04-22T16:47:11.146Z
