@@ -97,7 +97,14 @@ function parseCommand(command: string): string[] {
   return [bin, ...args];
 }
 
-const ALLOWED_INSTALL_EXECUTABLES = new Set([
+/**
+ * SEC-03: Allowlist of executables that may run as the first token of an
+ * LSP `installCommand`. Any first-token not in this set causes the install
+ * pipeline to skip (with a logged "Blocked" message) and leave `installed`
+ * unset on the returned LspConfig. Exported (read-only) so regression tests
+ * can assert its exact contents.
+ */
+export const ALLOWED_INSTALL_EXECUTABLES: ReadonlySet<string> = new Set([
   'npm', 'npx', 'pip', 'pip3', 'brew', 'cargo', 'go',
 ]);
 
