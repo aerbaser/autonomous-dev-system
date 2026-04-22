@@ -56,7 +56,7 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     selfImprove: { enabled: false, maxIterations: 50, nightlyOptimize: false },
     projectDir: TEST_DIR,
     stateDir: join(TEST_DIR, ".autonomous-dev"),
-    memory: { enabled: false, maxDocuments: 500, maxDocumentSizeKb: 100 },
+    memory: { enabled: false, maxDocuments: 500, maxDocumentSizeKb: 100, layers: { enabled: false } },
     rubrics: { enabled: false, maxIterations: 3 },
     ...overrides,
   };

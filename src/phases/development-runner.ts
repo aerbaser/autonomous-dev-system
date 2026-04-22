@@ -7,6 +7,7 @@ import type {
   McpServerConfig,
   Task,
   UserStory,
+  AgentBlueprint,
 } from "../state/project-state.js";
 import type { PhaseResult, PhaseExecutionContext } from "./types.js";
 import type {
@@ -569,6 +570,59 @@ ${fileStructure}${envelopeBlock}
 ${GENERIC_DEV_INSTRUCTIONS}`;
 }
 
+/**
+ * HIGH-06 — Match a task to its best domain-specialized agent (if any).
+ *
+ * Scoring (deterministic):
+ *   +3 if task.title (case-insensitive) contains the agent's name
+ *   +2 if task.title (case-insensitive) contains the agent's role
+ *   +1 per agent.keywords[i] that appears (case-insensitive substring) in
+ *      task.title OR task.description
+ *   +1 per task.tags[j] whose lowercase equals a lowercased agent.keywords[k]
+ *
+ * Returns the highest-scoring agent. A score of zero is treated as "no match"
+ * so we don't accidentally promote a base/generic agent over the dev-{id}
+ * fallback. Ties are broken by input order (which mirrors registry
+ * registration order — first registered wins).
+ *
+ * The function is pure and exported so unit tests can call it directly without
+ * spinning up the full runner.
+ */
+export function matchDomainAgentForTask(
+  task: Task,
+  domainAgents: AgentBlueprint[],
+): AgentBlueprint | undefined {
+  const titleLower = task.title.toLowerCase();
+  const descLower = task.description.toLowerCase();
+  const tagSet = new Set(
+    (task.tags ?? []).map((t) => t.toLowerCase()),
+  );
+
+  let best: AgentBlueprint | undefined;
+  let bestScore = 0;
+
+  for (const bp of domainAgents) {
+    let score = 0;
+    if (titleLower.includes(bp.name.toLowerCase())) score += 3;
+    if (titleLower.includes(bp.role.toLowerCase())) score += 2;
+
+    for (const kw of bp.keywords ?? []) {
+      const kwLower = kw.toLowerCase();
+      if (titleLower.includes(kwLower) || descLower.includes(kwLower)) {
+        score += 1;
+      }
+      if (tagSet.has(kwLower)) score += 1;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      best = bp;
+    }
+  }
+
+  return bestScore > 0 ? best : undefined;
+}
+
 export function buildBatchAgents(
   batch: Task[],
   state: ProjectState,
@@ -600,13 +654,10 @@ export function buildBatchAgents(
 
   // Create a dedicated agent per task in this batch
   for (const task of batch) {
-    // Check if a domain agent matches this task by title keywords
-    const titleLower = task.title.toLowerCase();
-    const matchingDomain = domainAgents.find(
-      (bp) =>
-        titleLower.includes(bp.name.toLowerCase()) ||
-        titleLower.includes(bp.role.toLowerCase())
-    );
+    // HIGH-06: keyword-aware matching — scores name/role substring (preserved
+    // legacy behavior) PLUS keyword∩title, keyword∩description, and
+    // keyword∩task.tags. See `matchDomainAgentForTask` for scoring details.
+    const matchingDomain = matchDomainAgentForTask(task, domainAgents);
 
     const skill = taskSkills?.get(task.id);
     const skillSuffix = skill ? `\n\n${renderSkillBlock(skill)}` : "";

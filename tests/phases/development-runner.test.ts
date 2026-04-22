@@ -7,7 +7,9 @@ import {
   harvestReceipts,
   persistReceipt,
   extractAllJsonObjects,
+  matchDomainAgentForTask,
 } from "../../src/phases/development-runner.js";
+import type { AgentBlueprint } from "../../src/state/project-state.js";
 import { readFileSync, existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -724,5 +726,70 @@ describe("runDevelopment — blocked task never persists as completed", () => {
     expect(blocked).toBeDefined();
     expect(blocked!.status).toBe("failed");
     expect(blocked!.status).not.toBe("completed");
+  });
+});
+
+describe("matchDomainAgentForTask (HIGH-06)", () => {
+  function makeAgent(overrides: Partial<AgentBlueprint>): AgentBlueprint {
+    return {
+      name: "default",
+      role: "generic",
+      systemPrompt: "",
+      tools: [],
+      evaluationCriteria: [],
+      version: 1,
+      ...overrides,
+    } as AgentBlueprint;
+  }
+
+  function makeTask(overrides: Partial<{ id: string; title: string; description: string; status: "pending" | "in_progress" | "completed" | "failed"; tags: string[] }>) {
+    return {
+      id: "t1",
+      title: "Task",
+      description: "",
+      status: "pending" as const,
+      createdAt: new Date().toISOString(),
+      ...overrides,
+    };
+  }
+
+  it("selects the domain agent whose keywords appear in the task description", () => {
+    const billing = makeAgent({ name: "BillingAgent", role: "payments", keywords: ["stripe", "invoice", "checkout"] });
+    const auth = makeAgent({ name: "AuthAgent", role: "security", keywords: ["oauth", "jwt", "session"] });
+    const task = makeTask({ title: "Implement Stripe checkout flow", description: "Use stripe SDK to process invoice payments" });
+
+    const picked = matchDomainAgentForTask(task, [billing, auth]);
+    expect(picked?.name).toBe("BillingAgent");
+  });
+
+  it("returns undefined when no keywords match (caller must fall back to default)", () => {
+    const billing = makeAgent({ name: "BillingAgent", role: "payments", keywords: ["stripe", "invoice"] });
+    const task = makeTask({ title: "Refactor logger", description: "Move from console to pino" });
+
+    expect(matchDomainAgentForTask(task, [billing])).toBeUndefined();
+  });
+
+  it("scores tag matches and picks the higher-scoring agent", () => {
+    const data = makeAgent({ name: "DataAgent", role: "data", keywords: ["etl", "pipeline"] });
+    const ui = makeAgent({ name: "UiAgent", role: "frontend", keywords: ["form", "modal", "button"] });
+    const task = makeTask({ title: "Add subscription form", description: "New modal with email field", tags: ["form", "modal"] });
+
+    const picked = matchDomainAgentForTask(task, [data, ui]);
+    expect(picked?.name).toBe("UiAgent");
+  });
+
+  it("breaks ties in input order (first matching agent wins)", () => {
+    const a = makeAgent({ name: "AgentA", role: "x", keywords: ["alpha"] });
+    const b = makeAgent({ name: "AgentB", role: "y", keywords: ["alpha"] });
+    const task = makeTask({ title: "handle alpha case", description: "" });
+
+    expect(matchDomainAgentForTask(task, [a, b])?.name).toBe("AgentA");
+  });
+
+  it("matches by agent name and role (not just keywords)", () => {
+    const agent = makeAgent({ name: "PaymentsAgent", role: "billing" });
+    const task = makeTask({ title: "PaymentsAgent refactor for new SKU", description: "" });
+
+    expect(matchDomainAgentForTask(task, [agent])?.name).toBe("PaymentsAgent");
   });
 });

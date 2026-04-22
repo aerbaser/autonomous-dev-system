@@ -81,7 +81,7 @@ The current milestone is **v1.0 Validation & Hardening**. Goal: prove the existi
 - [x] **HIGH-03**: `Interrupter` singleton race fixed — parallel runs do not share singleton state in a way that drops SIGINT handlers _(closed 2026-04-22, commits a250d69 + 681518d + ab3c1fd)_
 - [ ] **HIGH-04**: `src/phases/specification.ts` stub replaced with real handler; circular import resolved
 - [ ] **HIGH-05**: `src/self-improve/optimizer-runner.ts` blueprint verification gate — no unverified blueprint accepted into the registry
-- [ ] **HIGH-06**: Domain-agent ↔ task keyword matching wired into `development-runner.ts` so domain agents are actually selected for matching tasks
+- [x] **HIGH-06**: Domain-agent ↔ task keyword matching wired into `development-runner.ts` so domain agents are actually selected for matching tasks
 
 ### Product Gaps (from PRODUCT.md §16 product-gap list)
 
