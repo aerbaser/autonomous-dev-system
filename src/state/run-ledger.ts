@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Phase } from "../types/phases.js";
 import type { EventBus, EventRecord, AgentQueryStartData, AgentQueryEndData } from "../events/event-bus.js";
-import { assertSafePath } from "./project-state.js";
+import { assertSafePath, assertSafeWritePath } from "./project-state.js";
 import { errMsg } from "../utils/shared.js";
 import {
   CanonicalFailureReasonCodeSchema,
@@ -319,6 +319,8 @@ export class RunLedger {
     assertSafePath(stateDir);
     this.endedAt = this.endedAt ?? new Date().toISOString();
     const ledgerDir = resolve(stateDir, "ledger");
+    // SEC-07: pin ledger dir inside stateDir before mkdir.
+    assertSafeWritePath(stateDir, ledgerDir);
     mkdirSync(ledgerDir, { recursive: true });
     const snap = this.snapshot();
     const path = resolve(ledgerDir, `${this.runId}.json`);

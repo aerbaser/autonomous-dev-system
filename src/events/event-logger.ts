@@ -2,6 +2,7 @@ import { createWriteStream, mkdirSync, readFileSync, existsSync, writeFileSync }
 import { resolve } from "node:path";
 import type { WriteStream } from "node:fs";
 import type { EventRecord } from "./event-bus.js";
+import { assertSafeWritePath } from "../state/project-state.js";
 import { isRecord } from "../utils/shared.js";
 import { z } from "zod";
 
@@ -43,6 +44,8 @@ export class EventLogger {
     private runId: string,
   ) {
     const eventsDir = resolve(stateDir, "events");
+    // SEC-07: pin events dir inside stateDir before any mkdir/write.
+    assertSafeWritePath(stateDir, eventsDir);
     mkdirSync(eventsDir, { recursive: true });
     this.logPath = resolve(eventsDir, `${runId}.jsonl`);
     this.summaryPath = resolve(eventsDir, `${runId}.summary.json`);

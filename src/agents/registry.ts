@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import type { AgentDefinition } from "@anthropic-ai/claude-agent-sdk";
 import type { AgentBlueprint } from "../state/project-state.js";
+import { assertSafeWritePath } from "../state/project-state.js";
 import type { Config } from "../utils/config.js";
 import { getBaseBlueprints } from "./base-blueprints.js";
 import { buildRunnableAgentDefinition } from "./codex-proxy.js";
@@ -25,6 +26,8 @@ export class AgentRegistry {
 
   constructor(stateDir: string) {
     this.persistDir = resolve(stateDir, "agents");
+    // SEC-07: pin agents persist-dir inside stateDir.
+    assertSafeWritePath(stateDir, this.persistDir);
     this.data = this.load();
   }
 

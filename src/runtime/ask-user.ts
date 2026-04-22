@@ -2,7 +2,7 @@ import { z } from "zod";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { createInterface as defaultCreateInterface, type Interface as ReadlineInterface } from "node:readline/promises";
-import { assertSafePath } from "../state/project-state.js";
+import { assertSafePath, assertSafeWritePath } from "../state/project-state.js";
 import { errMsg } from "../utils/shared.js";
 
 /**
@@ -50,6 +50,8 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 function appendRecord(stateDir: string, record: AskUserRecord): void {
   assertSafePath(stateDir);
   const path = resolve(stateDir, "pending-questions.jsonl");
+  // SEC-07: pin journal path inside stateDir before mkdir/append.
+  assertSafeWritePath(stateDir, path);
   try {
     mkdirSync(stateDir, { recursive: true });
     appendFileSync(path, JSON.stringify(record) + "\n", "utf-8");

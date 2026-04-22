@@ -2,7 +2,7 @@ import { readFile, writeFile, mkdir, appendFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
-import { assertSafePath } from "./project-state.js";
+import { assertSafePath, assertSafeWritePath } from "./project-state.js";
 import {
   MemoryDocumentSchema,
   MemoryIndexSchema,
@@ -58,6 +58,9 @@ export class MemoryStore {
     this.memoryDir = resolve(stateDir, "memory");
     this.historyDir = resolve(stateDir, "memory", "history");
     this.indexPath = resolve(stateDir, "memory", "_index.json");
+    // SEC-07: pin write-boundaries inside stateDir.
+    assertSafeWritePath(stateDir, this.memoryDir);
+    assertSafeWritePath(stateDir, this.historyDir);
     this.config = { ...DEFAULT_CONFIG, ...config };
   }
 
