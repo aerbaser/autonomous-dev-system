@@ -41,6 +41,33 @@ export function assertSafePath(stateDir: string): void {
   }
 }
 
+/**
+ * SEC-07: Validate that a target path resolves INSIDE the stateDir subtree.
+ * Use this at write-boundaries of any subsystem that constructs child paths
+ * under .autonomous-dev/ — prevents an attacker-supplied id/topic/agent-name
+ * segment from smuggling `../../etc/passwd` through path concatenation.
+ *
+ * Accepts exact equality (target === stateDir root) and strict subpath.
+ * Rejects any resolved path that escapes the stateDir with a thrown Error.
+ *
+ * Complements assertSafePath (which validates the stateDir root). Call sites
+ * that already call assertSafePath(stateDir) on construction should additionally
+ * call assertSafeWritePath(stateDir, childPath) when they materialize a
+ * user-derived path under the stateDir.
+ */
+export function assertSafeWritePath(stateDir: string, target: string): void {
+  const resolvedRoot = resolve(stateDir);
+  const resolvedTarget = resolve(target);
+  if (
+    resolvedTarget !== resolvedRoot &&
+    !resolvedTarget.startsWith(resolvedRoot + "/")
+  ) {
+    throw new Error(
+      `Path traversal detected: "${target}" resolves outside state directory "${stateDir}"`
+    );
+  }
+}
+
 // --- Core types (derived from Zod schemas) ---
 
 export type Task = z.infer<typeof TaskStateSchema>;
