@@ -3,8 +3,30 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 
-const ALLOWED_EXECUTABLES = new Set([
+/**
+ * SEC-04: Allowlist for executables runnable inside the mutation sandbox.
+ * Exported (read-only) so regression tests can assert exact contents — silent
+ * widening shows up as a test diff. Pair with FORBIDDEN_BINARIES below for
+ * defense-in-depth (deny-first ordering).
+ */
+export const ALLOWED_EXECUTABLES: ReadonlySet<string> = new Set([
   'npm', 'npx', 'tsc', 'vitest', 'node', 'git',
+]);
+
+/**
+ * SEC-04: Defense-in-depth denylist. Even if a future maintainer widens
+ * ALLOWED_EXECUTABLES, none of these binaries may be invoked from the
+ * mutation worktree. Mirrors the high-risk surface in src/hooks/security.ts
+ * DENY_PATTERNS (shell + network + dangerous fs).
+ */
+export const FORBIDDEN_BINARIES: ReadonlySet<string> = new Set([
+  'curl', 'wget',
+  'sh', 'bash', 'zsh', 'dash',
+  'rm', 'dd', 'mkfs',
+  'sudo', 'chmod', 'chown',
+  'scp', 'ssh',
+  'eval',
+  'perl', 'python', 'python3', 'ruby',
 ]);
 
 export interface SandboxOptions {
@@ -66,7 +88,20 @@ export async function runCommandInSandbox(
   if (current) args.push(current);
   const executable = args.shift() ?? command;
 
-  // Reject executables not in the allowlist — prevents LLM-controlled benchmark commands from escaping
+  // SEC-04 layer 1 — explicit denylist runs first so a future allowlist widening
+  // cannot accidentally re-enable a known-dangerous binary.
+  if (FORBIDDEN_BINARIES.has(executable)) {
+    return Promise.resolve({
+      success: false,
+      output: "",
+      error: `Blocked: '${executable}' is on the SEC-04 forbidden binary list`,
+      exitCode: 1,
+      durationMs: 0,
+    });
+  }
+
+  // SEC-04 layer 2 — explicit allowlist for everything else. Reject anything
+  // not on the small known-good set.
   if (!ALLOWED_EXECUTABLES.has(executable)) {
     return Promise.resolve({
       success: false,
