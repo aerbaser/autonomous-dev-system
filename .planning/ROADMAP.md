@@ -73,7 +73,15 @@ Plans:
   4. `src/phases/specification.ts` is a real handler (not a stub) and the previous circular import is gone; `npm run typecheck` confirms (HIGH-04)
   5. `src/self-improve/optimizer-runner.ts` rejects unverified blueprints — only blueprints that pass the verifier are written to `.autonomous-dev/agents/{name}.v{N}.md` (HIGH-05)
   6. The development runner picks domain-specialized agents over base agents when a task description contains domain keywords matching an agent's blueprint (HIGH-06)
-**Plans**: TBD
+**Plans:** 6 plans
+
+Plans:
+- [ ] 01-PLAN.md — HIGH-01: wire rubric loop in orchestrator + evaluate-loop; escalate `failed` verdict to RunLedger as `verification_failed` (wave 1)
+- [x] 02-PLAN.md — HIGH-02: document + test verdict-precedence rule in grader (LLM verdict > algorithmic fallback > fail-open) (wave 1) — completed 2026-04-22 (commits 312e738, 9887fc4)
+- [ ] 03-PLAN.md — HIGH-03: replace module-level `_activeInterrupter` with a per-run Interrupter stack; add concurrent-runs integration test (wave 2, depends on 01 for `src/orchestrator.ts` ownership)
+- [x] 04-PLAN.md — HIGH-04: verify specification.ts is real + no circular import; add missing `tests/phases/specification.test.ts` (wave 1) — completed 2026-04-22
+- [x] 05-PLAN.md — HIGH-05: add `blueprint-verifier.ts` gate in optimizer-runner before `registry.register` / `savePromptVersion` (wave 1) — completed 2026-04-22
+- [ ] 06-PLAN.md — HIGH-06: add `keywords` field to AgentBlueprintSchema + `matchDomainAgentForTask` scorer in development-runner (wave 1)
 
 ### Phase 4: End-to-End Validation on a Toy Idea
 **Goal**: Pick one toy idea (e.g., "a CLI todo app with tags and due dates") and prove the full 12-phase pipeline runs against it, including resume, budget, and graceful interrupt.
@@ -117,7 +125,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6. Phase 2 and Ph
 |-------|----------------|--------|-----------|
 | 1. Test-Readiness Stabilization | 1/1 | Complete | 2026-04-22 |
 | 2. Critical Security Backlog Closure | 0/8 | In progress | - |
-| 3. High-Priority Runtime Fixes | 0/TBD | Not started | - |
+| 3. High-Priority Runtime Fixes | 3/6 | In progress | - |
 | 4. End-to-End Validation on a Toy Idea | 0/TBD | Not started | - |
 | 5. Product-Gap Closure | 0/TBD | Not started | - |
 | 6. Self-Improvement Smoke Test | 0/TBD | Not started | - |

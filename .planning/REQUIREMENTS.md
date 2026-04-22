@@ -77,7 +77,7 @@ The current milestone is **v1.0 Validation & Hardening**. Goal: prove the existi
 ### High-Priority Runtime Fixes (from PRODUCT.md §16 high-priority list)
 
 - [ ] **HIGH-01**: Rubric feedback loop fully wired in orchestrator — on `needs_revision` verdict and remaining retries, phase is re-run with verdict feedback in prompt; on `failed`, escalates to ledger with `verification_failed`
-- [ ] **HIGH-02**: Grader never overwrites the LLM's structured verdict — verdict precedence rule documented and asserted
+- [x] **HIGH-02**: Grader never overwrites the LLM's structured verdict — verdict precedence rule documented and asserted _(closed 2026-04-22, commits 312e738 + 9887fc4)_
 - [ ] **HIGH-03**: `Interrupter` singleton race fixed — parallel runs do not share singleton state in a way that drops SIGINT handlers
 - [ ] **HIGH-04**: `src/phases/specification.ts` stub replaced with real handler; circular import resolved
 - [ ] **HIGH-05**: `src/self-improve/optimizer-runner.ts` blueprint verification gate — no unverified blueprint accepted into the registry
@@ -152,7 +152,7 @@ Every v1 requirement maps to exactly one phase in `ROADMAP.md`.
 | SEC-07 | Phase 2 | Pending |
 | SEC-08 | Phase 2 | Pending |
 | HIGH-01 | Phase 3 | Pending |
-| HIGH-02 | Phase 3 | Pending |
+| HIGH-02 | Phase 3 | Complete (312e738 + 9887fc4, 2026-04-22) |
 | HIGH-03 | Phase 3 | Pending |
 | HIGH-04 | Phase 3 | Pending |
 | HIGH-05 | Phase 3 | Pending |
