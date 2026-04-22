@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: "Phase 2 / SEC-02 complete: wrapUserInput applied to all 5 raw blueprint interpolations in mutation-engine prompts"
-last_updated: "2026-04-22T17:36:14.164Z"
+stopped_at: Completed 02-07-PLAN.md
+last_updated: "2026-04-22T17:37:04.688Z"
 last_activity: 2026-04-22
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 9
-  completed_plans: 5
-  percent: 56
+  completed_plans: 7
+  percent: 78
 ---
 
 # Project State
@@ -30,7 +30,7 @@ Plan: 1 of 1 complete in Phase 1
 Status: Phase complete — ready for verification
 Last activity: 2026-04-22
 
-Progress: [██████░░░░] 56%
+Progress: [████████░░] 78%
 
 ## Performance Metrics
 
@@ -54,6 +54,9 @@ Progress: [██████░░░░] 56%
 *Updated after each plan completion*
 | Phase 02 P01 | 2 min | 2 tasks | 2 files |
 | Phase 02 P02 | 5 | 2 tasks | 1 files |
+| Phase 02 P04 | 5 min | 3 tasks tasks | 2 files files |
+| Phase 02 P03 | 5 min | 3 tasks | 2 files |
+| Phase 02 P07 | 7 min | 4 tasks | 7 files |
 
 ## Accumulated Context
 
@@ -70,6 +73,7 @@ Recent decisions affecting current work:
 - Phase 1 / VAL-01: Removed brittle 200ms Promise.race in non-interactive confirm-spec test (4fc0ce5). Production code at src/orchestrator.ts:582-598 confirmed correct (git diff src/ empty). Vitest's default 5000ms per-test timeout is the new hang-guard; expect(onceSpy).not.toHaveBeenCalled() preserves regression detection.
 - Phase 2 / SEC-01: Pinned @anthropic-ai/claude-agent-sdk to exact 0.2.90 (commit a13afda) — GHSA-5474-4w2j-mq4c-fixed; lockfile regenerated; npm audit clean; 777/777 tests + typecheck/lint green; 30 SDK import sites unaffected.
 - SEC-01 chose lowest GHSA-fixed SDK version 0.2.90 over latest 0.2.117 to minimize unrelated SDK type-surface churn ahead of SEC-02..SEC-08 (which all gate on this wave).
+- SEC-04: two-layer deny-first/allow-second gate in runCommandInSandbox; ALLOWED_EXECUTABLES + FORBIDDEN_BINARIES exported as ReadonlySet<string> so tests pin contents
 
 ### Pending Todos
 
@@ -96,8 +100,8 @@ Items acknowledged and carried forward from the ingest:
 
 ## Session Continuity
 
-Last session: 2026-04-22T17:35:46.381Z
-Stopped at: Phase 2 / SEC-02 complete: wrapUserInput applied to all 5 raw blueprint interpolations in mutation-engine prompts
+Last session: 2026-04-22T17:37:04.632Z
+Stopped at: Completed 02-07-PLAN.md
 Resume file: None
 
 **Planned Phase:** 1 (Test-Readiness Stabilization) — 1 plans — 2026-04-22T16:47:11.146Z

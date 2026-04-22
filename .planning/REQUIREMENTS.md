@@ -65,7 +65,8 @@ The current milestone is **v1.0 Validation & Hardening**. Goal: prove the existi
 - [x] **SEC-02
 **: `wrapUserInput(tag, content)` applied to every interpolated variable in `src/self-improve/mutation-engine.ts`
 - [ ] **SEC-03**: LSP install commands in `src/environment/lsp-manager.ts` gated by an executable allowlist (split on whitespace + check executable name)
-- [ ] **SEC-04**: Sandbox executable allowlist enforced in `src/self-improve/sandbox.ts` — forbidden binaries cannot be invoked from a mutation worktree
+- [x] **SEC-04
+**: Sandbox executable allowlist enforced in `src/self-improve/sandbox.ts` — forbidden binaries cannot be invoked from a mutation worktree
 - [ ] **SEC-05**: `src/hooks/security.ts` deny-list coverage extended to `Glob`, `Grep`, `Agent`, `WebFetch` tools (currently only Bash/Read/Write/Edit)
 - [ ] **SEC-06**: ReDoS pattern in `src/state/memory-store.ts` `topicPattern` regex bounded with input length cap and/or non-backtracking pattern
 - [ ] **SEC-07**: Path-traversal hardening for all `.autonomous-dev/` subdirectories — every write site validated, not only `stateDir`
