@@ -395,4 +395,154 @@ describe("Orchestrator", () => {
     expect(iterCtxs[0]?.rubricFeedback).toBeUndefined();
     expect(iterCtxs[1]?.rubricFeedback).toBeDefined();
   });
+
+  it("rubric verdict 'failed' escalates to ledger as verification_failed (HIGH-01)", async () => {
+    const { readFileSync, existsSync, readdirSync } = await import("node:fs");
+    const { join: joinPath } = await import("node:path");
+
+    const state = createInitialState("test rubric ledger escalation");
+    const specState: ProjectState = {
+      ...state,
+      spec: {
+        summary: "S",
+        userStories: [],
+        nonFunctionalRequirements: [],
+        domain: {
+          classification: "general",
+          specializations: [],
+          requiredRoles: [],
+          requiredMcpServers: [],
+          techStack: [],
+        },
+      },
+    };
+
+    mockedRunArchitecture.mockImplementation(async () => ({
+      success: true,
+      state: specState,
+      costUsd: 0.01,
+    }));
+
+    // Force the grader to return a failed verdict on the very first iteration.
+    mockedGradePhaseOutput.mockResolvedValueOnce({
+      rubricResult: {
+        rubricName: "Architecture Quality",
+        scores: [
+          { criterionName: "scalability_addressed", score: 0.1, passed: false, feedback: "no scaling story" },
+          { criterionName: "separation_of_concerns", score: 0.2, passed: false, feedback: "spaghetti" },
+          { criterionName: "tech_stack_justified", score: 0.1, passed: false, feedback: "no rationale" },
+        ],
+        verdict: "failed",
+        overallScore: 0.13,
+        summary: "Fundamentally wrong architecture",
+        iteration: 1,
+      },
+      costUsd: 0.001,
+    });
+
+    const config: Config = {
+      ...makeConfig(),
+      rubrics: { enabled: true, maxIterations: 3 },
+    };
+
+    await runOrchestrator(state, config, undefined, "architecture");
+
+    // Locate the persisted ledger file.
+    const ledgerDir = joinPath(config.stateDir, "ledger");
+    expect(existsSync(ledgerDir)).toBe(true);
+    const files = readdirSync(ledgerDir).filter((f) => f.endsWith(".json"));
+    expect(files.length).toBeGreaterThan(0);
+    const firstLedgerFile = files[0];
+    expect(firstLedgerFile).toBeDefined();
+    const ledgerPath = joinPath(ledgerDir, firstLedgerFile as string);
+    const ledgerSnapshot = JSON.parse(readFileSync(ledgerPath, "utf-8")) as {
+      sessions?: Array<{
+        sessionType: string;
+        failures: Array<{ reasonCode: string; message: string }>;
+      }>;
+    };
+
+    const rubricSessions = (ledgerSnapshot.sessions ?? []).filter(
+      (s) => s.sessionType === "rubric",
+    );
+    expect(rubricSessions.length).toBeGreaterThanOrEqual(1);
+    const rubricFailures = rubricSessions.flatMap((s) => s.failures);
+    expect(
+      rubricFailures.some((f) => f.reasonCode === "verification_failed"),
+    ).toBe(true);
+  });
+
+  it("rubric verdict 'needs_revision' re-runs handler with rubricFeedback injected (HIGH-01)", async () => {
+    const state = createInitialState("test rubric needs revision");
+    const specState: ProjectState = {
+      ...state,
+      spec: {
+        summary: "S",
+        userStories: [],
+        nonFunctionalRequirements: [],
+        domain: {
+          classification: "general",
+          specializations: [],
+          requiredRoles: [],
+          requiredMcpServers: [],
+          techStack: [],
+        },
+      },
+    };
+
+    const capturedCtxs: Array<
+      { rubricFeedback?: string | undefined; cachedSystemPrompt?: string | undefined } | undefined
+    > = [];
+    mockedRunArchitecture.mockImplementation(async (_s, _c, execCtx) => {
+      capturedCtxs.push(execCtx?.context);
+      return { success: true, state: specState, costUsd: 0.01 };
+    });
+
+    mockedGradePhaseOutput
+      .mockResolvedValueOnce({
+        rubricResult: {
+          rubricName: "Architecture Quality",
+          scores: [
+            { criterionName: "scalability_addressed", score: 0.5, passed: false, feedback: "no autoscale plan" },
+            { criterionName: "separation_of_concerns", score: 0.9, passed: true, feedback: "ok" },
+          ],
+          verdict: "needs_revision",
+          overallScore: 0.7,
+          summary: "needs scaling",
+          iteration: 1,
+        },
+        costUsd: 0.001,
+      })
+      .mockResolvedValueOnce({
+        rubricResult: {
+          rubricName: "Architecture Quality",
+          scores: [
+            { criterionName: "scalability_addressed", score: 0.85, passed: true, feedback: "fixed" },
+            { criterionName: "separation_of_concerns", score: 0.9, passed: true, feedback: "ok" },
+          ],
+          verdict: "satisfied",
+          overallScore: 0.875,
+          summary: "good",
+          iteration: 2,
+        },
+        costUsd: 0.001,
+      });
+
+    const config: Config = {
+      ...makeConfig(),
+      rubrics: { enabled: true, maxIterations: 3 },
+    };
+
+    await runOrchestrator(state, config, undefined, "architecture");
+
+    expect(mockedRunArchitecture).toHaveBeenCalledTimes(2);
+    expect(capturedCtxs.length).toBeGreaterThanOrEqual(2);
+
+    // First call: no rubricFeedback yet (initial run)
+    expect(capturedCtxs[0]?.rubricFeedback).toBeUndefined();
+    // Second call: rubricFeedback contains the gap header from the needs_revision verdict
+    expect(capturedCtxs[1]?.rubricFeedback).toBeDefined();
+    expect(capturedCtxs[1]?.rubricFeedback).toContain("Rubric Feedback");
+    expect(capturedCtxs[1]?.rubricFeedback).toContain("scalability_addressed");
+  });
 });
