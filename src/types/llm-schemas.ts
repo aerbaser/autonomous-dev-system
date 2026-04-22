@@ -209,6 +209,11 @@ export const DomainAgentArraySchema = z.array(z.object({
   systemPrompt: z.string(),
   tools: z.array(z.string()),
   evaluationCriteria: z.array(z.string()),
+  // HIGH-06: keywords emitted by domain-analyzer's LLM for task↔agent matching.
+  // Optional here for backward compat with older mock fixtures (existing tests
+  // construct blueprints without keywords); newly-generated blueprints always
+  // include the field because the LLM JSON schema marks it required.
+  keywords: z.array(z.string()).optional(),
 }));
 
 export const StackResearchResultSchema = z.object({
@@ -299,6 +304,12 @@ export const AgentBlueprintSchema = z.object({
   evaluationCriteria: z.array(z.string()),
   version: z.number(),
   score: z.number().optional(),
+  // HIGH-06: domain keywords for task↔agent matching in development-runner.
+  // Optional at the Zod boundary so older persisted registries (which lack
+  // the field) still load via safeParse. The LLM-emitting schema in
+  // `src/agents/domain-analyzer.ts` marks the field as REQUIRED so all
+  // newly-generated blueprints carry it.
+  keywords: z.array(z.string()).optional(),
 });
 
 export const TaskStateSchema = z.object({

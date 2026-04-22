@@ -116,6 +116,18 @@ evaluationCriteria must be:
 - Objectively verifiable by reading the output
 - At least 3 criteria, ideally 4-5
 
+keywords must be (HIGH-06 — required for task↔agent matching):
+- 3-7 lowercase domain keywords used by the development runner to match this
+  agent against incoming tasks. Concrete domain terms only — avoid generic
+  words like "developer", "code", "agent", "helper", "data".
+- Examples: ["rag", "embeddings", "vector-db", "llm-integration"] for an
+  LLM/RAG specialist; ["payments", "stripe", "webhook", "billing"] for a
+  payments specialist; ["hipaa", "phi", "fhir", "clinical"] for a healthcare
+  compliance specialist.
+- The matching algorithm scores keyword∩task.title + keyword∩task.description
+  + keyword∩task.tags, so picking specific terms a task author would actually
+  use is what makes the agent selectable.
+
 ## Example (fintech project):
 
 {
@@ -129,12 +141,13 @@ evaluationCriteria must be:
     "Payment mutations include idempotency keys to prevent double-charges",
     "Reconciliation logic handles Stripe clock drift and delayed webhook delivery",
     "Integration tests cover happy path, payment failure, and refund scenarios using Stripe test mode"
-  ]
+  ],
+  "keywords": ["payments", "stripe", "webhook", "billing", "ach", "pci-dss"]
 }
 
 Available tools: Read, Write, Edit, Bash, Glob, Grep, WebSearch, WebFetch, Agent, AskUserQuestion
 
-Think through what each agent role needs for this specific domain, then provide your final answer as a JSON array of agent blueprints.`;
+Think through what each agent role needs for this specific domain, then provide your final answer as a JSON array of agent blueprints. Every blueprint MUST include a populated "keywords" array (3-7 lowercase domain terms).`;
 
 export async function generateDomainAgents(
   idea: string,
@@ -197,6 +210,11 @@ Generate blueprints for these roles: ${domain.requiredRoles.join(", ")}`,
             ),
           ],
       version: 1,
+      // HIGH-06: forward keywords through to the persisted blueprint. The Zod
+      // schema is .optional() for backward compat; the `...r` spread already
+      // carries `keywords` when present, so this line is a no-op by value but
+      // documents the intentional flow through to `AgentBlueprint`.
+      ...(r.keywords !== undefined ? { keywords: r.keywords } : {}),
     }));
   } catch {
     return [];
