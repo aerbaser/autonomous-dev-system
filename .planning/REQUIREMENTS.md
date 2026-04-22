@@ -64,7 +64,7 @@ The current milestone is **v1.0 Validation & Hardening**. Goal: prove the existi
 **: SDK CVE GHSA-5474-4w2j-mq4c mitigated — `@anthropic-ai/claude-agent-sdk` downgraded to `0.2.90` or pinned to a fixed version; CI passes
 - [x] **SEC-02
 **: `wrapUserInput(tag, content)` applied to every interpolated variable in `src/self-improve/mutation-engine.ts`
-- [ ] **SEC-03**: LSP install commands in `src/environment/lsp-manager.ts` gated by an executable allowlist (split on whitespace + check executable name)
+- [x] **SEC-03**: LSP install commands in `src/environment/lsp-manager.ts` gated by an executable allowlist (split on whitespace + check executable name) — completed 2026-04-22 (commits 5def22e, dae96da)
 - [x] **SEC-04
 **: Sandbox executable allowlist enforced in `src/self-improve/sandbox.ts` — forbidden binaries cannot be invoked from a mutation worktree
 - [ ] **SEC-05**: `src/hooks/security.ts` deny-list coverage extended to `Glob`, `Grep`, `Agent`, `WebFetch` tools (currently only Bash/Read/Write/Edit)
@@ -144,7 +144,7 @@ Every v1 requirement maps to exactly one phase in `ROADMAP.md`.
 | VAL-01 | Phase 1 | Complete (4fc0ce5, 2026-04-22) |
 | SEC-01 | Phase 2 | Pending |
 | SEC-02 | Phase 2 | Pending |
-| SEC-03 | Phase 2 | Pending |
+| SEC-03 | Phase 2 | Complete (5def22e, dae96da, 2026-04-22) |
 | SEC-04 | Phase 2 | Pending |
 | SEC-05 | Phase 2 | Pending |
 | SEC-06 | Phase 2 | Pending |

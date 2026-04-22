@@ -55,7 +55,7 @@ Plans:
 Plans:
 - [x] 01-PLAN.md — SEC-01: pin `@anthropic-ai/claude-agent-sdk` to GHSA-5474-4w2j-mq4c-fixed version (wave 1) — completed 2026-04-22 (commit a13afda)
 - [ ] 02-PLAN.md — SEC-02: wrap every interpolated variable in `mutation-engine.ts` prompts with `wrapUserInput` (wave 2)
-- [ ] 03-PLAN.md — SEC-03: LSP install executable allowlist in `lsp-manager.ts` (wave 2)
+- [x] 03-PLAN.md — SEC-03: LSP install executable allowlist in `lsp-manager.ts` (wave 2) — completed 2026-04-22 (commits 5def22e, dae96da)
 - [ ] 04-PLAN.md — SEC-04: sandbox allowlist + FORBIDDEN_BINARIES denylist in `sandbox.ts` (wave 2)
 - [ ] 05-PLAN.md — SEC-05: add Agent matcher branch to `security.ts` PreToolUse hook (wave 2)
 - [ ] 06-PLAN.md — SEC-06: bound `topicPattern` input with MAX_TOPIC_PATTERN_LENGTH in `memory-store.ts` (wave 2)
