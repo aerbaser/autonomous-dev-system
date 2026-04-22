@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { randomUUID } from "node:crypto";
+import { ConfigSchema, loadConfig } from "../../src/utils/config.js";
 
 describe("loadConfig", () => {
   it("can be imported without requiring ANTHROPIC_API_KEY", async () => {
@@ -77,5 +79,92 @@ describe("resolveAuxiliaryFlags", () => {
     expect(flags.rubric).toBe(true);
     expect(flags.qualityFixRetry).toBe(true);
     expect(flags.memoryCapturePerTask).toBe(false);
+  });
+});
+
+describe("SEC-08 Anthropic API key is never in Config", () => {
+  const EXPECTED_CONFIG_KEYS = [
+    "model",
+    "subagentModel",
+    "posthogApiKey",
+    "githubToken",
+    "slackWebhookUrl",
+    "deployTarget",
+    "selfImprove",
+    "projectDir",
+    "stateDir",
+    "autonomousMode",
+    "maxTurns",
+    "budgetUsd",
+    "dryRun",
+    "quickMode",
+    "confirmSpec",
+    "memory",
+    "codexSubagents",
+    "rubrics",
+    "maxParallelBatches",
+    "roles",
+    "retryPolicy",
+    "developmentCoordinator",
+    "auxiliaryProfile",
+    "interactive",
+  ].sort();
+
+  it("ConfigSchema top-level keys match the expected set exactly", () => {
+    const actual = Object.keys(ConfigSchema.shape).sort();
+    expect(actual).toEqual(EXPECTED_CONFIG_KEYS);
+  });
+
+  it("ConfigSchema has no apiKey / anthropicApiKey / claudeApiKey field", () => {
+    const keys = Object.keys(ConfigSchema.shape);
+    expect(keys).not.toContain("apiKey");
+    expect(keys).not.toContain("anthropicApiKey");
+    expect(keys).not.toContain("anthropic_api_key");
+    expect(keys).not.toContain("ANTHROPIC_API_KEY");
+    expect(keys).not.toContain("claudeApiKey");
+    expect(keys).not.toContain("claude_api_key");
+  });
+
+  it("loadConfig() does not leak process.env.ANTHROPIC_API_KEY into the Config object", () => {
+    const sentinel = "sk-ant-SENTINEL-" + randomUUID();
+    const prev = process.env['ANTHROPIC_API_KEY'];
+    process.env['ANTHROPIC_API_KEY'] = sentinel;
+    try {
+      const cfg = loadConfig();
+      const serialized = JSON.stringify(cfg);
+      expect(serialized).not.toContain(sentinel);
+      expect(serialized).not.toContain("sk-ant-");
+    } finally {
+      if (prev === undefined) delete process.env['ANTHROPIC_API_KEY'];
+      else process.env['ANTHROPIC_API_KEY'] = prev;
+    }
+  });
+
+  it("loadConfig() ONLY reads third-party provider tokens from env (not Anthropic)", () => {
+    const prevPh = process.env['POSTHOG_API_KEY'];
+    const prevGh = process.env['GITHUB_TOKEN'];
+    const prevSl = process.env['SLACK_WEBHOOK_URL'];
+    const prevAn = process.env['ANTHROPIC_API_KEY'];
+    process.env['POSTHOG_API_KEY'] = "ph-SENTINEL";
+    process.env['GITHUB_TOKEN'] = "gh-SENTINEL";
+    process.env['SLACK_WEBHOOK_URL'] = "https://hooks.slack.com/SENTINEL";
+    process.env['ANTHROPIC_API_KEY'] = "sk-ant-should-not-propagate";
+    try {
+      const cfg = loadConfig();
+      expect(cfg.posthogApiKey).toBe("ph-SENTINEL");
+      expect(cfg.githubToken).toBe("gh-SENTINEL");
+      expect(cfg.slackWebhookUrl).toBe("https://hooks.slack.com/SENTINEL");
+      const serialized = JSON.stringify(cfg);
+      expect(serialized).not.toContain("sk-ant-should-not-propagate");
+    } finally {
+      const restore = (name: string, val: string | undefined): void => {
+        if (val === undefined) delete process.env[name];
+        else process.env[name] = val;
+      };
+      restore('POSTHOG_API_KEY', prevPh);
+      restore('GITHUB_TOKEN', prevGh);
+      restore('SLACK_WEBHOOK_URL', prevSl);
+      restore('ANTHROPIC_API_KEY', prevAn);
+    }
   });
 });
