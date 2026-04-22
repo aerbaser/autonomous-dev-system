@@ -98,6 +98,27 @@ describe("Interrupter", () => {
     expect(int.signal.reason).toBe("first-reason");
   });
 
+  it("two Interrupter instances have independent signals (HIGH-03)", () => {
+    const a = new Interrupter();
+    const b = new Interrupter();
+
+    // Interrupting `a` MUST NOT affect `b`.
+    a.interrupt("reason-a");
+
+    expect(a.isInterrupted()).toBe(true);
+    expect(a.signal.aborted).toBe(true);
+    expect(a.getReason()).toBe("reason-a");
+
+    expect(b.isInterrupted()).toBe(false);
+    expect(b.signal.aborted).toBe(false);
+    expect(b.getReason()).toBeUndefined();
+
+    // Now interrupt `b` and assert the reasons still don't cross.
+    b.interrupt("reason-b");
+    expect(a.getReason()).toBe("reason-a"); // unchanged
+    expect(b.getReason()).toBe("reason-b");
+  });
+
   it("signal aborts in-flight consumeQuery within 100ms", async () => {
     const int = new Interrupter();
     let interruptCalled = false;
