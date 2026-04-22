@@ -57,11 +57,26 @@ vi.mock("../../src/state/project-state.js", async (importOriginal) => {
   return { ...original, saveState: vi.fn() };
 });
 
+// HIGH-05 — the blueprint verifier gate requires systemPrompt length > 50.
+// These fixtures use prompts well above the 51-char minimum so existing
+// acceptance/regression assertions still exercise the non-verification code
+// paths.
+const BASELINE_PROMPT =
+  "You are a careful software engineer. Write tested, reviewed code.";
+const MUTATED_PROMPT_BETTER =
+  "You are a careful software engineer. Write tested, reviewed code. Prefer clarity.";
+const MUTATED_PROMPT_BROKEN =
+  "You are a careful software engineer. Write tested, reviewed code. [broken variant]";
+const MUTATED_PROMPT_RISKY =
+  "You are a careful software engineer. Write tested, reviewed code. [risky variant]";
+const MUTATED_PROMPT_GENERIC =
+  "You are a careful software engineer. Write tested, reviewed code. [mutated]";
+
 const mockAgents: AgentBlueprint[] = [
   {
     name: "developer",
     role: "Software Developer",
-    systemPrompt: "You write code.",
+    systemPrompt: BASELINE_PROMPT,
     tools: ["Read", "Write"],
     evaluationCriteria: ["code compiles"],
     version: 1,
@@ -179,7 +194,7 @@ describe("runOptimizerImpl", () => {
       targetName: "developer",
       type: "agent_prompt",
       description: "Improve system prompt clarity",
-      apply: () => ({ ...mockAgents[0]!, systemPrompt: "Better prompt" }),
+      apply: () => ({ ...mockAgents[0]!, systemPrompt: MUTATED_PROMPT_BETTER }),
       rollback: () => mockAgents[0]!,
     };
     mockGenerateMutations.mockResolvedValueOnce([mutation]);
@@ -199,7 +214,7 @@ describe("runOptimizerImpl", () => {
         targetName: "developer",
         type: "agent_prompt",
         description: "Malformed worktree output path",
-        apply: () => ({ ...mockAgents[0]!, systemPrompt: "Broken" }),
+        apply: () => ({ ...mockAgents[0]!, systemPrompt: MUTATED_PROMPT_BROKEN }),
         rollback: () => mockAgents[0]!,
       },
     ]);
@@ -232,7 +247,7 @@ describe("runOptimizerImpl", () => {
         targetName: "developer",
         type: "agent_prompt",
         description: "Benchmark throws during mutation evaluation",
-        apply: () => ({ ...mockAgents[0]!, systemPrompt: "Risky change" }),
+        apply: () => ({ ...mockAgents[0]!, systemPrompt: MUTATED_PROMPT_RISKY }),
         rollback: () => mockAgents[0]!,
       },
     ]);
@@ -281,7 +296,7 @@ describe("runOptimizerImpl", () => {
       targetName: name,
       type: "agent_prompt",
       description: "tweak prompt",
-      apply: () => ({ ...mockAgents[0]!, name, systemPrompt: "Mutated" }),
+      apply: () => ({ ...mockAgents[0]!, name, systemPrompt: MUTATED_PROMPT_GENERIC }),
       rollback: () => mockAgents[0]!,
     };
   }

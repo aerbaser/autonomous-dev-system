@@ -21,6 +21,7 @@ import {
 import type { ConvergenceConfig } from "./convergence.js";
 import { savePromptVersion } from "./versioning.js";
 import { runInWorktreeSandbox } from "./sandbox.js";
+import { verifyBlueprint } from "./blueprint-verifier.js";
 import type { OptimizerOptions } from "./optimizer.js";
 
 /**
@@ -192,6 +193,46 @@ export async function runOptimizerImpl(
 
       // Apply mutation
       const mutatedBlueprint = mutation.apply();
+
+      // HIGH-05 — Blueprint verification gate. Before we register the
+      // candidate and spend benchmark cost, check it passes deterministic
+      // verification (schema, prompt length bounds, tool allow-list,
+      // non-empty name/role). A rejected mutation is recorded in the
+      // evolution log with `accepted: false` and a
+      // `REJECTED: verification failed — ...` diff prefix, so post-run
+      // forensics can see WHY it was dropped. The gate runs BEFORE
+      // `registry.register`, so the registry still holds the pre-mutation
+      // blueprint — no rollback is needed on rejection.
+      const verification = verifyBlueprint(mutatedBlueprint);
+      if (!verification.ok) {
+        console.warn(
+          `[optimizer] Rejecting mutation "${mutation.description}" — verification failed: ${verification.reason}`
+        );
+        const rejectedEntry: EvolutionEntry = {
+          id: randomUUID(),
+          target: mutation.targetName,
+          type: mutation.type,
+          diff: `REJECTED: verification failed — ${verification.reason}`,
+          scoreBefore: currentState.baselineScore,
+          scoreAfter: currentState.baselineScore,
+          accepted: false,
+          timestamp: new Date().toISOString(),
+        };
+        currentState = {
+          ...currentState,
+          evolution: [...currentState.evolution, rejectedEntry],
+        };
+        saveState(config.stateDir, currentState);
+        // Baseline unchanged → stagnation counter ticks; the optimizer will
+        // not get stuck in a rejection loop forever.
+        convergenceState = updateConvergence(
+          convergenceState,
+          currentState.baselineScore,
+          convergenceConfig
+        );
+        continue;
+      }
+
       registry.register(mutatedBlueprint);
 
       // Re-run benchmarks (optionally inside an isolated worktree)

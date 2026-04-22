@@ -75,12 +75,20 @@ vi.mock("../../src/state/project-state.js", async (importOriginal) => {
   };
 });
 
+// HIGH-05 — the blueprint verifier gate requires systemPrompt length > 50.
+// Fixtures use prompts well above the 51-char minimum so the existing
+// accept/reject assertions exercise the post-verification scoring code paths.
+const DEVELOPER_PROMPT =
+  "You are a careful software developer. Write tested, reviewed code.";
+const REVIEWER_PROMPT =
+  "You are a thorough code reviewer. Find bugs and suggest improvements.";
+
 // Mock AgentRegistry
 const mockAgents: AgentBlueprint[] = [
   {
     name: "developer",
     role: "Software Developer",
-    systemPrompt: "You write code.",
+    systemPrompt: DEVELOPER_PROMPT,
     tools: ["Read", "Write", "Bash"],
     evaluationCriteria: ["code quality"],
     version: 1,
@@ -89,7 +97,7 @@ const mockAgents: AgentBlueprint[] = [
   {
     name: "reviewer",
     role: "Code Reviewer",
-    systemPrompt: "You review code.",
+    systemPrompt: REVIEWER_PROMPT,
     tools: ["Read", "Grep"],
     evaluationCriteria: ["review quality"],
     version: 1,
@@ -158,8 +166,12 @@ function makeConfig() {
 }
 
 function makeMutation(overrides?: Partial<Mutation>): Mutation {
-  const originalPrompt = "original prompt";
-  const newPrompt = "improved prompt";
+  // HIGH-05 — both prompts must clear the 51-char verifier minimum or the
+  // mutation is rejected before ever reaching the score-comparison branch.
+  const originalPrompt =
+    "You are a careful software developer. Write tested, reviewed code.";
+  const newPrompt =
+    "You are a careful software developer. Write tested, reviewed code. (Optimized)";
   return {
     id: "mut-1",
     targetName: "developer",
