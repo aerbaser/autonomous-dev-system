@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdirSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { MemoryStore } from "../../src/state/memory-store.js";
+import { MAX_TOPIC_PATTERN_LENGTH, MemoryStore } from "../../src/state/memory-store.js";
 
 const TEST_STATE_DIR = join(tmpdir(), `ads-test-memory-${process.pid}`);
 
@@ -274,5 +274,62 @@ describe("MemoryStore", () => {
       // Should have at most 3 active documents
       expect(docs.length).toBeLessThanOrEqual(3);
     });
+  });
+});
+
+describe("SEC-06 topicPattern bounded input", () => {
+  // Use a separate temp dir so this block does not race with the outer
+  // describe's beforeEach/afterEach lifecycle.
+  const SEC06_STATE_DIR = join(tmpdir(), `ads-test-memory-sec06-${process.pid}`);
+  let store: MemoryStore;
+
+  beforeEach(() => {
+    if (existsSync(SEC06_STATE_DIR)) rmSync(SEC06_STATE_DIR, { recursive: true });
+    mkdirSync(SEC06_STATE_DIR, { recursive: true });
+    store = new MemoryStore(SEC06_STATE_DIR);
+  });
+
+  afterEach(() => {
+    if (existsSync(SEC06_STATE_DIR)) rmSync(SEC06_STATE_DIR, { recursive: true });
+  });
+
+  it("pins MAX_TOPIC_PATTERN_LENGTH to 256 (silent loosening must show up as a diff)", () => {
+    expect(MAX_TOPIC_PATTERN_LENGTH).toBe(256);
+  });
+
+  it("accepts a 256-char topicPattern (boundary value)", async () => {
+    await store.write("alpha", "content-a", ["t1"]);
+    const pattern = "x".repeat(256);
+    const results = await store.list({ topicPattern: pattern });
+    // 'x'*256 will not match topic 'alpha' — empty result is correct, the point
+    // is that the call did not throw at the boundary.
+    expect(Array.isArray(results)).toBe(true);
+  });
+
+  it("throws when topicPattern exceeds 256 chars", async () => {
+    const pattern = "x".repeat(257);
+    await expect(store.list({ topicPattern: pattern })).rejects.toThrow(
+      /MAX_TOPIC_PATTERN_LENGTH/
+    );
+  });
+
+  it("normal-length topicPattern still matches (regression)", async () => {
+    await store.write("phase-development", "content", ["phase"]);
+    await store.write("phase-testing", "content", ["phase"]);
+    const results = await store.list({ topicPattern: "phase" });
+    expect(results.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("returns within wall-clock ceiling for a benign 256-char pattern across many docs", async () => {
+    // Seed 50 documents (well below the 500 cap) with varied topics.
+    for (let i = 0; i < 50; i++) {
+      await store.write(`topic-${i}`, `content-${i}`, ["t"]);
+    }
+    const pattern = "topic-".padEnd(256, "x"); // benign, won't match anything but exercises the walk
+    const t0 = Date.now();
+    const results = await store.list({ topicPattern: pattern });
+    const elapsed = Date.now() - t0;
+    expect(elapsed).toBeLessThan(500); // generous; on a healthy box this is <50ms
+    expect(Array.isArray(results)).toBe(true);
   });
 });
