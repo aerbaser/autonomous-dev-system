@@ -94,10 +94,10 @@ function makeConfig(overrides: Partial<Config> = {}): Config {
     selfImprove: { enabled: false, maxIterations: 50, nightlyOptimize: false },
     projectDir: TEST_DIR,
     stateDir: join(TEST_DIR, ".autonomous-dev"),
-    memory: { enabled: false, maxDocuments: 500, maxDocumentSizeKb: 100 },
+    memory: { enabled: false, maxDocuments: 500, maxDocumentSizeKb: 100, layers: { enabled: false } },
     rubrics: { enabled: false, maxIterations: 3 },
     ...overrides,
-  };
+  } as Config;
 }
 
 function makeSpecState(base: ProjectState): ProjectState {
@@ -240,7 +240,7 @@ describe("Orchestrator autonomy hardening", () => {
       state: { ...s, currentPhase: "architecture" },
     }));
 
-    const onceSpy = vi.spyOn(process.stdin, "once").mockImplementation((event: string, listener: (...args: unknown[]) => void) => {
+    const onceSpy = vi.spyOn(process.stdin, "once").mockImplementation((event: string | symbol, listener: (...args: unknown[]) => void) => {
       if (event === "data") {
         queueMicrotask(() => listener(Buffer.from("y\n")));
       }
