@@ -154,7 +154,7 @@ async function generatePromptMutation(
     for await (const message of query({
       prompt: `${PROMPT_MUTATION}
 
-Agent: ${blueprint.name} (${blueprint.role})
+Agent: ${wrapUserInput("agent_name", blueprint.name)} (${wrapUserInput("agent_role", blueprint.role)})
 
 Current system prompt:
 ${wrapUserInput("system_prompt", blueprint.systemPrompt)}
@@ -230,8 +230,8 @@ async function generateToolConfigMutation(
     for await (const message of query({
       prompt: `${TOOL_CONFIG_MUTATION}
 
-Agent: ${blueprint.name} (${blueprint.role})
-Current tools: ${JSON.stringify(blueprint.tools)}
+Agent: ${wrapUserInput("agent_name", blueprint.name)} (${wrapUserInput("agent_role", blueprint.role)})
+Current tools: ${wrapUserInput("agent_tools", JSON.stringify(blueprint.tools))}
 
 Recent benchmark results:
 ${wrapUserInput("benchmark_results", benchmarkSummary)}
@@ -308,8 +308,8 @@ async function generatePhaseLogicMutation(
     for await (const message of query({
       prompt: `${PHASE_LOGIC_MUTATION}
 
-Agent: ${blueprint.name} (${blueprint.role})
-Current model: ${blueprint.model ?? "default (sonnet)"}
+Agent: ${wrapUserInput("agent_name", blueprint.name)} (${wrapUserInput("agent_role", blueprint.role)})
+Current model: ${wrapUserInput("agent_model", blueprint.model ?? "default (sonnet)")}
 
 Recent benchmark results:
 ${wrapUserInput("benchmark_results", benchmarkSummary)}
