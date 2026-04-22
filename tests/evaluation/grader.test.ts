@@ -236,4 +236,75 @@ describe("gradePhaseOutput", () => {
     expect(rubricResult.scores.every((score) => score.passed)).toBe(true);
     expect(costUsd).toBe(0);
   });
+
+  it("preserves LLM-emitted satisfied verdict even when scores would algorithmically grade as failed (HIGH-02)", async () => {
+    // The LLM emits verdict='satisfied' with overallScore=0.85, but the per-criterion
+    // scores it returns would, if fed into determineVerdict(), produce 'failed'
+    // (2 of 2 criteria below threshold → failedCount > scores.length / 2).
+    // The grader MUST honor the LLM verdict verbatim — that's the verdict-precedence
+    // contract per REQUIREMENTS.md HIGH-02.
+    const llmOutput = {
+      scores: [
+        { criterionName: "criterion_a", score: 0.1, passed: false, feedback: "build broken" },
+        { criterionName: "criterion_b", score: 0.05, passed: false, feedback: "no tests" },
+      ],
+      verdict: "satisfied" as const,
+      overallScore: 0.85,
+      summary: "LLM optimistic despite low criterion scores",
+    };
+
+    mockedQuery.mockReturnValue(makeMockQueryStream(llmOutput) as any);
+
+    const state = createInitialState("Test project");
+    const phaseResult: PhaseResult = { success: true, state };
+
+    const { rubricResult } = await gradePhaseOutput(
+      TEST_RUBRIC,
+      phaseResult,
+      state,
+      { config: makeConfig() as any },
+    );
+
+    // Verdict and overallScore are returned VERBATIM from the LLM — not recomputed.
+    expect(rubricResult.verdict).toBe("satisfied");
+    expect(rubricResult.overallScore).toBeCloseTo(0.85, 5);
+    // Scores are also unchanged.
+    expect(rubricResult.scores).toEqual(llmOutput.scores);
+    // Sanity check: determineVerdict(scores) on this array would have produced "failed"
+    // (2/2 failed > scores.length/2 = 1). The assertions above already prove the
+    // LLM verdict took precedence over the algorithmic one.
+  });
+
+  it("preserves LLM-emitted failed verdict even when scores would algorithmically grade as satisfied (HIGH-02)", async () => {
+    // Inverse direction: LLM says 'failed' with overallScore=0.2, but every score
+    // is high enough that determineVerdict() would compute 'satisfied' (0 failed).
+    // The LLM verdict still wins.
+    const llmOutput = {
+      scores: [
+        { criterionName: "criterion_a", score: 0.95, passed: true, feedback: "all green" },
+        { criterionName: "criterion_b", score: 0.92, passed: true, feedback: "100% pass rate" },
+      ],
+      verdict: "failed" as const,
+      overallScore: 0.2,
+      summary: "LLM detected a fundamental architectural flaw not captured by per-criterion scores",
+    };
+
+    mockedQuery.mockReturnValue(makeMockQueryStream(llmOutput) as any);
+
+    const state = createInitialState("Test project");
+    const phaseResult: PhaseResult = { success: true, state };
+
+    const { rubricResult } = await gradePhaseOutput(
+      TEST_RUBRIC,
+      phaseResult,
+      state,
+      { config: makeConfig() as any },
+    );
+
+    // LLM verdict and overallScore preserved verbatim — even though scores would
+    // algorithmically grade as 'satisfied'.
+    expect(rubricResult.verdict).toBe("failed");
+    expect(rubricResult.overallScore).toBeCloseTo(0.2, 5);
+    expect(rubricResult.scores).toEqual(llmOutput.scores);
+  });
 });
