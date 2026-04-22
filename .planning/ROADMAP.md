@@ -32,7 +32,10 @@ Granularity: **standard** (6 phases). Each phase delivers a coherent, observable
   2. `npm run typecheck` is clean
   3. `npm run lint` is clean
   4. The fix does not introduce a regression in any other test file (vitest run is fully green)
-**Plans**: TBD
+**Plans:** 1 plan
+
+Plans:
+- [ ] 01-01-PLAN.md — Remove brittle 200ms `Promise.race` from non-interactive confirm-spec test; production code at `src/orchestrator.ts:590-598` is already correct
 
 ### Phase 2: Critical Security Backlog Closure
 **Goal**: Close the eight critical/security items from PRODUCT.md §16 so the system can be run on real ideas without known critical exposure.
@@ -102,7 +105,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6. Phase 2 and Ph
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Test-Readiness Stabilization | 0/TBD | Not started | - |
+| 1. Test-Readiness Stabilization | 0/1 | Not started | - |
 | 2. Critical Security Backlog Closure | 0/TBD | Not started | - |
 | 3. High-Priority Runtime Fixes | 0/TBD | Not started | - |
 | 4. End-to-End Validation on a Toy Idea | 0/TBD | Not started | - |
