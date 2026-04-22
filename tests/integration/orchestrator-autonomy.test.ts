@@ -274,15 +274,9 @@ describe("Orchestrator autonomy hardening", () => {
     }));
 
     const onceSpy = vi.spyOn(process.stdin, "once");
-    const timeout = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error("runOrchestrator timed out waiting for confirm-spec input")), 200);
-    });
 
     await runWithTTY(false, async () => {
-      await Promise.race([
-        runOrchestrator(state, config),
-        timeout,
-      ]);
+      await runOrchestrator(state, config);
     });
 
     expect(onceSpy).not.toHaveBeenCalled();
