@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: planning
-stopped_at: `.planning/` bootstrapped. PROJECT.md, REQUIREMENTS.md, ROADMAP.md, STATE.md written. Ready to plan Phase 1.
-last_updated: "2026-04-22T16:47:11.183Z"
-last_activity: 2026-04-22 — `.planning/` bootstrapped from PRODUCT.md ingest (commit c4b504d). Intel synthesis + PROJECT/REQUIREMENTS/ROADMAP written.
+stopped_at: "Phase 1 complete: VAL-01 closed, 777/777 baseline restored. Ready for Phase 2 (mutation-engine wrapUserInput hardening)."
+last_updated: "2026-04-22T16:51:32.672Z"
+last_activity: 2026-04-22 — Phase 1 / VAL-01 closed: removed 200ms Promise.race in non-interactive confirm-spec test (commit 4fc0ce5); 777/777 vitest green, typecheck/lint clean, no production-source change.
 progress:
   total_phases: 6
-  completed_phases: 0
+  completed_phases: 1
   total_plans: 1
-  completed_plans: 0
-  percent: 0
+  completed_plans: 1
+  percent: 100
 ---
 
 # Project State
@@ -21,35 +21,35 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-22)
 
 **Core value:** The operator can hand the system a product idea and get an end-to-end implemented, tested, reviewed, and deployed artifact with full cost visibility, checkpoint recovery, and a self-improvement loop.
-**Current focus:** Phase 1 — Test-Readiness Stabilization (restore 777/777 green baseline)
+**Current focus:** Phase 2 — Critical Security Backlog Closure (SEC-01..SEC-08; mitigate SDK CVE + 7 critical/security gaps)
 
 ## Current Position
 
-Phase: 1 of 6 (Test-Readiness Stabilization)
-Plan: 0 of TBD in current phase
-Status: Ready to plan
-Last activity: 2026-04-22 — `.planning/` bootstrapped from PRODUCT.md ingest (commit c4b504d). Intel synthesis + PROJECT/REQUIREMENTS/ROADMAP written.
+Phase: 1 of 6 complete; ready to plan Phase 2 (Critical Security Backlog Closure)
+Plan: 1 of 1 complete in Phase 1
+Status: Phase 1 complete — Phase 2 pending plan
+Last activity: 2026-04-22 — Phase 1 / VAL-01 closed: removed 200ms Promise.race in non-interactive confirm-spec test (commit 4fc0ce5); 777/777 vitest green, typecheck/lint clean, no production-source change.
 
-Progress: [░░░░░░░░░░] 0%
+Progress: [██████████] 100% (Phase 1 only — Phases 2–6 still 0/TBD plans)
 
 ## Performance Metrics
 
 **Velocity:**
 
-- Total plans completed: 0
-- Average duration: — min
-- Total execution time: 0.0 hours
+- Total plans completed: 1
+- Average duration: 2 min
+- Total execution time: 0.03 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
-| — | — | — | — |
+| 01    | 1     | 2 min | 2 min    |
 
 **Recent Trend:**
 
-- Last 5 plans: (none yet)
-- Trend: —
+- Last 5 plans: 01-01 (2 min, 1 task, 1 file modified)
+- Trend: baseline established
 
 *Updated after each plan completion*
 
@@ -65,6 +65,7 @@ Recent decisions affecting current work:
 - DEC-021: L1 memory layer removed — no re-introduction during v1.0 milestone.
 - DEC-014 (+ backlog SEC-02): `wrapUserInput` gap in `mutation-engine.ts` is being closed in Phase 2.
 - DEC-024 (+ backlog HIGH-01): rubric feedback loop wiring in orchestrator is being closed in Phase 3.
+- Phase 1 / VAL-01: Removed brittle 200ms Promise.race in non-interactive confirm-spec test (4fc0ce5). Production code at src/orchestrator.ts:582-598 confirmed correct (git diff src/ empty). Vitest's default 5000ms per-test timeout is the new hang-guard; expect(onceSpy).not.toHaveBeenCalled() preserves regression detection.
 
 ### Pending Todos
 
@@ -91,8 +92,8 @@ Items acknowledged and carried forward from the ingest:
 
 ## Session Continuity
 
-Last session: 2026-04-22
-Stopped at: `.planning/` bootstrapped. PROJECT.md, REQUIREMENTS.md, ROADMAP.md, STATE.md written. Ready to plan Phase 1.
-Resume file: None (run `/gsd-plan-phase 1` to proceed)
+Last session: 2026-04-22T16:51:32.636Z
+Stopped at: Phase 1 complete: VAL-01 closed, 777/777 baseline restored. Ready for Phase 2 (mutation-engine wrapUserInput hardening).
+Resume file: None
 
 **Planned Phase:** 1 (Test-Readiness Stabilization) — 1 plans — 2026-04-22T16:47:11.146Z

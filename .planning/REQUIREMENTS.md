@@ -7,7 +7,7 @@
 
 ## Validated Requirements (already in code)
 
-These map to the 21 entries in `.planning/intel/requirements.md`. They are present in `src/`, covered by 776/777 passing vitest. They are listed for full traceability and to make clear which acceptance work the active v1 milestone is *not* re-doing. The one known caveat (non-interactive confirm-spec timeout) is captured under VAL-01 below.
+These map to the 21 entries in `.planning/intel/requirements.md`. They are present in `src/`, covered by 777/777 passing vitest as of 2026-04-22 (Phase 1 / VAL-01 closed in commit 4fc0ce5). They are listed for full traceability and to make clear which acceptance work the active v1 milestone is *not* re-doing.
 
 ### Lifecycle (12 phases)
 
@@ -30,7 +30,7 @@ These map to the 21 entries in `.planning/intel/requirements.md`. They are prese
 - [x] **REQ-budget-cap** — `--budget <usd>` warns at 80%, graceful stop at 100% via Interrupter. (In-flight phase cost loss before `result.success` is a tracked gap, not blocking.)
 - [x] **REQ-dry-run** — `--dry-run` previews plan + cost estimate without `query()` calls.
 - [x] **REQ-quick-mode** — `--quick` skips exactly the 4 phases in `OPTIONAL_PHASES`.
-- [x] **REQ-confirm-spec-gate** — `--confirm-spec` pauses post-ideation. (One non-interactive test timeout — VAL-01.)
+- [x] **REQ-confirm-spec-gate** — `--confirm-spec` pauses post-ideation. (Non-interactive test timeout resolved 2026-04-22 in commit 4fc0ce5; VAL-01 closed.)
 - [x] **REQ-self-improve-optimize** — `autonomous-dev optimize --max-iterations N` with hill-climbing in worktree sandbox; convergence respects `windowSize`, `minImprovement`, `maxStagnant`.
 - [x] **REQ-nightly-runner** — `autonomous-dev nightly` skips Codex preflight via `NIGHTLY_ENV_FLAG`; produces dashboard.
 - [x] **REQ-dashboard** — `autonomous-dev dashboard` writes `.autonomous-dev/dashboard.html`.
@@ -50,7 +50,7 @@ The current milestone is **v1.0 Validation & Hardening**. Goal: prove the existi
 
 ### Validation
 
-- [ ] **VAL-01**: Baseline test suite is 777/777 green — the one currently failing case (non-interactive `--confirm-spec` timeout in `tests/integration/orchestrator-autonomy.test.ts`) is fixed without regressing other tests
+- [x] **VAL-01**: Baseline test suite is 777/777 green — the one currently failing case (non-interactive `--confirm-spec` timeout in `tests/integration/orchestrator-autonomy.test.ts`) is fixed without regressing other tests _(closed 2026-04-22, commit 4fc0ce5)_
 - [ ] **VAL-02**: Full 12-phase pipeline runs to completion against a chosen toy idea (non-quick) with all phase results, agents, and artifacts captured
 - [ ] **VAL-03**: `--resume <sessionId>` restores an interrupted toy-idea run from a mid-phase checkpoint
 - [ ] **VAL-04**: `--budget <usd>` enforces a hard cap on a toy-idea run — 80% warning emitted, 100% stop is graceful (no orphaned in-flight task)
@@ -137,7 +137,7 @@ Every v1 requirement maps to exactly one phase in `ROADMAP.md`.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| VAL-01 | Phase 1 | Pending |
+| VAL-01 | Phase 1 | Complete (4fc0ce5, 2026-04-22) |
 | SEC-01 | Phase 2 | Pending |
 | SEC-02 | Phase 2 | Pending |
 | SEC-03 | Phase 2 | Pending |
@@ -169,4 +169,4 @@ Every v1 requirement maps to exactly one phase in `ROADMAP.md`.
 
 ---
 *Requirements defined: 2026-04-22*
-*Last updated: 2026-04-22 after `.planning/` bootstrap from PRODUCT.md ingest (commit c4b504d).*
+*Last updated: 2026-04-22 — Phase 1 / VAL-01 closed (commit 4fc0ce5).*

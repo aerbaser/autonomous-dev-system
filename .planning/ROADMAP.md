@@ -14,7 +14,7 @@ Granularity: **standard** (6 phases). Each phase delivers a coherent, observable
 - Integer phases (1, 2, 3): Planned milestone work.
 - Decimal phases (2.1, 2.2): Reserved for urgent insertions discovered during execution.
 
-- [ ] **Phase 1: Test-Readiness Stabilization** — Restore 777/777 green baseline by fixing the non-interactive `--confirm-spec` timeout
+- [x] **Phase 1: Test-Readiness Stabilization** — Restore 777/777 green baseline by fixing the non-interactive `--confirm-spec` timeout
 - [ ] **Phase 2: Critical Security Backlog Closure** — Mitigate SDK CVE + 7 critical/security gaps from PRODUCT.md §16
 - [ ] **Phase 3: High-Priority Runtime Fixes** — Wire rubric feedback loop, fix Interrupter race, replace specification stub, fix grader/optimizer/keyword-matching gaps
 - [ ] **Phase 4: End-to-End Validation on a Toy Idea** — Run full 12-phase pipeline on a chosen toy idea; prove `--resume`, `--budget`, SIGINT-safe shutdown
@@ -35,7 +35,7 @@ Granularity: **standard** (6 phases). Each phase delivers a coherent, observable
 **Plans:** 1 plan
 
 Plans:
-- [ ] 01-01-PLAN.md — Remove brittle 200ms `Promise.race` from non-interactive confirm-spec test; production code at `src/orchestrator.ts:590-598` is already correct
+- [x] 01-PLAN.md — Remove brittle 200ms `Promise.race` from non-interactive confirm-spec test; production code at `src/orchestrator.ts:590-598` is already correct (commit 4fc0ce5, 2026-04-22)
 
 ### Phase 2: Critical Security Backlog Closure
 **Goal**: Close the eight critical/security items from PRODUCT.md §16 so the system can be run on real ideas without known critical exposure.
@@ -105,7 +105,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6. Phase 2 and Ph
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Test-Readiness Stabilization | 0/1 | Not started | - |
+| 1. Test-Readiness Stabilization | 1/1 | Complete | 2026-04-22 |
 | 2. Critical Security Backlog Closure | 0/TBD | Not started | - |
 | 3. High-Priority Runtime Fixes | 0/TBD | Not started | - |
 | 4. End-to-End Validation on a Toy Idea | 0/TBD | Not started | - |
