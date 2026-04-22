@@ -227,6 +227,92 @@ describe("Orchestrator runtime matrix", () => {
     expect(config.model).toBe("claude-opus-4-6");
   });
 
+  it("two concurrent runOrchestrator invocations each install their own Interrupter and both respond to SIGINT (HIGH-03)", async () => {
+    const { _getInterrupterStackDepthForTest } = await import("../../src/orchestrator.js");
+
+    // Two separate stateDirs so state writes don't collide.
+    const DIR1 = join(TEST_DIR, "run1");
+    const DIR2 = join(TEST_DIR, "run2");
+    mkdirSync(DIR1, { recursive: true });
+    mkdirSync(DIR2, { recursive: true });
+
+    const baseSpec = {
+      summary: "S",
+      userStories: [],
+      nonFunctionalRequirements: [],
+      domain: {
+        classification: "general",
+        specializations: [],
+        requiredRoles: [],
+        requiredMcpServers: [],
+        techStack: [],
+      },
+    };
+    const state1: ProjectState = {
+      ...createInitialState("concurrent run 1"),
+      currentPhase: "architecture",
+      spec: baseSpec,
+    };
+    const state2: ProjectState = {
+      ...createInitialState("concurrent run 2"),
+      currentPhase: "architecture",
+      spec: baseSpec,
+    };
+
+    const config1: Config = makeConfig({
+      projectDir: DIR1,
+      stateDir: join(DIR1, ".autonomous-dev"),
+    });
+    const config2: Config = makeConfig({
+      projectDir: DIR2,
+      stateDir: join(DIR2, ".autonomous-dev"),
+    });
+
+    // Both mocked architecture handlers await the signal being aborted.
+    const handlerInvoked = { run1: false, run2: false };
+    const makeHandler =
+      (label: "run1" | "run2") =>
+      async (
+        s: ProjectState,
+        _c: Config,
+        execCtx?: { signal?: AbortSignal } | undefined,
+      ) => {
+        handlerInvoked[label] = true;
+        await new Promise<void>((resolve) => {
+          if (!execCtx?.signal) return resolve();
+          if (execCtx.signal.aborted) return resolve();
+          execCtx.signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+        return { success: true, state: s };
+      };
+
+    mockedArchitecture.mockImplementationOnce(makeHandler("run1"));
+    mockedArchitecture.mockImplementationOnce(makeHandler("run2"));
+
+    // Start both runs in parallel.
+    const p1 = runOrchestrator(state1, config1, undefined, "architecture");
+    const p2 = runOrchestrator(state2, config2, undefined, "architecture");
+
+    // Wait until both handlers have registered their abort listeners.
+    await vi.waitFor(
+      () => {
+        expect(handlerInvoked.run1).toBe(true);
+        expect(handlerInvoked.run2).toBe(true);
+        expect(_getInterrupterStackDepthForTest()).toBe(2);
+      },
+      { timeout: 2000 },
+    );
+
+    // Fire SIGINT ONCE — each run's per-invocation listener must interrupt its own Interrupter.
+    process.emit("SIGINT");
+
+    // Both runs should complete (their handlers resolved once the signal aborted).
+    await expect(Promise.all([p1, p2])).resolves.toBeDefined();
+
+    // Stack is empty — each run popped its interrupter in finally.
+    expect(_getInterrupterStackDepthForTest()).toBe(0);
+  });
+
   it("persists failed phase diagnostics without marking the phase complete", async () => {
     const state: ProjectState = {
       ...createInitialState("Build an app"),
