@@ -1,0 +1,29 @@
+{
+  "source_path": "/Users/admin/Desktop/AI/Web2/autonomous-dev-system/README.md",
+  "type": "DOC",
+  "confidence": "high",
+  "manifest_override": true,
+  "title": "Autonomous Dev System",
+  "summary": "Onboarding README for a self-improving multi-agent development system built on Claude Agent SDK, covering install, run, config, and architecture overview.",
+  "scope": [
+    "project overview",
+    "installation",
+    "quickstart commands",
+    "CLI usage",
+    "configuration",
+    "architecture overview",
+    "self-improvement engine",
+    "scripts"
+  ],
+  "cross_refs": [
+    "./PRODUCT.md",
+    "./tasks-plans/tasks.md",
+    "./docs/archive/",
+    "https://docs.anthropic.com/en/docs/claude-agent-sdk",
+    "https://claude.ai/code",
+    "https://github.com/aerbaser/autonomous-dev-system.git"
+  ],
+  "locked": false,
+  "precedence": 3,
+  "notes": ""
+}
