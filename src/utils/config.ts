@@ -142,6 +142,28 @@ const auxiliaryProfileSchema = z
   .default("minimal");
 export type AuxiliaryProfile = z.infer<typeof auxiliaryProfileSchema>;
 
+/**
+ * SEC-08 invariant — Anthropic API key must NOT live on this Config object.
+ *
+ * Do NOT add any of the following fields to ConfigSchema:
+ *   - apiKey / anthropicApiKey / anthropic_api_key
+ *   - ANTHROPIC_API_KEY (env-style name)
+ *   - claudeApiKey / claude_api_key
+ *
+ * Rationale (PRODUCT.md §15 Security + REQUIREMENTS.md SEC-08):
+ *   Anthropic authentication is handled either by (a) the Claude Code
+ *   subscription path (transparent to this codebase — no env var required),
+ *   or (b) `ANTHROPIC_API_KEY` read directly by the SDK from process.env.
+ *   In neither case should our Config deserialize or retain the key —
+ *   doing so risks (i) accidental logging via JSON.stringify(config), and
+ *   (ii) accidental persistence to .autonomous-dev/state.json or similar.
+ *
+ * Only third-party PROVIDER tokens (PostHog, GitHub, Slack) are read from
+ * env into Config, because those are used by OPTIONAL phases that need the
+ * value in-process. Anthropic auth is never in that category.
+ *
+ * Regression: tests/utils/config.test.ts SEC-08 block pins this invariant.
+ */
 export const ConfigSchema = z.object({
   model: z
     .enum(["claude-opus-4-6", "claude-sonnet-4-6", "claude-haiku-4-5-20251001"])
