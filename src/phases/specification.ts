@@ -1,3 +1,26 @@
+/**
+ * Phase: specification (#2 in the 12-phase lifecycle).
+ *
+ * Takes the coarse `state.spec` produced by ideation and expands it into
+ * implementation-ready detail:
+ *   - refined user stories with Given/When/Then acceptance criteria
+ *   - non-functional requirements with concrete thresholds (no "fast" / "secure")
+ *   - explicit out-of-scope list
+ *   - integration boundaries with protocol + ownership + failure semantics
+ *
+ * The result is validated against `DetailedSpecSchema` (Zod) and written back
+ * onto `state.spec.detailed`. Next phase: `architecture`.
+ *
+ * **HIGH-04 (REQUIREMENTS.md v1 milestone):** this file is a REAL handler, not
+ * a stub. Imports are kept deliberately minimal and one-directional:
+ *   - `../state/project-state.js` — types only
+ *   - `../types/llm-schemas.js` — Zod schema + inferred type
+ *   - `../utils/sdk-helpers.js` / `../utils/shared.js` — infrastructure helpers
+ *   - `./types.js` — phase return shape
+ * No import ever closes a cycle back into this file. `tests/phases/specification.test.ts`
+ * locks that invariant in with unit coverage of the success, missing-input,
+ * bad-JSON, and schema-violation paths.
+ */
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import type { Config } from "../utils/config.js";
 import type { ProjectState, ProductSpec } from "../state/project-state.js";
