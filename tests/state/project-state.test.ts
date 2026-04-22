@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as nodeFs from "node:fs";
-import { mkdirSync, rmSync, existsSync, writeFileSync, readFileSync, utimesSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, existsSync, writeFileSync, readFileSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -15,6 +15,8 @@ import {
   getLatestCheckpoint,
   getCheckpointHistory,
   withStateLock,
+  assertSafePath,
+  assertSafeWritePath,
   MAX_CHECKPOINTS_PER_PHASE,
   type ProjectState,
   type PhaseCheckpoint,
@@ -349,5 +351,44 @@ describe("ProjectState", () => {
         warnSpy.mockRestore();
       }
     });
+  });
+});
+
+describe("SEC-07 assertSafeWritePath", () => {
+  const base = mkdtempSync(join(tmpdir(), "sec07-"));
+  const stateDir = join(base, ".autonomous-dev");
+
+  it("accepts a child path under stateDir", () => {
+    expect(() =>
+      assertSafeWritePath(stateDir, join(stateDir, "memory", "foo.json")),
+    ).not.toThrow();
+  });
+
+  it("accepts the stateDir itself", () => {
+    expect(() => assertSafeWritePath(stateDir, stateDir)).not.toThrow();
+  });
+
+  it("rejects a relative '..' escape", () => {
+    expect(() =>
+      assertSafeWritePath(stateDir, join(stateDir, "..", "etc", "passwd")),
+    ).toThrow(/Path traversal/);
+  });
+
+  it("rejects an absolute path that is not under stateDir", () => {
+    expect(() => assertSafeWritePath(stateDir, "/etc/passwd")).toThrow(
+      /Path traversal/,
+    );
+  });
+
+  it("rejects a sibling directory that shares a prefix substring (e.g. stateDir-evil)", () => {
+    // Guards against a naive `startsWith(stateDir)` without the trailing '/'.
+    expect(() =>
+      assertSafeWritePath(stateDir, stateDir + "-evil/file.json"),
+    ).toThrow(/Path traversal/);
+  });
+
+  it("existing assertSafePath continues to work (regression)", () => {
+    expect(() => assertSafePath("/tmp")).not.toThrow(); // absolute path — allowed
+    expect(() => assertSafePath(".autonomous-dev")).not.toThrow(); // relative under cwd — allowed
   });
 });
