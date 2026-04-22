@@ -56,14 +56,32 @@ import {
 
 export type { PhaseResult, PhaseHandler } from "./phases/types.js";
 
-// --- Interrupter (scoped per runOrchestrator invocation) ---
-// Module-level reference allows external callers (e.g. SIGINT handler) to reach
-// the most-recently-started orchestrator's interrupter. Concurrent orchestrators
-// each get their own Interrupter instance — getInterrupter() returns the latest one.
-let _activeInterrupter = new Interrupter();
+// --- Interrupter registry (stack) ---
+// HIGH-03: replaces the former module-level singleton reference that was
+// overwritten by every `runOrchestrator()` start. When two orchestrators were
+// in flight the earlier one became unreachable via `getInterrupter()`.
+// Now each invocation pushes its own Interrupter onto `interrupterStack` in
+// its opening try-setup and pops it in the `finally` block (by instance
+// identity, to tolerate out-of-order finish). Per-invocation SIGINT handlers
+// (inside runOrchestrator) are unchanged — each listener is closed over its
+// own local `interrupter`, so SIGINT fires them all and each run interrupts
+// its own Interrupter. No cross-fire.
+const interrupterStack: Interrupter[] = [];
 
+/**
+ * Returns the most-recently-started orchestrator's Interrupter (top-of-stack).
+ * When no orchestrator is running, returns a sentinel idle Interrupter so
+ * external callers always get a non-interrupted signal and never an undefined.
+ */
 export function getInterrupter(): Interrupter {
-  return _activeInterrupter;
+  const top = interrupterStack[interrupterStack.length - 1];
+  return top ?? new Interrupter();
+}
+
+// Exported for tests that need to inspect the stack depth. Not part of the
+// stable public API — consumers should not rely on this.
+export function _getInterrupterStackDepthForTest(): number {
+  return interrupterStack.length;
 }
 
 const PHASE_HANDLERS: Record<Phase, PhaseHandler> = {
@@ -204,9 +222,13 @@ export async function runOrchestrator(
   resumeSessionId?: string,
   singlePhase?: Phase
 ): Promise<void> {
-  // Each invocation gets its own Interrupter so concurrent runs don't interfere.
+  // HIGH-03: Each invocation gets its own Interrupter AND pushes it onto the
+  // module-level `interrupterStack` so `getInterrupter()` resolves to the
+  // correct instance for concurrent runs (LIFO). The per-invocation SIGINT
+  // handler below is closed over the local `interrupter`, so SIGINT cannot
+  // cross-fire between concurrent orchestrators.
   const interrupter = new Interrupter();
-  _activeInterrupter = interrupter;
+  interrupterStack.push(interrupter);
 
   const sigintHandler = () => {
     interrupter.interrupt("SIGINT");
@@ -618,6 +640,10 @@ export async function runOrchestrator(
 
   } finally {
     process.removeListener("SIGINT", sigintHandler);
+    // HIGH-03: remove THIS run's interrupter from the stack by identity
+    // (not by index) to tolerate out-of-order completion of concurrent runs.
+    const idx = interrupterStack.indexOf(interrupter);
+    if (idx !== -1) interrupterStack.splice(idx, 1);
     try {
       unsubLedger();
     } catch {
