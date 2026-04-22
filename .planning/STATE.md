@@ -2,16 +2,16 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: planning
-stopped_at: "Phase 1 complete: VAL-01 closed, 777/777 baseline restored. Ready for Phase 2 (mutation-engine wrapUserInput hardening)."
-last_updated: "2026-04-22T16:51:32.672Z"
-last_activity: 2026-04-22 — Phase 1 / VAL-01 closed: removed 200ms Promise.race in non-interactive confirm-spec test (commit 4fc0ce5); 777/777 vitest green, typecheck/lint clean, no production-source change.
+status: verifying
+stopped_at: "Phase 2 / SEC-01 (wave 1) complete: SDK pinned to 0.2.90, ready for wave 2 (SEC-02..SEC-08)."
+last_updated: "2026-04-22T17:26:31.937Z"
+last_activity: 2026-04-22
 progress:
   total_phases: 6
   completed_phases: 1
-  total_plans: 1
-  completed_plans: 1
-  percent: 100
+  total_plans: 9
+  completed_plans: 2
+  percent: 22
 ---
 
 # Project State
@@ -27,10 +27,10 @@ See: .planning/PROJECT.md (updated 2026-04-22)
 
 Phase: 1 of 6 complete; ready to plan Phase 2 (Critical Security Backlog Closure)
 Plan: 1 of 1 complete in Phase 1
-Status: Phase 1 complete — Phase 2 pending plan
-Last activity: 2026-04-22 — Phase 1 / VAL-01 closed: removed 200ms Promise.race in non-interactive confirm-spec test (commit 4fc0ce5); 777/777 vitest green, typecheck/lint clean, no production-source change.
+Status: Phase complete — ready for verification
+Last activity: 2026-04-22
 
-Progress: [██████████] 100% (Phase 1 only — Phases 2–6 still 0/TBD plans)
+Progress: [██░░░░░░░░] 22%
 
 ## Performance Metrics
 
@@ -52,6 +52,7 @@ Progress: [██████████] 100% (Phase 1 only — Phases 2–6 s
 - Trend: baseline established
 
 *Updated after each plan completion*
+| Phase 02 P01 | 2 min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,8 @@ Recent decisions affecting current work:
 - DEC-014 (+ backlog SEC-02): `wrapUserInput` gap in `mutation-engine.ts` is being closed in Phase 2.
 - DEC-024 (+ backlog HIGH-01): rubric feedback loop wiring in orchestrator is being closed in Phase 3.
 - Phase 1 / VAL-01: Removed brittle 200ms Promise.race in non-interactive confirm-spec test (4fc0ce5). Production code at src/orchestrator.ts:582-598 confirmed correct (git diff src/ empty). Vitest's default 5000ms per-test timeout is the new hang-guard; expect(onceSpy).not.toHaveBeenCalled() preserves regression detection.
+- Phase 2 / SEC-01: Pinned @anthropic-ai/claude-agent-sdk to exact 0.2.90 (commit a13afda) — GHSA-5474-4w2j-mq4c-fixed; lockfile regenerated; npm audit clean; 777/777 tests + typecheck/lint green; 30 SDK import sites unaffected.
+- SEC-01 chose lowest GHSA-fixed SDK version 0.2.90 over latest 0.2.117 to minimize unrelated SDK type-surface churn ahead of SEC-02..SEC-08 (which all gate on this wave).
 
 ### Pending Todos
 
@@ -92,8 +95,8 @@ Items acknowledged and carried forward from the ingest:
 
 ## Session Continuity
 
-Last session: 2026-04-22T16:51:32.636Z
-Stopped at: Phase 1 complete: VAL-01 closed, 777/777 baseline restored. Ready for Phase 2 (mutation-engine wrapUserInput hardening).
+Last session: 2026-04-22T17:26:31.915Z
+Stopped at: Phase 2 / SEC-01 (wave 1) complete: SDK pinned to 0.2.90, ready for wave 2 (SEC-02..SEC-08).
 Resume file: None
 
 **Planned Phase:** 1 (Test-Readiness Stabilization) — 1 plans — 2026-04-22T16:47:11.146Z

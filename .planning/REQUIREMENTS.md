@@ -60,7 +60,8 @@ The current milestone is **v1.0 Validation & Hardening**. Goal: prove the existi
 
 ### Critical Security (from PRODUCT.md §16 critical list)
 
-- [ ] **SEC-01**: SDK CVE GHSA-5474-4w2j-mq4c mitigated — `@anthropic-ai/claude-agent-sdk` downgraded to `0.2.90` or pinned to a fixed version; CI passes
+- [x] **SEC-01
+**: SDK CVE GHSA-5474-4w2j-mq4c mitigated — `@anthropic-ai/claude-agent-sdk` downgraded to `0.2.90` or pinned to a fixed version; CI passes
 - [ ] **SEC-02**: `wrapUserInput(tag, content)` applied to every interpolated variable in `src/self-improve/mutation-engine.ts`
 - [ ] **SEC-03**: LSP install commands in `src/environment/lsp-manager.ts` gated by an executable allowlist (split on whitespace + check executable name)
 - [ ] **SEC-04**: Sandbox executable allowlist enforced in `src/self-improve/sandbox.ts` — forbidden binaries cannot be invoked from a mutation worktree

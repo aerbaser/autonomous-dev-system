@@ -50,7 +50,17 @@ Plans:
   6. `src/state/memory-store.ts` `topicPattern` regex is bounded so a malicious large input cannot trigger ReDoS within a measured ceiling
   7. Every write site under `.autonomous-dev/` is path-traversal-validated, not only via the existing `assertSafePath(stateDir)`
   8. `Config` object contains no `apiKey` field; Anthropic auth is sourced exclusively from `process.env` and is not logged
-**Plans**: TBD
+**Plans:** 8 plans
+
+Plans:
+- [x] 01-PLAN.md — SEC-01: pin `@anthropic-ai/claude-agent-sdk` to GHSA-5474-4w2j-mq4c-fixed version (wave 1) — completed 2026-04-22 (commit a13afda)
+- [ ] 02-PLAN.md — SEC-02: wrap every interpolated variable in `mutation-engine.ts` prompts with `wrapUserInput` (wave 2)
+- [ ] 03-PLAN.md — SEC-03: LSP install executable allowlist in `lsp-manager.ts` (wave 2)
+- [ ] 04-PLAN.md — SEC-04: sandbox allowlist + FORBIDDEN_BINARIES denylist in `sandbox.ts` (wave 2)
+- [ ] 05-PLAN.md — SEC-05: add Agent matcher branch to `security.ts` PreToolUse hook (wave 2)
+- [ ] 06-PLAN.md — SEC-06: bound `topicPattern` input with MAX_TOPIC_PATTERN_LENGTH in `memory-store.ts` (wave 2)
+- [ ] 07-PLAN.md — SEC-07: add `assertSafeWritePath` helper + wire to `.autonomous-dev/` write boundaries (wave 2)
+- [ ] 08-PLAN.md — SEC-08: audit + lock Anthropic API key out of Config schema (wave 2)
 
 ### Phase 3: High-Priority Runtime Fixes
 **Goal**: Resolve the six high-priority runtime defects so the orchestrator behaves predictably under retry, parallel runs, rubric feedback, and domain-specific task assignment.
@@ -106,7 +116,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6. Phase 2 and Ph
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Test-Readiness Stabilization | 1/1 | Complete | 2026-04-22 |
-| 2. Critical Security Backlog Closure | 0/TBD | Not started | - |
+| 2. Critical Security Backlog Closure | 0/8 | In progress | - |
 | 3. High-Priority Runtime Fixes | 0/TBD | Not started | - |
 | 4. End-to-End Validation on a Toy Idea | 0/TBD | Not started | - |
 | 5. Product-Gap Closure | 0/TBD | Not started | - |
