@@ -160,5 +160,38 @@ export const securityHook: HookCallback = async (input, _toolUseID, _ctx) => {
     }
   }
 
+  if (toolName === "Agent") {
+    // SEC-05: subagent prompts must be screened with the same DENY_PATTERNS as
+    // Bash commands — otherwise an LLM-controlled subagent invocation can
+    // smuggle `rm -rf` / `curl | sh` past the parent hook by hiding it inside
+    // the prompt body. We also check `description` and `subagent_type` if
+    // present (defensive: SDK shape may evolve).
+    const promptText = typeof toolInput['prompt'] === "string" ? toolInput['prompt'] : undefined;
+    const description = typeof toolInput['description'] === "string" ? toolInput['description'] : undefined;
+    const subagentType = typeof toolInput['subagent_type'] === "string" ? toolInput['subagent_type'] : undefined;
+
+    const candidates = [promptText, description, subagentType].filter(
+      (v): v is string => typeof v === "string"
+    );
+    for (const text of candidates) {
+      // Same shell-separator split used in the Bash branch — catches multi-
+      // statement payloads like "ls && rm -rf /".
+      const parts = text.split(/\s*(?:&&|\|\||;)\s*/);
+      for (const part of parts) {
+        for (const pattern of DENY_PATTERNS) {
+          if (pattern.test(part)) {
+            return {
+              hookSpecificOutput: {
+                hookEventName: "PreToolUse" as const,
+                permissionDecision: "deny" as const,
+                permissionDecisionReason: `Blocked Agent invocation: dangerous pattern in prompt/description (${text.slice(0, 80)})`,
+              },
+            };
+          }
+        }
+      }
+    }
+  }
+
   return {};
 };
