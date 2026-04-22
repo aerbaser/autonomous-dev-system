@@ -22,6 +22,23 @@ const DEFAULT_CONFIG: MemoryStoreConfig = {
   maxDocumentSizeKb: 100,
 };
 
+/**
+ * SEC-06: Hard cap on the length of `topicPattern` accepted by `MemoryStore.list()`.
+ * Today the matching strategy is plain String.prototype.includes() (non-backtracking
+ * by definition), so the practical risk is bounded; this cap closes the
+ * surface against (a) future maintainers swapping in `new RegExp(topicPattern)`
+ * which would reintroduce ReDoS, and (b) accidental DoS from a 1MB pattern walking
+ * the full 500-document index.
+ *
+ * Topic names in this codebase are short labels (phase/agent/skill identifiers).
+ * 256 chars is well above any legitimate use.
+ *
+ * If a future maintainer changes the matcher to RegExp, this cap MUST remain
+ * AND the implementation should use a non-backtracking engine (e.g. RE2 via
+ * `re2-wasm`) — never `new RegExp(topicPattern)` directly.
+ */
+export const MAX_TOPIC_PATTERN_LENGTH = 256;
+
 function contentHash(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
@@ -279,6 +296,16 @@ export class MemoryStore {
   async list(filter?: { tags?: string[]; topicPattern?: string }): Promise<MemoryDocument[]> {
     const index = await this.loadIndex();
     const results: MemoryDocument[] = [];
+
+    // SEC-06: bound the topicPattern input length to prevent (a) DoS via giant
+    // pattern walked across the full document index, and (b) future ReDoS if
+    // the matching strategy is ever upgraded to RegExp. See the
+    // MAX_TOPIC_PATTERN_LENGTH constant for rationale.
+    if (filter?.topicPattern !== undefined && filter.topicPattern.length > MAX_TOPIC_PATTERN_LENGTH) {
+      throw new Error(
+        `topicPattern exceeds MAX_TOPIC_PATTERN_LENGTH (${MAX_TOPIC_PATTERN_LENGTH}); got length=${filter.topicPattern.length}`
+      );
+    }
 
     const filterTags = filter?.tags?.map((t) => t.toLowerCase());
     const topicFilter = filter?.topicPattern?.toLowerCase() ?? null;
