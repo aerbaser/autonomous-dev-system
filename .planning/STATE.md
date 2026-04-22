@@ -4,14 +4,14 @@ milestone: v1.0
 milestone_name: milestone
 status: verifying
 stopped_at: Completed 02-07-PLAN.md
-last_updated: "2026-04-22T17:37:04.688Z"
+last_updated: "2026-04-22T17:37:09.040Z"
 last_activity: 2026-04-22
 progress:
   total_phases: 6
   completed_phases: 1
   total_plans: 9
-  completed_plans: 7
-  percent: 78
+  completed_plans: 8
+  percent: 89
 ---
 
 # Project State
@@ -74,6 +74,8 @@ Recent decisions affecting current work:
 - Phase 2 / SEC-01: Pinned @anthropic-ai/claude-agent-sdk to exact 0.2.90 (commit a13afda) — GHSA-5474-4w2j-mq4c-fixed; lockfile regenerated; npm audit clean; 777/777 tests + typecheck/lint green; 30 SDK import sites unaffected.
 - SEC-01 chose lowest GHSA-fixed SDK version 0.2.90 over latest 0.2.117 to minimize unrelated SDK type-surface churn ahead of SEC-02..SEC-08 (which all gate on this wave).
 - SEC-04: two-layer deny-first/allow-second gate in runCommandInSandbox; ALLOWED_EXECUTABLES + FORBIDDEN_BINARIES exported as ReadonlySet<string> so tests pin contents
+- Phase 2 / SEC-07: Added assertSafeWritePath(stateDir, target) helper + wired 5 high-value boundary sites (memory-store, agents registry, event-logger, run-ledger, ask-user). 6 regression tests including prefix-substring aliasing guard. 811/811 tests green; typecheck + lint clean.
+- Phase 2 / SEC-03: ALLOWED_INSTALL_EXECUTABLES in lsp-manager.ts exported as ReadonlySet<string> with content-assert test; 4 regression tests (curl/rm/metachar-order + allowlist freeze) cover defense-in-depth rejection paths. Rule 1 fix: plan's 'rm -rf' test fixture rewritten to 'rm foo' so the assertion exercises the allowlist gate (not the upstream validateInstallCommand /rm\\s+-rf/i pattern).
 
 ### Pending Todos
 

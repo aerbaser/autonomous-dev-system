@@ -69,7 +69,8 @@ The current milestone is **v1.0 Validation & Hardening**. Goal: prove the existi
 **: Sandbox executable allowlist enforced in `src/self-improve/sandbox.ts` — forbidden binaries cannot be invoked from a mutation worktree
 - [ ] **SEC-05**: `src/hooks/security.ts` deny-list coverage extended to `Glob`, `Grep`, `Agent`, `WebFetch` tools (currently only Bash/Read/Write/Edit)
 - [ ] **SEC-06**: ReDoS pattern in `src/state/memory-store.ts` `topicPattern` regex bounded with input length cap and/or non-backtracking pattern
-- [ ] **SEC-07**: Path-traversal hardening for all `.autonomous-dev/` subdirectories — every write site validated, not only `stateDir`
+- [x] **SEC-07
+**: Path-traversal hardening for all `.autonomous-dev/` subdirectories — every write site validated, not only `stateDir`
 - [ ] **SEC-08**: Anthropic API key removed from any `Config` field — lives only in `process.env`; no logged or serialized location
 
 ### High-Priority Runtime Fixes (from PRODUCT.md §16 high-priority list)
