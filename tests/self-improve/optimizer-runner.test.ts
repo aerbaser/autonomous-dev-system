@@ -414,4 +414,57 @@ describe("runOptimizerImpl", () => {
     expect(finalState.evolution[0]!.accepted).toBe(true);
     expect(finalState.evolution[1]!.accepted).toBe(false);
   });
+
+  // ── HIGH-05 blueprint verification gate ──────────────────────────────────
+
+  it("rejects mutation with invalid blueprint without running benchmarks or savePromptVersion (HIGH-05)", async () => {
+    const { savePromptVersion } = await import("../../src/self-improve/versioning.js");
+    const mockedSavePromptVersion = vi.mocked(savePromptVersion);
+
+    benchmarkCallCount = 0;
+    benchmarkScores = [0.5];
+    mockRunAllBenchmarks.mockClear();
+    mockedSavePromptVersion.mockClear();
+
+    // The mutation produces a blueprint whose systemPrompt is empty — the
+    // verifier rejects via `system_prompt_too_short`.
+    const invalidBlueprint: AgentBlueprint = {
+      ...mockAgents[0]!,
+      systemPrompt: "",
+    };
+    const originalBlueprint: AgentBlueprint = { ...mockAgents[0]! };
+
+    mockGenerateMutations.mockResolvedValueOnce([
+      {
+        id: "mut-invalid-prompt",
+        targetName: mockAgents[0]!.name,
+        type: "agent_prompt",
+        description: "empty-prompt mutation (invalid)",
+        apply: () => invalidBlueprint,
+        rollback: () => originalBlueprint,
+      },
+    ]);
+
+    await runOptimizerImpl(makeState(), makeConfig(), { maxIterations: 1 });
+
+    // Only the baseline benchmark runs — the rejected mutation must NOT
+    // trigger another runAllBenchmarks call.
+    expect(mockRunAllBenchmarks).toHaveBeenCalledTimes(1);
+
+    // savePromptVersion is called only for initial baseline agents at startup
+    // (once per registered agent), NEVER with the rejected mutation's blueprint.
+    const calledWithInvalid = mockedSavePromptVersion.mock.calls.some(
+      ([, bp]) => (bp as AgentBlueprint | undefined)?.systemPrompt === ""
+    );
+    expect(calledWithInvalid).toBe(false);
+
+    // state.evolution carries exactly one rejected entry with the
+    // `REJECTED: verification failed` diff prefix.
+    const [, finalState] = mockedSaveState.mock.calls.at(-1)!;
+    expect(finalState.evolution).toHaveLength(1);
+    expect(finalState.evolution[0]!.accepted).toBe(false);
+    expect(finalState.evolution[0]!.diff).toMatch(/^REJECTED: verification failed/);
+    // Score unchanged on rejection — baseline is preserved.
+    expect(finalState.evolution[0]!.scoreBefore).toBe(finalState.evolution[0]!.scoreAfter);
+  });
 });
