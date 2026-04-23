@@ -12,7 +12,9 @@ import {
   getQueryPermissions,
   getMaxTurns,
   QueryAbortedError,
+  type MaxTurnsKey,
 } from "../utils/sdk-helpers.js";
+import type { Phase } from "../state/project-state.js";
 import { Interrupter } from "../events/interrupter.js";
 import { errMsg, extractFirstJson } from "../utils/shared.js";
 import { canTransition } from "../state/project-state.js";
@@ -49,6 +51,34 @@ export interface RunLeadDrivenPhaseOptions<TResult> {
 const DENIED_SPECIALIST_TOOLS: ReadonlySet<string> = new Set(["Agent"]);
 
 /**
+ * Map a Phase to the MAX_TURNS_DEFAULTS key that caps its lead's turn
+ * budget. Phases whose name doesn't appear in the config table fall back
+ * to the `default: 50` bucket. The mapping matches the phase-specific
+ * caps already used by single-query handlers.
+ *
+ * Without this, the primitive used "default" (50 turns) for every phase —
+ * caught on the first live E2E where the architecture lead ran 20+ min
+ * with specialists before being killed.
+ */
+function phaseMaxTurnsKey(phase: Phase): MaxTurnsKey {
+  switch (phase) {
+    case "ideation": return "ideation";
+    case "architecture": return "architecture";
+    case "development": return "development";
+    case "testing": return "testing";
+    case "review": return "review";
+    case "staging":
+    case "production":
+      return "deployment";
+    case "ab-testing": return "abTesting";
+    case "monitoring": return "monitoring";
+    // specification + environment-setup + analysis are not in the table;
+    // they legitimately fall back to the generic default.
+    default: return "default";
+  }
+}
+
+/**
  * Defensively strip tools we never permit on a specialist, regardless of
  * what the blueprint declared. Currently: the Agent tool is denied so
  * specialists cannot spawn their own coordinators (invariant copied from
@@ -68,13 +98,17 @@ export function buildSpecialists(
   registry: AgentRegistry,
 ): Record<string, AgentDefinition> {
   const specialists: Record<string, AgentDefinition> = {};
+  // Specialists inherit a modest turn budget — they answer a single
+  // sub-question each, not drive a phase. Half the lead's cap is plenty
+  // and keeps the total turn count bounded for multi-specialist phases.
+  const specialistMaxTurns = Math.max(3, Math.floor(getMaxTurns(config, phaseMaxTurnsKey(contract.phase)) / 2));
   for (const name of contract.specialistNames) {
     const def = registry.toAgentDefinition(name, config);
     specialists[name] = {
       ...def,
       tools: sanitizeSpecialistTools(def.tools ?? []),
       model: config.subagentModel,
-      maxTurns: getMaxTurns(config, "default"),
+      maxTurns: specialistMaxTurns,
     };
   }
   return specialists;
@@ -316,7 +350,9 @@ export async function runLeadDrivenPhase<TResult>(
         allowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Agent"],
         agents: specialists,
         model: config.model,
-        maxTurns: getMaxTurns(config, "default"),
+        // Phase-scoped turn budget (architecture=10, testing=30, review=20, etc.).
+        // Was "default"=50 which caused architecture lead to run 20+ min in E2E.
+        maxTurns: getMaxTurns(config, phaseMaxTurnsKey(contract.phase)),
         ...getQueryPermissions(config),
       },
     });
