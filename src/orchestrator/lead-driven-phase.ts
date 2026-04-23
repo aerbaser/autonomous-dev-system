@@ -116,8 +116,12 @@ export function buildLeadPrompt(
     "Invoke via the Agent tool when their expertise adds value. Do NOT spawn specialists for trivial work.",
     specialistList,
     "",
-    "## Backloop policy",
-    `If this phase cannot be completed without revising a prior phase, set \`nextPhase\` in your final output envelope. Allowed targets: ${allowedBacklooplist}. Setting nextPhase to anything else is a schema violation and will be rejected.`,
+    "## Transition policy",
+    contract.allowedNextPhases.length === 1
+      ? `On success, the pipeline transitions to "${contract.allowedNextPhases[0]}". You MAY omit \`nextPhase\` — the orchestrator will fill it in. Setting \`nextPhase\` to anything else is a schema violation.`
+      : contract.allowedNextPhases.length > 1
+        ? `On success, you MUST set \`nextPhase\` to one of: ${allowedBacklooplist}. The orchestrator halts the run if \`nextPhase\` is missing on a multi-target phase. Setting \`nextPhase\` to anything else is a schema violation.`
+        : `This phase cannot transition to another phase. Leave \`nextPhase\` unset.`,
     "",
     "## Output contract",
     "Your final message MUST be a single JSON object with this exact top-level shape:",
@@ -365,6 +369,14 @@ export async function runLeadDrivenPhase<TResult>(
     };
     if (envelope.nextPhase) {
       result.nextPhase = envelope.nextPhase as never;
+    } else if (contract.allowedNextPhases.length === 1) {
+      // v1.1 safety net: when a contract has exactly ONE legal next phase
+      // and the lead omitted nextPhase, auto-fill it. The single legal
+      // target is unambiguous; forcing the lead to restate it is noise
+      // and the orchestrator halts the run on missing transitions.
+      // Phases with multiple legal targets still require an explicit pick.
+      const only = contract.allowedNextPhases[0];
+      if (only) result.nextPhase = only as never;
     }
     return result;
   } catch (err) {

@@ -151,12 +151,29 @@ describe("buildLeadPrompt", () => {
     expect(userPrompt).toContain("<phase-context>");
   });
 
-  it("reports '(none)' when backloop is not allowed", () => {
+  it("says nextPhase is not allowed when allowedNextPhases is empty", () => {
     const { systemPrompt } = buildLeadPrompt(
       makeContract({ allowedNextPhases: [] }),
       makeState(),
     );
-    expect(systemPrompt).toContain("(none");
+    expect(systemPrompt).toMatch(/cannot transition/i);
+  });
+
+  it("tells the lead nextPhase is auto-filled when there is exactly 1 legal target", () => {
+    const { systemPrompt } = buildLeadPrompt(
+      makeContract({ allowedNextPhases: ["development"] }),
+      makeState(),
+    );
+    expect(systemPrompt).toMatch(/MAY omit `nextPhase`/);
+    expect(systemPrompt).toContain("development");
+  });
+
+  it("requires nextPhase when multiple legal targets exist", () => {
+    const { systemPrompt } = buildLeadPrompt(
+      makeContract({ allowedNextPhases: ["development", "environment-setup"] }),
+      makeState(),
+    );
+    expect(systemPrompt).toMatch(/MUST set `nextPhase`/);
   });
 });
 
@@ -363,5 +380,51 @@ describe("runLeadDrivenPhase", () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toMatch(/aborted/i);
+  });
+
+  it("auto-fills nextPhase when contract has exactly 1 legal target and lead omits it", async () => {
+    (mockedQuery as unknown as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      streamFinalResult(
+        JSON.stringify({
+          success: true,
+          domain: { summary: "ok", findings: [] },
+        }),
+        { sessionId: "auto-fill" },
+      ),
+    );
+
+    const result = await runLeadDrivenPhase({
+      contract: makeContract({ allowedNextPhases: ["environment-setup"] }),
+      state: makeState(),
+      config: makeConfig(),
+      registry: makeRegistry({}) as never,
+      applyResult: (s) => s,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.nextPhase).toBe("environment-setup");
+  });
+
+  it("does NOT auto-fill nextPhase when contract has multiple legal targets", async () => {
+    (mockedQuery as unknown as ReturnType<typeof vi.fn>).mockImplementation(() =>
+      streamFinalResult(
+        JSON.stringify({
+          success: true,
+          domain: { summary: "ok", findings: [] },
+        }),
+        { sessionId: "no-autofill" },
+      ),
+    );
+
+    const result = await runLeadDrivenPhase({
+      contract: makeContract({ allowedNextPhases: ["environment-setup", "development"] }),
+      state: makeState(),
+      config: makeConfig(),
+      registry: makeRegistry({}) as never,
+      applyResult: (s) => s,
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.nextPhase).toBeUndefined();
   });
 });
