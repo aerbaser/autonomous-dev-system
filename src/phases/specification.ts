@@ -28,6 +28,8 @@ import type { PhaseResult, PhaseExecutionContext } from "./types.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 import { extractFirstJson, errMsg, wrapUserInput } from "../utils/shared.js";
 import { DetailedSpecSchema, type DetailedSpec } from "../types/llm-schemas.js";
+import { runLeadDrivenPhase } from "../orchestrator/lead-driven-phase.js";
+import { specificationContract } from "../orchestrator/phase-contracts/specification.contract.js";
 
 const SPEC_SYSTEM_PROMPT = `You are a Senior Product Manager turning a coarse product spec into an
 implementation-ready specification.
@@ -74,7 +76,7 @@ Rules:
 export async function runSpecification(
   state: ProjectState,
   config: Config,
-  _ctx?: PhaseExecutionContext,
+  ctx?: PhaseExecutionContext,
 ): Promise<PhaseResult> {
   if (!state.spec) {
     return {
@@ -85,6 +87,22 @@ export async function runSpecification(
   }
 
   console.log("[specification] Expanding product spec into implementation-ready detail...");
+
+  // v1.1 super-lead path — opt-in via AUTONOMOUS_DEV_LEAD_DRIVEN=1.
+  if (process.env["AUTONOMOUS_DEV_LEAD_DRIVEN"] === "1") {
+    console.log("[specification] lead-driven mode enabled — spawning spec refinement team");
+    return runLeadDrivenPhase({
+      contract: specificationContract,
+      state,
+      config,
+      ...(ctx ? { execCtx: ctx } : {}),
+      applyResult: (s, detailed) => {
+        // spec is guaranteed present — we checked above.
+        const updatedSpec: ProductSpec = { ...s.spec!, detailed: detailed as DetailedSpec };
+        return { ...s, spec: updatedSpec };
+      },
+    });
+  }
 
   const storiesText = state.spec.userStories
     .map(

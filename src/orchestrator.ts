@@ -485,6 +485,10 @@ export async function runOrchestrator(
 
   // Main orchestration loop
   const MAX_ITERATIONS = 100;
+  // v1.1 super-lead: global livelock cap for any (from→to) backloop pair.
+  // Per-phase PhaseContract.maxBackloopsFromHere can tighten this further;
+  // this is the orchestrator-level safety net.
+  const GLOBAL_MAX_BACKLOOPS = 5;
   let iterations = 0;
 
   while (iterations < MAX_ITERATIONS) {
@@ -674,6 +678,23 @@ export async function runOrchestrator(
       // A backloop here means the completed-phases list already contains
       // the target — i.e. we are re-entering a phase we've been in before.
       const isBackloop = (state.completedPhases ?? []).includes(result.nextPhase);
+      const backloopKey = `${phase}->${result.nextPhase}`;
+      const currentCount = state.backloopCounts?.[backloopKey] ?? 0;
+
+      // Global livelock guard: refuse to take a backloop when the
+      // (from→to) pair has already fired GLOBAL_MAX_BACKLOOPS times.
+      // Per-contract caps (PhaseContract.maxBackloopsFromHere) can tighten
+      // this further; this is the orchestrator-level safety net.
+      if (isBackloop && currentCount >= GLOBAL_MAX_BACKLOOPS) {
+        console.warn(
+          `[orchestrator] backloop_livelock_guard: ${backloopKey} already ran ${currentCount} times — ` +
+            `denying further backloop, stopping the run.`,
+        );
+        // Persist final state before bailing so the livelock is visible in state.json.
+        await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
+        break;
+      }
+
       state = transitionPhase(state, result.nextPhase);
       if (isBackloop) {
         state = incrementBackloopCount(state, phase, result.nextPhase);
@@ -682,7 +703,7 @@ export async function runOrchestrator(
       console.log(
         `[orchestrator] Transition: ${phase} -> ${result.nextPhase}` +
           (isBackloop
-            ? ` (backloop count: ${state.backloopCounts?.[`${phase}->${result.nextPhase}`] ?? 0})`
+            ? ` (backloop count: ${state.backloopCounts?.[backloopKey] ?? 0})`
             : ""),
       );
     } else if (phase === "monitoring") {
