@@ -142,6 +142,8 @@ export function createInitialState(idea: string): ProjectState {
     tasks: [],
     completedPhases: [],
     phaseResults: {},
+    phaseAttempts: {},
+    backloopCounts: {},
     deployments: [],
     abTests: [],
     evolution: [],

@@ -398,6 +398,15 @@ export const ProjectStateSchema = z.object({
   tasks: z.array(TaskStateSchema).catch([]),
   completedPhases: z.array(z.enum(ALL_PHASES)).catch([]),
   phaseResults: z.record(z.string(), PhaseResultSummarySchema).catch({}),
+  // v1.1 super-lead: append-only history per phase so backloops don't
+  // clobber prior attempts. Parallel to phaseResults (which stays as
+  // "latest attempt") to avoid test/callsite churn. Loaded leniently so
+  // pre-v1.1 state.json files still parse.
+  phaseAttempts: z.record(z.string(), z.array(PhaseResultSummarySchema)).catch({}),
+  // v1.1 super-lead: per-transition-pair counter for livelock guard.
+  // Key format: `${fromPhase}->${toPhase}` (plain string so Zod doesn't
+  // blow up on unknown phase pairs in old state.json).
+  backloopCounts: z.record(z.string(), z.number()).catch({}),
   deployments: z.array(DeploymentStateSchema).catch([]),
   abTests: z.array(ABTestStateSchema).catch([]),
   evolution: z.array(EvolutionEntrySchema).catch([]),

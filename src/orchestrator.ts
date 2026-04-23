@@ -201,6 +201,12 @@ function recordPhaseResult(
     timestamp: new Date().toISOString(),
   };
 
+  // v1.1 super-lead: append to phaseAttempts history (all attempts
+  // forensically preserved) while phaseResults keeps the "latest attempt"
+  // shape unchanged so existing callsites keep working.
+  const priorAttempts =
+    previousState.phaseAttempts?.[phase] ?? nextState.phaseAttempts?.[phase] ?? [];
+
   return {
     ...previousState,
     ...nextState,
@@ -210,10 +216,54 @@ function recordPhaseResult(
       ...(nextState.phaseResults ?? {}),
       [phase]: phaseResult,
     },
+    phaseAttempts: {
+      ...(previousState.phaseAttempts ?? {}),
+      ...(nextState.phaseAttempts ?? {}),
+      [phase]: [...priorAttempts, phaseResult],
+    },
     completedPhases: result.success
       ? appendUniquePhase(previousState.completedPhases ?? [], phase)
       : (previousState.completedPhases ?? []),
   };
+}
+
+/**
+ * v1.1 super-lead: increment the per-transition-pair counter tracked in
+ * state.backloopCounts. Used by the livelock guard in lead-driven phases —
+ * the orchestrator denies a backloop when the counter for (from→to) has
+ * already reached contract.maxBackloopsFromHere[to].
+ */
+export function incrementBackloopCount(
+  state: ProjectState,
+  from: Phase,
+  to: Phase,
+): ProjectState {
+  const key = `${from}->${to}`;
+  const current = state.backloopCounts?.[key] ?? 0;
+  return {
+    ...state,
+    backloopCounts: {
+      ...(state.backloopCounts ?? {}),
+      [key]: current + 1,
+    },
+  };
+}
+
+/**
+ * v1.1 super-lead: check whether a (from→to) backloop is still allowed
+ * under the caller-supplied cap. `cap === undefined` means "no guard"
+ * (unlimited). Used by the orchestrator before honoring `result.nextPhase`.
+ */
+export function isBackloopUnderCap(
+  state: ProjectState,
+  from: Phase,
+  to: Phase,
+  cap: number | undefined,
+): boolean {
+  if (cap === undefined) return true;
+  const key = `${from}->${to}`;
+  const current = state.backloopCounts?.[key] ?? 0;
+  return current < cap;
 }
 
 export async function runOrchestrator(
@@ -620,9 +670,21 @@ export async function runOrchestrator(
     }
 
     if (result.nextPhase && canTransition(phase, result.nextPhase)) {
+      // v1.1 super-lead: track backloop frequency per (from→to) pair.
+      // A backloop here means the completed-phases list already contains
+      // the target — i.e. we are re-entering a phase we've been in before.
+      const isBackloop = (state.completedPhases ?? []).includes(result.nextPhase);
       state = transitionPhase(state, result.nextPhase);
+      if (isBackloop) {
+        state = incrementBackloopCount(state, phase, result.nextPhase);
+      }
       await withStateLock(config.stateDir, () => saveState(config.stateDir, state));
-      console.log(`[orchestrator] Transition: ${phase} -> ${result.nextPhase}`);
+      console.log(
+        `[orchestrator] Transition: ${phase} -> ${result.nextPhase}` +
+          (isBackloop
+            ? ` (backloop count: ${state.backloopCounts?.[`${phase}->${result.nextPhase}`] ?? 0})`
+            : ""),
+      );
     } else if (phase === "monitoring") {
       console.log("[orchestrator] In monitoring loop. Waiting for next trigger...");
       break;
