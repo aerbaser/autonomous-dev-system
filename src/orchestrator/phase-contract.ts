@@ -40,6 +40,18 @@ export interface PhaseContract<TResult = unknown> {
    */
   outputSchema: z.ZodSchema<TResult>;
   /**
+   * Optional JSON shape hint inlined into the lead prompt after the
+   * auto-generated envelope spec. Zod schemas are runtime objects that
+   * can't be rendered back into a readable JSON example — the contract
+   * author provides one explicitly. Without a hint, the lead has to
+   * guess nested shapes from the deliverables prose and often gets
+   * key names / array-vs-object wrong.
+   *
+   * Render verbatim — include placeholder values, comments as strings,
+   * and "..." continuations to communicate intent.
+   */
+  outputShapeHint?: string;
+  /**
    * Blueprint names pulled from AgentRegistry at query time. Order matters —
    * the lead sees them in this order in the <available-specialists> block.
    */

@@ -126,10 +126,20 @@ export function buildLeadPrompt(
     '  "success": boolean,',
     `  "nextPhase": "${contract.allowedNextPhases[0] ?? "<allowed>"}" | undefined,`,
     '  "error": "string (only when success=false)" | undefined,',
-    '  "domain": { /* phase-specific payload — see schema below */ }',
+    '  "domain": { /* phase-specific payload — see shape below */ }',
     "}",
     "```",
     "The `domain` field MUST parse against the phase's output schema. If a specialist ships malformed JSON, repair it yourself before embedding — do not pass it through.",
+    ...(contract.outputShapeHint
+      ? [
+          "",
+          "### Required shape of the `domain` field",
+          "Match this shape EXACTLY — key names, array-vs-object, and types. String-valued fields stay strings; do not silently upgrade them to objects.",
+          "```json",
+          contract.outputShapeHint.trim(),
+          "```",
+        ]
+      : []),
   ].join("\n");
 
   const userPrompt = [

@@ -72,6 +72,35 @@ export const architectureContract: PhaseContract<ArchDesignParsed> = {
   // development directly (quick mode). Only two; no backloop.
   allowedNextPhases: ["environment-setup", "development"],
   outputSchema: ArchDesignSchema,
+  outputShapeHint: `{
+  "techStack": {
+    "language": "TypeScript 5.x",
+    "framework": "Next.js 15",
+    "database": "PostgreSQL 16",
+    "orm": "Prisma 5",
+    "testing": "Vitest + Playwright",
+    "infra": "Docker + Railway"
+  },
+  "components": [
+    { "name": "Frontend", "description": "Next.js App Router ...", "dependencies": [] },
+    { "name": "API Layer", "description": "Route Handlers ...", "dependencies": ["Frontend"] }
+  ],
+  "apiContracts": "OpenAPI 3.1 summary — MUST be a single readable STRING, not an object.",
+  "databaseSchema": "Prisma schema or SQL DDL as a readable STRING, not an object.",
+  "fileStructure": "Project tree as a readable STRING, not an object.",
+  "taskDecomposition": {
+    "tasks": [
+      {
+        "id": "T-001",
+        "title": "Short imperative title",
+        "description": "Implementation details, specific file paths",
+        "estimatedComplexity": "low | medium | high",
+        "dependencies": [],
+        "acceptanceCriteria": ["GIVEN ... WHEN ... THEN ...", "..."]
+      }
+    ]
+  }
+}`,
   specialistNames: ["security-reviewer", "scalability-reviewer"],
   contextSelector: architectureContextSelector,
   // Architecture rarely backloops; no guards needed.

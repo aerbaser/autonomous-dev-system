@@ -72,6 +72,10 @@ export const reviewContract: PhaseContract<ReviewResultParsed> = {
   // VALID_TRANSITIONS in project-state.ts.
   allowedNextPhases: ["development", "staging"],
   outputSchema: ReviewResultSchema,
+  outputShapeHint: `{
+  "status": "approved" | "requested_changes",
+  "summary": "Required when status=requested_changes. Short prose of critical findings. Omit or empty-string when approved."
+}`,
   specialistNames: ["security-auditor", "accessibility-auditor"],
   contextSelector: reviewContextSelector,
   // Livelock guard: don't let review bounce code back to dev more than 3x.

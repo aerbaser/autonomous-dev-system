@@ -59,6 +59,10 @@ export const testingContract: PhaseContract<TestingResultParsed> = {
   // VALID_TRANSITIONS in project-state.ts.
   allowedNextPhases: ["development", "review"],
   outputSchema: TestingResultSchema,
+  outputShapeHint: `{
+  "status": "passed" | "failed",
+  "details": "Required when status=failed. Short prose of failure categories. Omit or empty-string when passed."
+}`,
   specialistNames: ["edge-case-finder", "property-tester"],
   contextSelector: testingContextSelector,
   // Livelock guard: cap the testing↔development ping-pong at 3 rounds.

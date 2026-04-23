@@ -62,6 +62,35 @@ export const specificationContract: PhaseContract<DetailedSpecParsed> = {
   // specification → architecture per VALID_TRANSITIONS. No backloop targets.
   allowedNextPhases: ["architecture"],
   outputSchema: DetailedSpecSchema,
+  outputShapeHint: `{
+  "refinedUserStories": [
+    {
+      "id": "US-001",
+      "title": "Short imperative title (copied from input)",
+      "acceptanceCriteria": [
+        "Given <precondition>, When <action>, Then <observable outcome>",
+        "... at least 3 per story ..."
+      ]
+    }
+  ],
+  "refinedNonFunctionalRequirements": [
+    {
+      "category": "performance | security | scalability | observability | availability | accessibility | compliance",
+      "requirement": "One-line plain-English description",
+      "threshold": "Concrete measurable bound, e.g. 'p95 < 200ms at 1k RPS'"
+    }
+  ],
+  "outOfScope": [
+    "A single STRING — do NOT wrap in an object.",
+    "Each entry is one-line prose that names the excluded item and briefly says why in the same string."
+  ],
+  "integrationBoundaries": [
+    {
+      "name": "External system / subsystem name",
+      "description": "Protocol, data contract, ownership, failure semantics"
+    }
+  ]
+}`,
   specialistNames: ["nfr-analyst", "out-of-scope-guard"],
   contextSelector: specificationContextSelector,
   maxBackloopsFromHere: {},
