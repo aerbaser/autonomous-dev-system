@@ -43,6 +43,7 @@ import { getQueryPermissions, getMaxTurns } from "../utils/sdk-helpers.js";
 import { isApiRetry, wrapUserInput, errMsg } from "../utils/shared.js";
 import { TaskDecompositionSchema } from "../types/llm-schemas.js";
 import { getBaseAgentNames } from "../agents/base-blueprints.js";
+import { getPhaseSpecialistNames } from "../agents/phase-specialist-blueprints.js";
 import { progress } from "../utils/progress.js";
 import {
   type ExecutionEnvelope,
@@ -532,6 +533,11 @@ function groupIntoBatches(projectTasks: Task[], devTasks: DevTask[]): Task[][] {
 // --- Batch Execution ---
 
 const BASE_AGENT_NAMES = getBaseAgentNames();
+// v1.1 super-lead: phase specialists live in the registry but must NEVER
+// be matched as task-agents in development. Treated as "base" (i.e. filtered
+// out of domain-agent candidates) for dev-runner purposes.
+const PHASE_SPECIALIST_NAMES = getPhaseSpecialistNames();
+const EXCLUDED_FROM_DOMAIN_AGENTS = new Set([...BASE_AGENT_NAMES, ...PHASE_SPECIALIST_NAMES]);
 
 const GENERIC_DEV_INSTRUCTIONS = `## Instructions
 1. Read the existing codebase to understand current state
@@ -647,10 +653,11 @@ export function buildBatchAgents(
     };
   }
 
-  // Collect domain-specific agents from registry (everything that isn't a base agent)
+  // Collect domain-specific agents from registry (everything that isn't a
+  // base agent OR a v1.1 phase specialist).
   const domainAgents = registry
     .getAll()
-    .filter((bp) => !BASE_AGENT_NAMES.has(bp.name));
+    .filter((bp) => !EXCLUDED_FROM_DOMAIN_AGENTS.has(bp.name));
 
   // Create a dedicated agent per task in this batch
   for (const task of batch) {
@@ -1092,9 +1099,10 @@ async function executeBatch(
     .map((t, i) => `${i + 1}. **${t.title}**: ${t.description}`)
     .join("\n\n");
 
-  // Derive task agent names from the agentDefs (excludes base agents like developer, qa-engineer)
+  // Derive task agent names from the agentDefs (excludes base agents like
+  // developer, qa-engineer AND v1.1 phase specialists).
   const taskAgentNames = Object.keys(agentDefs).filter(
-    (name) => !BASE_AGENT_NAMES.has(name)
+    (name) => !EXCLUDED_FROM_DOMAIN_AGENTS.has(name)
   );
 
   // Phase 3 — Direct-dispatch fast path (default execution mode).

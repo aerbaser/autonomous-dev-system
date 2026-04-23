@@ -6,6 +6,8 @@ import { buildAgentTeam } from "../agents/factory.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns, QueryAbortedError } from "../utils/sdk-helpers.js";
 import { extractFirstJson, errMsg, isRecord, wrapUserInput } from "../utils/shared.js";
 import { ArchDesignSchema } from "../types/llm-schemas.js";
+import { runLeadDrivenPhase } from "../orchestrator/lead-driven-phase.js";
+import { architectureContract } from "../orchestrator/phase-contracts/architecture.contract.js";
 
 const ARCH_PROMPT = `You are a Principal Software Architect. Given a product specification, design the complete
 technical architecture AND decompose work into developer-ready tasks.
@@ -234,6 +236,53 @@ export async function runArchitecture(
 
   // Also initialize the agent team (domain analysis -> dynamic agents)
   const { registry } = await buildAgentTeam(state, config, signal);
+
+  // v1.1 super-lead path — opt-in via AUTONOMOUS_DEV_LEAD_DRIVEN=1 env var.
+  // When enabled, the phase runs through the lead-driven primitive with
+  // security-reviewer + scalability-reviewer specialists. Default path
+  // (below) is unchanged for backwards compatibility and for projects that
+  // haven't opted in yet.
+  if (process.env["AUTONOMOUS_DEV_LEAD_DRIVEN"] === "1") {
+    console.log("[architecture] lead-driven mode enabled — spawning agent team");
+    return runLeadDrivenPhase({
+      contract: architectureContract,
+      state,
+      config,
+      ...(ctx ? { execCtx: ctx } : {}),
+      registry,
+      applyResult: (s, arch) => {
+        const architecture: ArchDesign = {
+          techStack: arch.techStack,
+          components: arch.components,
+          apiContracts: arch.apiContracts,
+          databaseSchema: arch.databaseSchema,
+          fileStructure: arch.fileStructure,
+        };
+        if (arch.taskDecomposition != null) {
+          architecture.taskDecomposition = {
+            tasks: arch.taskDecomposition.tasks.map((t): ArchTask => {
+              const task: ArchTask = {
+                id: t.id,
+                title: t.title,
+                description: t.description,
+                estimatedComplexity: t.estimatedComplexity,
+                dependencies: t.dependencies,
+                acceptanceCriteria: t.acceptanceCriteria,
+              };
+              if (t.domain != null) task.domain = t.domain;
+              if (t.tags != null) task.tags = t.tags;
+              return task;
+            }),
+          };
+        }
+        return {
+          ...s,
+          architecture,
+          agents: registry.getAll(),
+        };
+      },
+    });
+  }
 
   let archText: string;
   let costUsd: number | undefined;

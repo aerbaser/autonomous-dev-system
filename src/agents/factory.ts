@@ -4,6 +4,7 @@ import type { ProjectState } from "../state/project-state.js";
 import { AgentRegistry } from "./registry.js";
 import { analyzeDomain, generateDomainAgents } from "./domain-analyzer.js";
 import { getBaseAgentNames } from "./base-blueprints.js";
+import { getPhaseSpecialistNames } from "./phase-specialist-blueprints.js";
 
 /**
  * Agent Factory: analyzes the project domain and dynamically creates
@@ -16,11 +17,14 @@ export async function buildAgentTeam(
 ): Promise<{ registry: AgentRegistry; domain: ProjectState["spec"] }> {
   const registry = new AgentRegistry(config.stateDir);
 
-  // If we already have domain-specific agents, just return the registry
+  // If we already have domain-specific agents, just return the registry.
+  // v1.1 super-lead: phase specialists now live in the registry too, so
+  // exclude them here — they are not "domain agents" for factory purposes.
   const baseNames = getBaseAgentNames();
+  const phaseSpecialistNames = getPhaseSpecialistNames();
   const existingDomainAgents = registry
     .getAll()
-    .filter((a) => !baseNames.has(a.name));
+    .filter((a) => !baseNames.has(a.name) && !phaseSpecialistNames.has(a.name));
 
   if (existingDomainAgents.length > 0) {
     console.log(

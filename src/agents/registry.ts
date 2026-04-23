@@ -5,6 +5,7 @@ import type { AgentBlueprint } from "../state/project-state.js";
 import { assertSafeWritePath } from "../state/project-state.js";
 import type { Config } from "../utils/config.js";
 import { getBaseBlueprints } from "./base-blueprints.js";
+import { getPhaseSpecialistBlueprints } from "./phase-specialist-blueprints.js";
 import { buildRunnableAgentDefinition } from "./codex-proxy.js";
 import { RegistryDataSchema } from "../types/llm-schemas.js";
 
@@ -36,12 +37,24 @@ export class AgentRegistry {
     if (existsSync(indexPath)) {
       const raw: unknown = JSON.parse(readFileSync(indexPath, "utf-8"));
       const parseResult = RegistryDataSchema.safeParse(raw);
-      if (parseResult.success) return parseResult.data as RegistryData;
+      if (parseResult.success) {
+        const data = parseResult.data as RegistryData;
+        // v1.1 super-lead: backfill phase specialists into old registries
+        // so lead-driven phases can resolve their specialists without
+        // requiring existing projects to reset their registry.
+        for (const bp of getPhaseSpecialistBlueprints()) {
+          if (!data.blueprints[bp.name]) data.blueprints[bp.name] = bp;
+        }
+        return data;
+      }
     }
 
-    // Initialize with base blueprints
+    // Initialize with base blueprints + phase specialists.
     const blueprints: Record<string, AgentBlueprint> = {};
     for (const bp of getBaseBlueprints()) {
+      blueprints[bp.name] = bp;
+    }
+    for (const bp of getPhaseSpecialistBlueprints()) {
       blueprints[bp.name] = bp;
     }
     return { blueprints, performanceHistory: {} };
