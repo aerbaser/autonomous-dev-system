@@ -35,6 +35,20 @@ Self-improving multi-agent development system built on Claude Agent SDK.
 - Cost tracking: all phase handlers must return `costUsd` from `consumeQuery().cost`
 - ProjectStateSchema in `llm-schemas.ts` — fully typed, no `z.unknown()`
 
+## v1.1 super-lead mode
+- Opt-in via `AUTONOMOUS_DEV_LEAD_DRIVEN=1` env var
+- Wired in: `architecture`, `review`, `testing` phases
+- Each phase spawns a multi-specialist team via the Agent tool:
+  - architecture: security-reviewer + scalability-reviewer
+  - review: security-auditor + accessibility-auditor
+  - testing: edge-case-finder + property-tester
+- Primitive: `src/orchestrator/lead-driven-phase.ts` → `runLeadDrivenPhase`
+- Contracts: `src/orchestrator/phase-contracts/*.contract.ts`
+- Specialists: `src/agents/phase-specialist-blueprints.ts`
+- Backloop guard: `state.backloopCounts[${from}->${to}]`, capped per contract
+- History: `state.phaseAttempts[phase][]` (append-only; `phaseResults` kept as "latest")
+- Safety: specialists NEVER get the Agent tool (defensive strip in primitive)
+
 ## Testing
-- Run `npm test` (vitest) — 193 tests
+- Run `npm test` (vitest) — 875 tests
 - Run `npm run typecheck` for type checking
