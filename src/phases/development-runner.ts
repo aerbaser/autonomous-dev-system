@@ -279,6 +279,23 @@ export async function runDevelopment(
         `Cost so far: $${totalCost.toFixed(4)}`
     );
 
+    // v1.1 E2E finding: the orchestrator's budget cap only fires between
+    // phases, not between dev batches. On the first live run (TG osteopathy,
+    // --budget 10) development batch 3 alone pushed total spend to $16 —
+    // the phase ran to completion regardless. Stop the batch loop early
+    // when prior-phase cost + dev-so-far cost exceeds config.budgetUsd.
+    if (config.budgetUsd !== undefined) {
+      const priorCost = state.totalCostUsd ?? 0;
+      const projected = priorCost + totalCost;
+      if (projected >= config.budgetUsd) {
+        console.warn(
+          `[development] Budget cap reached mid-phase: $${projected.toFixed(2)} >= $${config.budgetUsd.toFixed(2)}. ` +
+            `Completed ${batchIdx + 1}/${taskBatches.length} batches. Exiting development loop early.`,
+        );
+        break;
+      }
+    }
+
     // Step 5: Quality gate after each batch. The auto-fix retry loop is
     // Phase 8-gated — under the `minimal` profile we only report failures
     // and keep going, leaving expensive fix attempts to the `debug` /
