@@ -37,18 +37,36 @@ Self-improving multi-agent development system built on Claude Agent SDK.
 
 ## v1.1 super-lead mode
 - Opt-in via `AUTONOMOUS_DEV_LEAD_DRIVEN=1` env var
-- Wired in: `architecture`, `review`, `testing` phases
+- Wired in: `specification`, `architecture`, `review`, `testing` phases (4 of 12)
 - Each phase spawns a multi-specialist team via the Agent tool:
+  - specification: nfr-analyst + out-of-scope-guard
   - architecture: security-reviewer + scalability-reviewer
   - review: security-auditor + accessibility-auditor
   - testing: edge-case-finder + property-tester
 - Primitive: `src/orchestrator/lead-driven-phase.ts` → `runLeadDrivenPhase`
-- Contracts: `src/orchestrator/phase-contracts/*.contract.ts`
-- Specialists: `src/agents/phase-specialist-blueprints.ts`
-- Backloop guard: `state.backloopCounts[${from}->${to}]`, capped per contract
-- History: `state.phaseAttempts[phase][]` (append-only; `phaseResults` kept as "latest")
-- Safety: specialists NEVER get the Agent tool (defensive strip in primitive)
+- Contract type: `src/orchestrator/phase-contract.ts` → `PhaseContract`
+- Per-phase contracts: `src/orchestrator/phase-contracts/*.contract.ts`
+- Specialists: `src/agents/phase-specialist-blueprints.ts` (8 handwritten blueprints, auto-registered by `AgentRegistry.load()` — backfills existing registries)
+- Backloop guard: `state.backloopCounts["${from}->${to}"]`, capped per contract via `maxBackloopsFromHere`
+- Global livelock guard: `GLOBAL_MAX_BACKLOOPS = 5` in `src/orchestrator.ts` — halts the run and writes `backloop_livelock_guard` to log
+- History: `state.phaseAttempts[phase][]` (append-only, includes every backloop re-entry; `phaseResults` kept as "latest attempt" for back-compat)
+- Safety: specialists NEVER get the Agent tool (defensive strip via `sanitizeSpecialistTools` in the primitive, regardless of blueprint)
+- State migration: pre-v1.1 `state.json` loads transparently — `phaseAttempts`/`backloopCounts` default to `{}` via `.catch({})` in `ProjectStateSchema`
+
+### Testing super-lead E2E
+Run the lead-driven path on a toy idea (tiny budget to keep it cheap):
+```bash
+AUTONOMOUS_DEV_LEAD_DRIVEN=1 npm run dev -- run --idea "CLI todo app with tags" --quick --budget 2.00
+```
+
+### Where artifacts land
+After a run, inspect under `config.stateDir` (default `.autonomous-dev/`):
+- `state.json` — includes `phaseAttempts` (append-only history) and `backloopCounts` (per-pair counter) at the top level
+- `ledger/{runId}.json` — `RunLedgerSnapshot` (per-session spend, topology, ledger events)
+- `events/{runId}.jsonl` + `events/{runId}.summary.json` — EventBus timeline
+- `receipts/{runId}/{taskId}.json` — per-task `TaskReceipt` from development phase
+- `dashboard.html` — produced by `autonomous-dev dashboard` or `autonomous-dev nightly`; renders evolution entries + latest run summary
 
 ## Testing
-- Run `npm test` (vitest) — 875 tests
+- Run `npm test` (vitest) — 881 tests
 - Run `npm run typecheck` for type checking

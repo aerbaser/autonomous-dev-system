@@ -15,8 +15,8 @@ Granularity: **standard** (6 phases). Each phase delivers a coherent, observable
 - Decimal phases (2.1, 2.2): Reserved for urgent insertions discovered during execution.
 
 - [x] **Phase 1: Test-Readiness Stabilization** — Restore 777/777 green baseline by fixing the non-interactive `--confirm-spec` timeout
-- [ ] **Phase 2: Critical Security Backlog Closure** — Mitigate SDK CVE + 7 critical/security gaps from PRODUCT.md §16
-- [ ] **Phase 3: High-Priority Runtime Fixes** — Wire rubric feedback loop, fix Interrupter race, replace specification stub, fix grader/optimizer/keyword-matching gaps
+- [x] **Phase 2: Critical Security Backlog Closure** — Mitigate SDK CVE + 7 critical/security gaps from PRODUCT.md §16
+- [x] **Phase 3: High-Priority Runtime Fixes** — Wire rubric feedback loop, fix Interrupter race, replace specification stub, fix grader/optimizer/keyword-matching gaps
 - [ ] **Phase 4: End-to-End Validation on a Toy Idea** — Run full 12-phase pipeline on a chosen toy idea; prove `--resume`, `--budget`, SIGINT-safe shutdown
 - [ ] **Phase 5: Product-Gap Closure** — PostHog real for ab-testing, one cloud-deploy target wired, `autonomous-dev init` command
 - [ ] **Phase 6: Self-Improvement Smoke Test** — Run `optimize` + `nightly` against the toy-idea agent team end-to-end
@@ -54,13 +54,13 @@ Plans:
 
 Plans:
 - [x] 01-PLAN.md — SEC-01: pin `@anthropic-ai/claude-agent-sdk` to GHSA-5474-4w2j-mq4c-fixed version (wave 1) — completed 2026-04-22 (commit a13afda)
-- [ ] 02-PLAN.md — SEC-02: wrap every interpolated variable in `mutation-engine.ts` prompts with `wrapUserInput` (wave 2)
+- [x] 02-PLAN.md — SEC-02: wrap every interpolated variable in `mutation-engine.ts` prompts with `wrapUserInput` (wave 2) — completed 2026-04-22 (commit a5b9be5)
 - [x] 03-PLAN.md — SEC-03: LSP install executable allowlist in `lsp-manager.ts` (wave 2) — completed 2026-04-22 (commits 5def22e, dae96da)
-- [ ] 04-PLAN.md — SEC-04: sandbox allowlist + FORBIDDEN_BINARIES denylist in `sandbox.ts` (wave 2)
-- [ ] 05-PLAN.md — SEC-05: add Agent matcher branch to `security.ts` PreToolUse hook (wave 2)
-- [ ] 06-PLAN.md — SEC-06: bound `topicPattern` input with MAX_TOPIC_PATTERN_LENGTH in `memory-store.ts` (wave 2)
-- [ ] 07-PLAN.md — SEC-07: add `assertSafeWritePath` helper + wire to `.autonomous-dev/` write boundaries (wave 2)
-- [ ] 08-PLAN.md — SEC-08: audit + lock Anthropic API key out of Config schema (wave 2)
+- [x] 04-PLAN.md — SEC-04: sandbox allowlist + FORBIDDEN_BINARIES denylist in `sandbox.ts` (wave 2) — completed 2026-04-22 (commits 6bf8dbc, ef40a77, 7d37f59)
+- [x] 05-PLAN.md — SEC-05: add Agent matcher branch to `security.ts` PreToolUse hook (wave 2) — completed 2026-04-22 (commits 22e0271, 3931021)
+- [x] 06-PLAN.md — SEC-06: bound `topicPattern` input with MAX_TOPIC_PATTERN_LENGTH in `memory-store.ts` (wave 2) — completed 2026-04-22 (commits b3e2df0, 41736d6, 6459a62)
+- [x] 07-PLAN.md — SEC-07: add `assertSafeWritePath` helper + wire to `.autonomous-dev/` write boundaries (wave 2) — completed 2026-04-22 (commit ba6bc33)
+- [x] 08-PLAN.md — SEC-08: audit + lock Anthropic API key out of Config schema (wave 2) — completed 2026-04-22 (commits fe0ae31, 7320923, 3c22a03)
 
 ### Phase 3: High-Priority Runtime Fixes
 **Goal**: Resolve the six high-priority runtime defects so the orchestrator behaves predictably under retry, parallel runs, rubric feedback, and domain-specific task assignment.
@@ -76,12 +76,12 @@ Plans:
 **Plans:** 6 plans
 
 Plans:
-- [ ] 01-PLAN.md — HIGH-01: wire rubric loop in orchestrator + evaluate-loop; escalate `failed` verdict to RunLedger as `verification_failed` (wave 1)
-- [x] 02-PLAN.md — HIGH-02: document + test verdict-precedence rule in grader (LLM verdict > algorithmic fallback > fail-open) (wave 1) — completed 2026-04-22 (commits 312e738, 9887fc4)
-- [ ] 03-PLAN.md — HIGH-03: replace module-level `_activeInterrupter` with a per-run Interrupter stack; add concurrent-runs integration test (wave 2, depends on 01 for `src/orchestrator.ts` ownership)
-- [x] 04-PLAN.md — HIGH-04: verify specification.ts is real + no circular import; add missing `tests/phases/specification.test.ts` (wave 1) — completed 2026-04-22
-- [x] 05-PLAN.md — HIGH-05: add `blueprint-verifier.ts` gate in optimizer-runner before `registry.register` / `savePromptVersion` (wave 1) — completed 2026-04-22
-- [ ] 06-PLAN.md — HIGH-06: add `keywords` field to AgentBlueprintSchema + `matchDomainAgentForTask` scorer in development-runner (wave 1)
+- [x] 01-PLAN.md — HIGH-01: wire rubric loop in orchestrator + evaluate-loop; escalate `failed` verdict to RunLedger as `verification_failed` (wave 1) — completed 2026-04-22 (commits 32b2b44, 07a7519, 7e55979, 633a0f9)
+- [x] 02-PLAN.md — HIGH-02: document + test verdict-precedence rule in grader (LLM verdict > algorithmic fallback > fail-open) (wave 1) — completed 2026-04-22 (commits 312e738, 9887fc4, f4b4edf)
+- [x] 03-PLAN.md — HIGH-03: replace module-level `_activeInterrupter` with a per-run Interrupter stack; add concurrent-runs integration test (wave 2) — completed 2026-04-22 (commits a250d69, 681518d, ab3c1fd, 25f8c97)
+- [x] 04-PLAN.md — HIGH-04: verify specification.ts is real + no circular import; add missing `tests/phases/specification.test.ts` (wave 1) — completed 2026-04-22 (commits cfeb319, 9b0c675, 0384d7d)
+- [x] 05-PLAN.md — HIGH-05: add `blueprint-verifier.ts` gate in optimizer-runner before `registry.register` / `savePromptVersion` (wave 1) — completed 2026-04-22 (commits 57db14c, a1a4191, 78f4bde, ea140df, 7250489)
+- [x] 06-PLAN.md — HIGH-06: add `keywords` field to AgentBlueprintSchema + `matchDomainAgentForTask` scorer in development-runner (wave 1) — completed 2026-04-22 (commits 5f6e448, b338a95)
 
 ### Phase 4: End-to-End Validation on a Toy Idea
 **Goal**: Pick one toy idea (e.g., "a CLI todo app with tags and due dates") and prove the full 12-phase pipeline runs against it, including resume, budget, and graceful interrupt.
@@ -124,8 +124,37 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5 → 6. Phase 2 and Ph
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Test-Readiness Stabilization | 1/1 | Complete | 2026-04-22 |
-| 2. Critical Security Backlog Closure | 0/8 | In progress | - |
-| 3. High-Priority Runtime Fixes | 3/6 | In progress | - |
+| 2. Critical Security Backlog Closure | 8/8 | Complete | 2026-04-22 |
+| 3. High-Priority Runtime Fixes | 6/6 | Complete | 2026-04-22 |
 | 4. End-to-End Validation on a Toy Idea | 0/TBD | Not started | - |
 | 5. Product-Gap Closure | 0/TBD | Not started | - |
 | 6. Self-Improvement Smoke Test | 0/TBD | Not started | - |
+
+## v1.1 Milestone: Super-Lead Agent-Team Architecture (shipped in parallel with v1.0)
+
+The v1.1 super-lead architecture landed alongside v1.0 backlog closure. Previously 11 of 12 phase handlers were single `query()` calls. v1.1 introduces a **lead-driven phase primitive** (`src/orchestrator/lead-driven-phase.ts`) and migrates four decision-bearing phases onto it (lead + specialists via the Agent tool, same pattern `development-runner.ts` already used). Opt-in behind `AUTONOMOUS_DEV_LEAD_DRIVEN=1` — old single-query paths still work by default.
+
+| v1.1 Phase | Status | Commit |
+|------------|--------|--------|
+| 1. `PhaseContract` + `runLeadDrivenPhase` primitive | Complete | f7dc46d |
+| 2. Architecture migration (+ `architecture.contract.ts`) | Complete | aa49996 |
+| 3. Append-only `phaseAttempts` + `backloopCounts` | Complete | f338f59 |
+| 4. Review + testing migration | Complete | 092f6df |
+| 5. Specification migration + E2E backloop tests + livelock guard | Complete | 01a2737 |
+| 6. Docs: document super-lead mode in CLAUDE.md | Complete | 6091774 |
+
+**Shipped scope:**
+- Primitive in `src/orchestrator/lead-driven-phase.ts` — typed `PhaseContract`, `runLeadDrivenPhase`, `PhaseBudgetGuard` (phase-level Interrupter nested inside run-level signal).
+- Four phase contracts in `src/orchestrator/phase-contracts/` — `architecture`, `review`, `testing`, `specification`.
+- Eight handwritten phase specialists in `src/agents/phase-specialist-blueprints.ts` — `security-reviewer`, `scalability-reviewer`, `security-auditor`, `accessibility-auditor`, `edge-case-finder`, `property-tester`, `nfr-analyst`, `out-of-scope-guard`. Auto-registered by `AgentRegistry.load()` (backfills existing registries).
+- State-shape additions: `phaseAttempts` (append-only history, every attempt including backloop re-entries) + `backloopCounts` (per `${from}->${to}` counter). Pre-v1.1 `state.json` migrates transparently via `.catch({})` in `ProjectStateSchema`.
+- Livelock guard: `GLOBAL_MAX_BACKLOOPS = 5` enforced in `src/orchestrator.ts`; per-contract caps via `maxBackloopsFromHere` (review→development: 3, testing→development: 3).
+- Agent-tool denial invariant: specialists are defensively stripped of the `Agent` tool inside `buildSpecialists` regardless of blueprint.
+- Factory + dev-runner defence-in-depth: `factory.ts` excludes phase specialists from the "existing domain agents" short-circuit; `development-runner.ts` keeps a `PHASE_SPECIALIST_NAMES` exclusion set.
+- Tests: 835 → **881 passing**, 46 new across `tests/orchestrator/{lead-driven-phase,architecture-lead-driven,review-testing-lead-driven,specification-lead-driven}.test.ts`, `tests/state/phase-attempts.test.ts`, `tests/integration/backloop-e2e.test.ts`.
+
+**Explicitly NOT migrated (deliberate v1.2 scope):**
+- `ideation.ts` — custom parallel `analyzeDomain` + spec flow; no clear specialists; low value / high risk.
+- `development-runner.ts` — already agent-team-shaped (the template source); refactor would be cosmetic.
+- M1 cross-phase meta-session (SDK session resume across phases) — classified research-grade; per-phase session (M2) shipped instead.
+- Remaining phases (`environment-setup`, `deployment`, `ab-testing`, `analysis`, `monitoring`) stay single-query until evidence shows they benefit from teams.

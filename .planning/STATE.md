@@ -3,15 +3,15 @@ gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
 status: verifying
-stopped_at: "Phase 2 / SEC-08 complete: ConfigSchema audit locked in via 4 regression tests + inline SEC-08 invariant comment."
-last_updated: "2026-04-22T17:38:27.528Z"
-last_activity: 2026-04-22
+stopped_at: "Phases 1-3 complete (VAL-01 + SEC-01..08 + HIGH-01..06). v1.1 super-lead (LEAD-01..08) shipped in parallel. Phase 4 (E2E validation) is next."
+last_updated: "2026-04-23T00:00:00.000Z"
+last_activity: 2026-04-23
 progress:
   total_phases: 6
-  completed_phases: 2
-  total_plans: 9
-  completed_plans: 9
-  percent: 100
+  completed_phases: 3
+  total_plans: 15
+  completed_plans: 15
+  percent: 50
 ---
 
 # Project State
@@ -21,16 +21,16 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-22)
 
 **Core value:** The operator can hand the system a product idea and get an end-to-end implemented, tested, reviewed, and deployed artifact with full cost visibility, checkpoint recovery, and a self-improvement loop.
-**Current focus:** Phase 2 — Critical Security Backlog Closure (SEC-01..SEC-08; mitigate SDK CVE + 7 critical/security gaps)
+**Current focus:** v1.0 Phase 4 — End-to-End Validation on a Toy Idea. Phases 1-3 closed (all 15 plans shipped). v1.1 super-lead (LEAD-01..08) shipped in parallel and ready for E2E testing behind `AUTONOMOUS_DEV_LEAD_DRIVEN=1`.
 
 ## Current Position
 
-Phase: 1 of 6 complete; ready to plan Phase 2 (Critical Security Backlog Closure)
-Plan: 1 of 1 complete in Phase 1
-Status: Phase complete — ready for verification
-Last activity: 2026-04-22
+Phase: 3 of 6 complete; **NEXT: Phase 4 — E2E Validation on a Toy Idea** (VAL-02..VAL-05). v1.1 super-lead shipped alongside — ready for E2E evaluation against the chosen toy idea.
+Plan: all 15 plans complete across Phases 1-3
+Status: ready to plan / execute Phase 4
+Last activity: 2026-04-23
 
-Progress: [██████████] 100%
+Progress: [█████░░░░░] 50% (3/6 phases)
 
 ## Performance Metrics
 
@@ -104,8 +104,8 @@ Items acknowledged and carried forward from the ingest:
 
 ## Session Continuity
 
-Last session: 2026-04-22T17:38:27.492Z
-Stopped at: Phase 2 / SEC-08 complete: ConfigSchema audit locked in via 4 regression tests + inline SEC-08 invariant comment.
+Last session: 2026-04-23
+Stopped at: Phases 1-3 closed (all 15 plans shipped; 881/881 tests green). v1.1 super-lead (LEAD-01..08) shipped in parallel. **Next action:** Phase 4 — plan E2E validation run on a toy idea, exercising both the legacy single-query path and the `AUTONOMOUS_DEV_LEAD_DRIVEN=1` path.
 Resume file: None
 
-**Planned Phase:** 1 (Test-Readiness Stabilization) — 1 plans — 2026-04-22T16:47:11.146Z
+**Next Phase:** 4 (End-to-End Validation on a Toy Idea) — VAL-02..VAL-05 — plans TBD

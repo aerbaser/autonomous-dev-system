@@ -115,6 +115,19 @@ Environment variables (all optional):
 - `GITHUB_TOKEN` — for GitHub integrations
 - `SLACK_WEBHOOK_URL` — for Slack notifications
 - `POSTHOG_API_KEY` — for analytics
+- `AUTONOMOUS_DEV_LEAD_DRIVEN` — set to `1` to enable v1.1 super-lead mode (see below)
+
+### Super-lead mode (v1.1)
+
+`AUTONOMOUS_DEV_LEAD_DRIVEN=1` switches four decision-bearing phases — `specification`, `architecture`, `testing`, `review` — from single `query()` calls to a lead + specialists team invoked via the Agent tool. Each phase gets two phase-scoped specialists (e.g. architecture runs with `security-reviewer` + `scalability-reviewer`; testing runs with `edge-case-finder` + `property-tester`). Specialists never receive the Agent tool themselves. Backloops are capped per-contract and an orchestrator-level livelock guard halts the run after 5 repeats of the same `(from → to)` pair.
+
+Default is OFF — the existing single-query paths are unchanged.
+
+```bash
+AUTONOMOUS_DEV_LEAD_DRIVEN=1 npx autonomous-dev run --idea "..."
+```
+
+See [`PRODUCT.md` §3.1](./PRODUCT.md) for the full architecture.
 
 > Authentication is handled automatically by the Claude Code CLI subscription — no `ANTHROPIC_API_KEY` is needed.
 
@@ -199,7 +212,7 @@ benchmarks/                   # External benchmark definitions
 ├── architecture-quality/tasks.json
 └── domain-specific/README.md
 
-tests/                        # 193 tests across 29 files
+tests/                        # 881 tests across 87 files
 ```
 
 ## Commands
@@ -243,7 +256,7 @@ Custom benchmarks can be added to `benchmarks/<category>/tasks.json`.
 
 ## Status
 
-All 12 phases implemented, input sanitization via XML delimiters, full Zod schema validation, cost tracking across all phases, ESLint enforced in CI. Event bus emits typed events per phase/agent/memory operation. Rubric-based evaluation loop re-runs phases until quality bar is met. Persistent cross-session memory (L0–L4 layered memory + SkillStore + MemoryStore). Run ledger, spend governor, and task receipts enforce attributable, bounded execution. 778 tests.
+All 12 phases implemented, input sanitization via XML delimiters, full Zod schema validation, cost tracking across all phases, ESLint enforced in CI. Event bus emits typed events per phase/agent/memory operation. Rubric-based evaluation loop re-runs phases until quality bar is met. Persistent cross-session memory (L0–L4 layered memory + SkillStore + MemoryStore). Run ledger, spend governor, and task receipts enforce attributable, bounded execution. Opt-in v1.1 super-lead agent-team mode for 4 decision-bearing phases (`AUTONOMOUS_DEV_LEAD_DRIVEN=1`). 881 tests.
 
 For the full status matrix and open work, see [`PRODUCT.md`](./PRODUCT.md) and [`tasks-plans/tasks.md`](./tasks-plans/tasks.md).
 
