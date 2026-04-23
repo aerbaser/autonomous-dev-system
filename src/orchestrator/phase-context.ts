@@ -4,10 +4,16 @@ import type { PhaseContext } from "./phase-contract.js";
 /**
  * Hard cap on serialized phase context length. The primitive enforces this
  * before the context is injected into a lead prompt. The intent is a
- * belt-and-suspenders guard against context-window explosions on later
- * phases — not a replacement for each contract's own selector discipline.
+ * belt-and-suspenders guard against pathological context-window explosions,
+ * NOT a fine-grained tuning knob.
+ *
+ * Calibrated against real-world E2E: a 15-user-story spec with full AC
+ * serializes to ~21k chars; Claude Opus has 200k+ context. 80k chars
+ * (~20k tokens) gives ~4x headroom over observed real inputs and fits
+ * comfortably alongside the system prompt + specialists list + output
+ * contract.
  */
-export const MAX_PHASE_CONTEXT_CHARS = 20000;
+export const MAX_PHASE_CONTEXT_CHARS = 80000;
 
 /**
  * Stringify a PhaseContext into the deterministic `<phase-context>` block
