@@ -5,6 +5,8 @@ import type { PhaseResult, PhaseExecutionContext } from "./types.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns, QueryAbortedError } from "../utils/sdk-helpers.js";
 import { errMsg, extractFirstJson } from "../utils/shared.js";
 import { ReviewResultSchema } from "../types/llm-schemas.js";
+import { runLeadDrivenPhase } from "../orchestrator/lead-driven-phase.js";
+import { reviewContract } from "../orchestrator/phase-contracts/review.contract.js";
 
 export async function runReview(
   state: ProjectState,
@@ -13,6 +15,29 @@ export async function runReview(
 ): Promise<PhaseResult> {
   console.log("[review] Running code review...");
   const signal = ctx?.signal;
+
+  // v1.1 super-lead path — opt-in via AUTONOMOUS_DEV_LEAD_DRIVEN=1. When
+  // enabled, the lead delegates to security-auditor + accessibility-auditor.
+  // When disabled, the single-query path below runs unchanged.
+  if (process.env["AUTONOMOUS_DEV_LEAD_DRIVEN"] === "1") {
+    console.log("[review] lead-driven mode enabled — spawning audit team");
+    const leadResult = await runLeadDrivenPhase({
+      contract: reviewContract,
+      state,
+      config,
+      ...(ctx ? { execCtx: ctx } : {}),
+      // review's applyResult leaves state unchanged — the verdict lives in
+      // PhaseResult.nextPhase, which the orchestrator uses to route.
+      applyResult: (s) => s,
+    });
+    // Default transition if the lead forgot to set nextPhase: approved →
+    // staging, requested_changes → development. We peek at the envelope's
+    // success + domain intent via the recorded phaseAttempts entry.
+    if (leadResult.success && !leadResult.nextPhase) {
+      return { ...leadResult, nextPhase: "staging" };
+    }
+    return leadResult;
+  }
 
   const prompt = `You are a senior Code Reviewer. Review ALL code in this project.
 

@@ -6,6 +6,8 @@ import { getMcpServerConfigs } from "../environment/mcp-manager.js";
 import { consumeQuery, getQueryPermissions, getMaxTurns, QueryAbortedError } from "../utils/sdk-helpers.js";
 import { errMsg, extractFirstJson } from "../utils/shared.js";
 import { TestingResultSchema } from "../types/llm-schemas.js";
+import { runLeadDrivenPhase } from "../orchestrator/lead-driven-phase.js";
+import { testingContract } from "../orchestrator/phase-contracts/testing.contract.js";
 
 export async function runTesting(
   state: ProjectState,
@@ -22,6 +24,25 @@ export async function runTesting(
     : {};
 
   console.log("[testing] Running comprehensive test suite...");
+
+  // v1.1 super-lead path — opt-in via AUTONOMOUS_DEV_LEAD_DRIVEN=1. Lead
+  // delegates to edge-case-finder + property-tester alongside its own test
+  // runs. Default single-query path below stays intact when the flag is off.
+  if (process.env["AUTONOMOUS_DEV_LEAD_DRIVEN"] === "1") {
+    console.log("[testing] lead-driven mode enabled — spawning test team");
+    const leadResult = await runLeadDrivenPhase({
+      contract: testingContract,
+      state,
+      config,
+      ...(ctx ? { execCtx: ctx } : {}),
+      applyResult: (s) => s,
+    });
+    // Default transition on missing nextPhase: passed → review.
+    if (leadResult.success && !leadResult.nextPhase) {
+      return { ...leadResult, nextPhase: "review" };
+    }
+    return leadResult;
+  }
 
   const prompt = `You are a senior QA Engineer. Run the complete test suite and report results.
 
