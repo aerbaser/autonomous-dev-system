@@ -79,6 +79,22 @@ function phaseMaxTurnsKey(phase: Phase): MaxTurnsKey {
 }
 
 /**
+ * Lead-driven phases need more turns than their single-query budgets
+ * because every specialist delegation costs 1+ turn (Agent tool call +
+ * result) before the lead can integrate findings and emit the envelope.
+ *
+ * Calibrated against E2E run 5: architecture with 2 specialists (security,
+ * scalability) + 1 domain agent + final synthesis hit 10-turn cap mid-way.
+ * Multiplier 2.5× + floor 15 gives: architecture 25, testing 30→30 (floor),
+ * review 20→30 (floor), ideation 10→15 (floor). Still well under the
+ * generic "default" 50 for phases without a specific key.
+ */
+function leadTurnBudget(config: Config | undefined, phase: Phase): number {
+  const base = getMaxTurns(config, phaseMaxTurnsKey(phase));
+  return Math.max(15, Math.floor(base * 2.5));
+}
+
+/**
  * Defensively strip tools we never permit on a specialist, regardless of
  * what the blueprint declared. Currently: the Agent tool is denied so
  * specialists cannot spawn their own coordinators (invariant copied from
@@ -99,9 +115,9 @@ export function buildSpecialists(
 ): Record<string, AgentDefinition> {
   const specialists: Record<string, AgentDefinition> = {};
   // Specialists inherit a modest turn budget — they answer a single
-  // sub-question each, not drive a phase. Half the lead's cap is plenty
-  // and keeps the total turn count bounded for multi-specialist phases.
-  const specialistMaxTurns = Math.max(3, Math.floor(getMaxTurns(config, phaseMaxTurnsKey(contract.phase)) / 2));
+  // sub-question each, not drive a phase. ~40% of the lead's cap keeps
+  // total turn count bounded for multi-specialist phases.
+  const specialistMaxTurns = Math.max(3, Math.floor(leadTurnBudget(config, contract.phase) * 0.4));
   for (const name of contract.specialistNames) {
     const def = registry.toAgentDefinition(name, config);
     specialists[name] = {
@@ -350,9 +366,11 @@ export async function runLeadDrivenPhase<TResult>(
         allowedTools: ["Read", "Write", "Edit", "Bash", "Glob", "Grep", "Agent"],
         agents: specialists,
         model: config.model,
-        // Phase-scoped turn budget (architecture=10, testing=30, review=20, etc.).
-        // Was "default"=50 which caused architecture lead to run 20+ min in E2E.
-        maxTurns: getMaxTurns(config, phaseMaxTurnsKey(contract.phase)),
+        // Lead gets phase-scoped budget × 2.5 (floor 15) because every
+        // specialist delegation consumes a turn before the lead can
+        // synthesize. Calibrated on E2E where arch lead @ 10 turns hit
+        // the cap mid-delegation.
+        maxTurns: leadTurnBudget(config, contract.phase),
         ...getQueryPermissions(config),
       },
     });
